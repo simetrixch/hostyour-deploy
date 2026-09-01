@@ -1,0 +1,2245 @@
+# What goes on top of a standing cluster, and where the installer stops.
+#
+# The cluster answers, the pod network is up, names resolve from inside a pod and the certificate
+# issuer is ready. This puts the platform's own services on it — the identity provider, the
+# reconciler, the secret store — fills the secret store with the shape every workload authenticates
+# against, and then hands the cluster over.
+#
+# WHERE IT STOPS. The last step applies one application. From there the reconciler creates the
+# projects, the generators and every platform application below them, each naming its own path, and
+# the question "which file put this object on the cluster" is answered by it and not by any record
+# here. That handover is a step with a verdict, not the absence of an error.
+#
+# THE ORDER IS A CHAIN OF DEPENDENCIES AND NOT A PREFERENCE, and the chain begins where credentials
+# do. The secret store is first: it is the one place a credential of this installation comes into
+# being and the one place it lives, so everything installed after it reads what it holds instead of
+# minting its own. Its own steps come in their own order — brought up, unsealed, then the mount,
+# because the mount it writes on does not exist before, and then the values.
+#
+# The identity provider follows, and takes its credentials out of the store rather than out of a
+# file: a values file ships to every installation, so a credential written there would be the same
+# on all of them. It is measured against nothing of the store's — it names it nowhere — and it comes
+# before the reconciler, which authenticates through it.
+#
+# Three steps of the store's own block sit AFTER the identity provider, and they are the three that
+# give a human a browser login to it. Everything else about the store needs nothing from it.
+#
+# The handoff is last because the applications it starts read what the seed wrote on their first
+# sync.
+#
+# EVERY PHASE CAN BE SWITCHED OFF, AND OFF MEANS NOTHING AT ALL. The conditions behind `when:` are
+# measured once, before the first step, so a phase that is off leaves no namespace, no release and
+# no credential file — and the plan says which condition skipped each row rather than showing a row
+# that quietly succeeded. The identity provider is the one that is on unless an installation says
+# otherwise: a cluster without one stands, it just cannot log anybody in yet.
+#
+# NOT ONE VALUE BELOW IS THIS INSTALLATION'S. A program file ships inside the binary to every
+# installation and nothing rewrites it, so every name that belongs to one cluster is read from the
+# run instead of written here. `installation/profile.yaml` carries three of them, where the branch stamp
+# wrote them: `global.endpoints.vault.url` is `<vault-url>`, `global.clusterName` is `<cluster>`, and
+# `global.vaultKubernetesAuthPath` is `<kubernetes-mount>`. The operator answers the rest, and
+# `<stage>` is the one of those that appears here: in a role name, in a secrets path, in every
+# policy grant that belongs to one stage's tree, and in the manifest the handoff applies. The
+# credential file and the hand-filled input are composed from the `repository` argument and the
+# `stage` answer and are not written at all. The identity provider's address carries two slots of
+# its own — the domain of the cluster holding the master part, and the client — and both are filled
+# by the run.
+name: deploy-platform-services
+# BOTH PARTS, because a cluster that keeps no books runs this too — and the file already knew. Of the
+# rows below, 78 are gated on `books_here_in_config` and 63 on `secret_store_enabled`: gates that
+# would be pointless if only the books cluster ever reached them. What a slave gets is what is left
+# when they skip. The line said `master` alone from the time before there were slaves, and no slave
+# ever tripped over it because every slave reached this program claiming to be a master — the
+# surface on it was started without --role and the engine's own default is `master`. The first slave
+# told the truth about itself was refused here.
+roles: [master, slave]
+# What every step below is given without its row writing it.
+#
+# These are facts of THIS product's checkout, not of the tools that read them: where the profile of
+# an installation stands and which key inside it holds which value. A tool package must not know
+# them, and thirty rows repeating them is thirty places to edit the day one changes — twenty-nine of
+# which get edited, with nothing reporting the thirtieth. A name here that no step of this program
+# declares is refused with the program, before anything runs.
+defaults:
+  # HOW HELM IS REACHED ON THIS PLATFORM'S MACHINES, and it is not by the name `helm`. The cluster
+  # program installs its distribution as one package and helm ships inside it, so `helm` exists on a
+  # finished machine only as a SHELL ALIAS the cluster program writes for a person at a prompt.
+  # Nothing here runs through a shell, and a non-interactive one would not load the alias anyway —
+  # so a row starting `helm` starts a command that is not a command.
+  #
+  # Found on a real machine: the row at the head of this file demanded `helm`, the alias was there,
+  # the gate passed, and the first release would have failed with a message about a chart repository.
+  helm_command: [microk8s, helm3]
+  # AND THE SNAP THAT CARRIES IT REFUSES THE ACCOUNT THIS RUN STARTED AS. The command above is the
+  # same one `microk8s config` is asked through: it admits the `microk8s` group and nobody else, and
+  # deploy-cluster is what puts the operating account in that group. Supplementary groups are read
+  # once, when a session starts, so the session doing the granting does not carry it — and this
+  # program runs over the SAME session that one did, because the manager holds one connection per
+  # host for a whole run and drives both programs over it. On a first installation every one of the
+  # eight helm rows below would therefore be refused on a machine that is configured correctly,
+  # while a second run of the same program succeeds. Root is admitted without any group.
+  helm_needs_root: true
+  # THE MAP OF THIS CLUSTER, which is where an installation's answers are written — one file,
+  # read as parameters by the reconciler's generators and as values by Helm. The slot is filled
+  # from the answer named below, because a file that carries one installation's answers is named
+  # for that installation and cannot be written into a tree every installation is cut from.
+  profile_path: clusters/active/<fqdn>.yaml
+  domain_answer: fqdn
+  vault_url_key: global.endpoints.vault.url
+  # Where people sign in, read out of the same profile as the store's own address. Every row
+  # below that writes "<idp-url>" is filled from this key.
+  idp_url_key: global.endpoints.idp.url
+  cluster_name_key: global.clusterName
+  kubernetes_auth_path_key: global.vaultKubernetesAuthPath
+  credentials_path: secrets/vault-<stage>.txt
+  # The one hand-filled input of an installation, which every seeded value is read out of.
+  secrets_path: secrets/secrets.<stage>
+  # Which answer the "<stage>" above stands for, and every "<stage>" in a role name, an entry path,
+  # a policy grant and the handoff manifest below. Neither the secret store nor a cluster has such
+  # an axis of its own — a product with regions instead of stages names that answer here and writes
+  # "<region>" — so the word is stated once, here, rather than known by either package.
+  run_answer: stage
+
+
+
+  # How the cluster client is invoked here. The tool package defaults to a plain `kubectl` on the
+  # path, which is correct for it and wrong for this product: the client ships inside the snap and is
+  # reached through it, so every step that talks to the cluster is given the words to start.
+  kubectl: [microk8s, kubectl]
+  # The wrapped client keeps its configuration where only root may read it, and refuses
+  # everyone else on its OUTPUT at exit code zero — so a step would read a refusal as an answer.
+  kubectl_needs_root: true
+  # The prefix the API server puts in front of every group it reads out of a token, and the prefix
+  # the binding's subject carries. ONE value for both, because they are the same word seen from two
+  # sides: a server that prefixes and a binding that does not match nobody, the run comes back green,
+  # and the administrators simply have no rights. Empty here — usernames are prefixed to keep them
+  # apart from the cluster's own accounts, groups are not, and the binding names the bare group.
+  groups_prefix: ''
+steps:
+  # --- the two tools this program is made of ----------------------------------------------------
+  #
+  # Every step below is one of them. helm installs the releases; the cluster client applies the
+  # objects and waits on them. Neither is installed here — the cluster program is what puts them on
+  # the machine, and that this program usually runs after that one is a fact of the usual ORDER
+  # rather than of this program. Pointed at a cluster somebody else built, it would otherwise fail at
+  # the first release with a message about a chart repository where the truth is a missing command.
+  #
+  # WHAT IS DEMANDED IS WHAT IS STARTED. The steps start `microk8s kubectl`, which is one command —
+  # `microk8s` — and not two. A bare `kubectl` exists on a machine the cluster program finished, as
+  # a shell alias it writes, but demanding it here refuses a machine over a tool nothing uses while
+  # letting one through that carries no cluster client at all.
+  #
+  # It MEASURES and installs nothing. A program that quietly installed something would be a program
+  # whose dry run lied, having shown a plan without the installation it was about to perform.
+  # `helm` is NOT among them, and that is the correction this row carries. Helm ships inside the
+  # cluster distribution on this platform's machines, so the only command to demand is the one that
+  # holds it — demanding `helm` refused nothing and passed everything, because the cluster program
+  # writes that name as a shell alias and a gate that asks a machine cannot see an alias.
+  - step: require_commands
+    commands: [microk8s]
+    on_failure: exit
+
+  # --- the account that operates the machine, and the socket it has to reach --------------------
+  #
+  # The manager this program puts on the cluster is onboarded by asking it for an operator session,
+  # and the only door for a caller that is not a browser is a socket file in the manager's data
+  # directory. connect(2) on a unix socket needs the WRITE bit on that file, and the manager creates
+  # it owned by the pod's uid and group with the mode its ADMIN_SOCKET_MODE names — 0770 on this
+  # platform, so the group triad is what an account outside the pod is admitted through. The
+  # operating account is in no such group by itself, and without this row the first row of
+  # onboard-manager ends with a permission refusal on a path that is perfectly correct.
+  #
+  # THE GID IS THE MANAGER'S OWN, and it is a number rather than a name because that is what the
+  # pod declares: hostyour-cloud clusters/inventories/manager/templates/deployment.yaml runs the process as uid
+  # 65532 with runAsGroup 65532, and a container's gid is the host kernel's same gid, so an account
+  # put in a host group of that gid holds exactly the identity the socket is created in. A group of
+  # that gid has to EXIST on this machine for `usermod` to name it — a stock distribution has none
+  # at 65532, and no step of this installation creates one, so this row reports
+  # "group '65532' does not exist" until somebody makes it.
+  #
+  # WHICH IS WHY IT CONTINUES AND DOES NOT EXIT, the same as the row that puts this account in the
+  # cluster's own group. Nothing else in this program needs the membership, so a missing group must
+  # not take the platform's bring-up down; what it costs is the first row of onboard-manager, which
+  # ends with its own permission refusal naming the socket path.
+  #
+  # AND IT TAKES EFFECT AT THE NEXT LOGIN. Supplementary groups are read once, when a session
+  # starts, so a run that reaches onboard-manager from the shell this row ran in still meets the
+  # refusal. The step says so in its own report.
+  # THE GROUP HAS TO BE ON THE MACHINE BEFORE ANYTHING CAN NAME IT. `usermod --groups 65532` refuses
+  # a number no group carries — `group '65532' does not exist` — and that was the whole of what
+  # every run of this program reported until this row was put in front of it. The number is not this
+  # installation's to choose: it is the one the manager's image runs as, and the socket it writes
+  # onto the host carries it because a file's group is a number and the host was never told a name.
+  # So the name below is ours and only ours, and the step is satisfied by ANY group already carrying
+  # the number.
+  - step: create_group
+    name: nonroot
+    gid: '65532'
+    on_failure: continue
+
+  - step: add_user_to_group
+    rests_on_an_earlier_step: true
+    group: '65532'
+    on_failure: continue
+
+  # THE DIRECTORY THE SOCKET IS BOUND IN, WHICH THE POD REQUIRES AND DOES NOT MAKE. The manager's
+  # Deployment mounts it off the node as a hostPath with type Directory (hostyour-cloud
+  # clusters/inventories/manager/templates/deployment.yaml:440), so the kubelet refuses the mount
+  # while it is absent and the manager container never starts. The two rows above give the operating
+  # account the identity the socket is created in; this pair is what puts the socket's directory on
+  # the machine at all, and without it the manager does not come up on a from-zero master.
+  #
+  # WHY A UNIT AND NOT A ROW THAT MAKES A DIRECTORY. Because no step takes a path, an owner, a group
+  # and a mode and makes that directory — which is not the same as saying nothing creates a directory.
+  # Seven steps do: export_kubeconfig, install_authorized_key, kubernetes_configmap_from_directory,
+  # write_cluster_issuer_manifest, kubernetes_secret_from_vault and file_from_vault each make the
+  # PARENT of a file they are about to write, as a by-product of writing it, and none of them takes an
+  # owner. create_storage_directory is the only one whose purpose IS a directory, and it makes exactly
+  # one — the answer `storage_subdirectory` names — with a mode and no owner either. Until a step
+  # exists that takes all four (simetrixch/ansiwise-plugins#159), the directory is declared the way
+  # this catalogue already declares work a machine has to do by itself: a unit file written from a
+  # template, handed to the service manager by the row below it.
+  #
+  # BEFORE ANYTHING SCHEDULES THE MANAGER. The manager is not installed by this program: the handoff
+  # at the end of it points the reconciler at a repository, and the reconciler creates the manager's
+  # Application afterwards. This pair stands at the top of the program, so the directory is on the
+  # machine before there is a pod to mount it.
+  - step: write_file_from_template
+    template: ansiwise/templates/manager-admin-socket-unit.tpl
+    path: /etc/systemd/system/hostyour-manager-admin-socket.service
+    file_mode: 420
+    elevated: true
+    on_failure: continue
+
+  # WHAT TURNS THE FILE INTO A SERVICE, and what makes the directory on THIS run rather than at the
+  # next restart. The step reloads the manager's directory, enables the unit and restarts it, then
+  # reads back what the service manager says — so a command that could not make the directory is a
+  # red row here, naming the unit and the state it is in.
+  #
+  # IT CONTINUES, THE SAME AS THE TWO GROUP ROWS ABOVE AND FOR THE SAME REASON. Nothing else in this
+  # program mounts that directory: the secret store, the identity provider, the reconciler and the
+  # handoff all stand without it. What a failure here costs is the manager, whose pod then waits on
+  # the mount, and onboard-manager, whose first row asks a socket that was never bound.
+  - step: enable_service
+    unit: hostyour-manager-admin-socket.service
+    on_failure: continue
+
+  # --- the secret store -----------------------------------------------------------------------
+  #
+  # WHO PROVIDES IT AND WHO ONLY GETS A SHARE. One installation has ONE store, on the cluster that
+  # keeps its books, and every cluster of that installation dials it at the address its own map
+  # records. So the rows here fall into two kinds, and `books_here_in_config` is what tells them
+  # apart: the ones that make the store exist and FILL it — the chart, the namespace, its
+  # certificate and its route, the quorum, the unsealing, the kv mount, and every entry seeded into
+  # it out of the installation's hand-filled input — belong to that one cluster. The ones that give
+  # THIS cluster its own way IN — its auth mount, its policies, its roles, the key installed on this
+  # machine, the token read back onto it — belong on every cluster and carry no such condition.
+  #
+  # The entries fall on the provider's side and not the sharer's because every one of them is read
+  # out of secrets/secrets.<stage>, which is written by the branch program of the cluster that keeps
+  # the books and by nothing else: gitignored, it cannot travel on a branch, so a cluster that does
+  # not keep the books has no such file to seed from and never had.
+  #
+  # AND SO DOES EVERY ACT AGAINST THE STORE ITSELF — the auth mounts, the policies, the roles, the
+  # reads back out of it. Each one is made with the store's ROOT TOKEN, and that token stands in
+  # secrets/vault-<stage>.txt, which vault_init above writes on the books-keeping cluster alone. A
+  # cluster keeping no books could not perform them if it tried.
+  #
+  # IT DOES NOT NEED TO. Its own share of the store — the auth mount kubernetes-<its short name>,
+  # its policies and its roles — is made FOR it, on the books-keeping cluster, by register-slave,
+  # which the manager drives there when it adds the cluster. And the one file a machine reads back
+  # out of the store, its own service token, is placed by the manager's install-service.
+  #
+  # WHAT STAYS FOR EVERY CLUSTER is the address of the store and the wait until it answers: a
+  # cluster about to be given its share has to know where the store is and that it is up.
+  #
+  # Without that distinction a slave installed a store of its own that nothing dials, beside a map
+  # of its own saying it runs none, and then stopped trying to unseal it with a quorum file that
+  # only the books-keeping cluster has.
+  #
+  # The one component whose failure stops everything: nothing else on the cluster holds a credential
+  # at rest, so while this is down or sealed no workload materializes a secret. That is why its
+  # steps end the run rather than let it carry on.
+  # ---------------------------------------------------------------------------------------------
+  # THE OTHER HALF OF TLS, and until this stood here nothing on the cluster did it.
+  #
+  # Issuing — proving "I am vault.<domain>" — is the certificate service's job and this platform has
+  # always had it. TRUSTING — the list of authorities a client believes — was left to whatever each
+  # container image happened to ship with. That was invisible while every certificate came from a
+  # public authority, because every image carries those roots. It stopped being invisible the moment
+  # an installation issued from one it minted itself: measured on apps5 on 2026-08-31, the store
+  # answered `400 error checking oidc discovery URL` — Vault fetching the identity provider's
+  # discovery document from inside its own container, against a root that container had never met.
+  #
+  # WHY IT STANDS BEFORE THE STORE. Every row below this one is a workload that either speaks to one
+  # of this installation's own addresses or is spoken to over one, and the first of them mounts the
+  # bundle as a FILE. A ConfigMap that arrives after the pod does is a pod that never leaves
+  # ContainerCreating, which is the same shape as the certificate this program already waits for.
+  #
+  # WHY IT IS INSTALLED HERE RATHER THAN RECONCILED. A reconciled component arrives when the
+  # reconciler does, and the reconciler is the LAST thing this program installs — long after the row
+  # that first needs the trust. So it stands where the store and the identity provider stand.
+  #
+  # UNCONDITIONAL, AND THAT IS THE DESIGN. The bundle exists in both states of the certificate
+  # switch; only its CONTENTS differ, by which of the two manifests below is applied. A consumer
+  # therefore mounts one name, always finds a complete trust store, and is never touched when the
+  # switch is flipped.
+  # ---------------------------------------------------------------------------------------------
+  - step: helm_repository
+    name: jetstack
+    url: https://charts.jetstack.io
+    on_failure: exit
+
+  - step: helm_release
+    release: trust-manager
+    chart: jetstack/trust-manager
+    chart_version: 'v0.24.0'
+    # THE CERTIFICATE SERVICE'S OWN NAMESPACE, because that is where this reads its SOURCES from —
+    # `app.trust.namespace` in the values — and the authority a cluster mints for itself already
+    # lives there as the Secret `platform-ca`.
+    namespace: cert-manager
+    values: /srv/hostyour-cloud/clusters/bootstrap/cert-manager/trust-manager-values.yaml
+    on_failure: exit
+
+  # AVAILABILITY AND NOT EXISTENCE. A bundle applied against a controller that is not serving yet is
+  # accepted and then reconciled by nobody, so the first workload to mount the ConfigMap waits for a
+  # thing that is not coming. The webhook this chart brings is what refuses a Bundle it cannot admit,
+  # and it is the last part of the release to answer.
+  - step: wait_for_command_output
+    rests_on_an_earlier_step: true
+    waiting_for: the trust distributor to report itself available
+    command: microk8s
+    command_arguments:
+      - kubectl
+      - -n
+      - cert-manager
+      - get
+      - deploy
+      - trust-manager
+      - -o
+      - 'jsonpath={.status.conditions[?(@.type=="Available")].status}'
+    answer: 'True'
+    elevated: true
+    timeout_seconds: 300
+    interval_seconds: 5
+    on_failure: exit
+
+  # The two forms of one object. Whichever is applied writes the same ConfigMap under the same name
+  # into every namespace, so flipping the switch changes the CONTENTS of one file and nothing else.
+  - step: kubernetes_object_reversible
+    rests_on_an_earlier_step: true
+    when: [certificates_enabled]
+    repository: /srv/hostyour-cloud
+    manifest: clusters/bootstrap/cert-manager/trust-bundle-public.yaml
+    on_failure: exit
+
+  - step: kubernetes_object_reversible
+    rests_on_an_earlier_step: true
+    when: [certificates_withheld]
+    repository: /srv/hostyour-cloud
+    manifest: clusters/bootstrap/cert-manager/trust-bundle-with-platform-authority.yaml
+    on_failure: exit
+
+  - step: helm_repository
+    name: hashicorp
+    url: https://helm.releases.hashicorp.com
+    when: [secret_store_enabled, books_here_in_config]
+    on_failure: exit
+
+  - step: kubernetes_namespace
+    namespace: vault
+    when: [secret_store_enabled, books_here_in_config]
+    on_failure: exit
+
+  # THE BUNDLE HAS TO BE IN THIS NAMESPACE BEFORE THE STORE IS, for the same reason the certificate
+  # does: clusters/bootstrap/vault/values.yaml mounts it as a volume without `optional: true`, and a
+  # pod whose volume names a ConfigMap that is not there never leaves ContainerCreating. The
+  # distributor writes it within seconds of a namespace appearing — but "within seconds" is a race,
+  # and this row is what turns the race into a wait.
+  - step: wait_for_command_output
+    rests_on_an_earlier_step: true
+    waiting_for: the trust bundle to reach the namespace the store runs in
+    command: microk8s
+    command_arguments:
+      - kubectl
+      - -n
+      - vault
+      - get
+      - configmap
+      - platform-trust
+      - -o
+      - 'jsonpath={.metadata.name}'
+    answer: platform-trust
+    elevated: true
+    timeout_seconds: 120
+    interval_seconds: 5
+    when: [secret_store_enabled, books_here_in_config]
+    on_failure: exit
+
+  # THE CERTIFICATE COMES FIRST, AND THE RELEASE WAITS FOR IT. The store serves TLS itself and its
+  # values mount the secret `platform-tls` without `optional: true`, so a pod started before the secret
+  # exists never leaves ContainerCreating — and the release does not wait, because `helm upgrade
+  # --install` is asked without `--wait`. Applied after the release, as it was, the certificate
+  # arrives for a pod that is already stuck and nothing goes back to restart it.
+  - step: kubernetes_object_reversible
+    rests_on_an_earlier_step: true
+    repository: /srv/hostyour-cloud
+    manifest: clusters/bootstrap/vault/certificate.yaml
+    when: [secret_store_enabled, books_here_in_config]
+    on_failure: exit
+
+  # Applying the certificate only asks for it. The authority answers over the public address, which
+  # takes as long as it takes, and the release below mounts the answer — so the wait stands between
+  # them rather than being left to chance.
+  #
+  # THE CERTIFICATE AND NOT THE SECRET, and the difference is the whole point of the row. The
+  # certificate service creates the secret IMMEDIATELY, carrying a temporary certificate it signed
+  # itself, and replaces the contents once the authority has answered. A wait for the secret to
+  # exist therefore ends at once — the store comes up holding the temporary one, serves it, and does
+  # not read the file again when it is replaced. What an operator then sees is the store refusing
+  # its own certificate to the very run that installed it, with a valid certificate sitting in the
+  # cluster beside it.
+  #
+  # It costs nothing on a machine where the certificate is already issued: the first look answers.
+  - step: wait_for_command_output
+    rests_on_an_earlier_step: true
+    waiting_for: the base layer's certificate to be issued by the authority
+    command: microk8s
+    command_arguments:
+      - kubectl
+      - -n
+      - vault
+      - get
+      - certificate
+      - platform-tls
+      - -o
+      - 'jsonpath={.status.conditions[?(@.type=="Ready")].status}'
+    answer: 'True'
+    elevated: true
+    timeout_seconds: 300
+    interval_seconds: 10
+    # NO CERTIFICATE CONDITION HERE, AND THAT IS THE POINT OF HOW THE SWITCH IS BUILT. It carried
+    # one for a day, on the reading that a withheld certificate is never issued — and that reading
+    # was what made an installation with the switch off no installation at all: the store mounts
+    # this Secret as a volume, and a pod whose volume names a Secret that does not exist never
+    # starts. The switch decides WHICH authority issues, never whether, so this certificate is
+    # issued either way and the wait belongs on every run.
+    when: [secret_store_enabled, books_here_in_config]
+    on_failure: exit
+
+  # NO `--wait` IS ASKED FOR HERE, and that is a decision rather than an omission. Rendered against
+  # clusters/bootstrap/vault/values.yaml, this chart's StatefulSet carries
+  # `readinessProbe.exec.command: ["/bin/sh", "-ec", "vault status -tls-skip-verify"]` — the exec
+  # form it falls back to whenever `server.readinessProbe.path` is unset, and that values file sets
+  # none. The chart's own comment beside it spells out the exit codes: 0 unsealed, 1 error, 2
+  # sealed. So what "ready" MEANS for this workload is "the store is unsealed", and on a first
+  # install the store stays sealed until the two rows further down that mint the quorum and unseal
+  # it. A waiting helm would sit out its whole window in front of a pod that cannot report itself
+  # ready until the rows it is blocking have run, and fail on every fresh cluster — a race that
+  # sometimes passes traded for a run that always fails.
+  #
+  # What the rows after this one need is a different question, and a weaker one: not that the store
+  # is ready, but that it ANSWERS. That is asked below, once the route carrying it exists.
+  - step: helm_release
+    release: vault
+    chart: hashicorp/vault
+    chart_version: '0.34.0'
+    namespace: vault
+    values: /srv/hostyour-cloud/clusters/bootstrap/vault/values.yaml
+    when: [secret_store_enabled, books_here_in_config]
+    on_failure: exit
+
+  # The transport Traefik reaches the store over — it serves TLS itself, so the route in front of it
+  # has to be told to speak TLS to the backend — and the route itself.
+  #
+  # BOTH STAND BEFORE THE INIT, and that is a correction. The store is reached at the address its
+  # own profile writes down, `global.endpoints.vault.url`, which is `vault.<master>` and public: without the
+  # route there is nothing at that address, and the init below fails on a store that is running
+  # perfectly. The order used to be the other way round, on the reasoning that a route to a sealed
+  # store answers every request with a seal error and reads as broken to somebody browsing it. That
+  # is true and it is the lesser cost — a seal error is a message about the truth, while a run that
+  # cannot reach its own store at all is not.
+  - step: kubernetes_object_reversible
+    rests_on_an_earlier_step: true
+    repository: /srv/hostyour-cloud
+    manifest: clusters/bootstrap/vault/serverstransport.yaml
+    when: [secret_store_enabled, books_here_in_config]
+    on_failure: exit
+
+  - step: kubernetes_object_reversible
+    rests_on_an_earlier_step: true
+    repository: /srv/hostyour-cloud
+    manifest: clusters/bootstrap/vault/ingressroute.yaml
+    when: [secret_store_enabled, books_here_in_config]
+    on_failure: exit
+
+  # AND THAT THE STORE ANSWERS, which nothing above establishes. `helm upgrade --install` is
+  # satisfied by a release helm lists as `deployed`, and that says the cluster accepted the objects
+  # — not that a pod is running them. The init below then asked the store exactly once, over the
+  # public address, and a Traefik with no endpoint behind the Service answered 503, which an init
+  # may not act on: `on_failure: exit` ended the run and left the store installed with no quorum.
+  #
+  # IT ASKS WHAT THE INIT READS, at the same address and on the same path. The store answers
+  # `GET /v1/sys/init` with `{"initialized": …}` while it is still sealed, so BOTH values end the
+  # wait — what is waited for is the store SAYING which of the two states it is in, and deciding
+  # what that means is the init's job and not this row's. Traefik's own 503 carries no JSON at all,
+  # so it is read as not-yet rather than as an answer, and the last one seen is what the record
+  # names if the deadline is reached.
+  #
+  # THE ADDRESS IS MEASURED AND NEVER WRITTEN. `global.endpoints.vault.url` belongs to one installation, and
+  # only a step of the secret store's own family reads the profile it stands in — so the row above
+  # publishes what that family itself read. A file that wrote the address out would carry one
+  # installation's to every installation, and a second reading of the same key with its own rule
+  # for finding it agrees with the first only by accident: a wait one character away from the
+  # address the next row uses reports a store that is up while the row after it cannot reach it.
+  #
+  # TEN MINUTES, WHERE THE TWO WAITS ABOVE ARE GIVEN FIVE, because this window covers the store's
+  # pod coming into existence at all — the node scheduling it, the 5Gi claim of
+  # clusters/bootstrap/vault/values.yaml binding, and the first pull of the chart's image onto a node whose
+  # cache is empty. Both waits above are given a pod that is already running.
+  - step: measure_vault_url
+    repository: /srv/hostyour-cloud
+    when: [secret_store_enabled]
+    on_failure: exit
+
+  - step: wait_for_http_field
+    rests_on_an_earlier_step: true
+    waiting_for: the secret store to answer at the address its profile records
+    url: <vault-url>/v1/sys/init
+    values:
+      vault-url: { measured: vault_url }
+    field: initialized
+    # QUOTED, AND IT HAS TO BE: this argument is a list of TEXTS, and `false` written bare is a YAML
+    # boolean, which arrives at the step as something it never matches the answer against.
+    until: ['false', 'true']
+    # THE CERTIFICATE IS NOT WHAT THIS ROW ESTABLISHES. The address belongs to the installation being
+    # built and the run that reaches it is the run that provisioned it, so what is being asked is
+    # whether the store ANSWERS — never who is answering. What makes the check unanswerable here is
+    # true on any authority: a route is reachable before its certificate is in place, so the proxy
+    # answers with its own default for the first part of exactly this window.
+    #
+    # THIS ROW AND THE ONE IN FRONT OF THE IDENTITY PROVIDER ARE THE ONLY TWO THAT CARRY IT. Every
+    # other step here reaches the same addresses with verification on, and the whole vault and
+    # identity-provider families behind them are what that would have to be spread across for an
+    # authority whose root the machine does not have — which is why deploy-cluster refuses such an
+    # authority at its first step instead.
+    accepts_any_certificate: true
+    timeout_seconds: 600
+    interval_seconds: 5
+    when: [secret_store_enabled]
+    on_failure: exit
+
+  # The quorum exists nowhere else and nothing else can produce it, so a run that could not mint it
+  # must not go on to the steps that need it — every one of them would fail with a message about a
+  # missing token instead of about this.
+  - step: vault_init
+    rests_on_an_earlier_step: true
+    repository: /srv/hostyour-cloud
+    when: [secret_store_enabled, books_here_in_config]
+    on_failure: exit
+
+  - step: vault_unsealed
+    rests_on_an_earlier_step: true
+    repository: /srv/hostyour-cloud
+    when: [secret_store_enabled, books_here_in_config]
+    on_failure: exit
+
+  # --- what feeds the quorum back when nobody is running this program --------------------------
+  #
+  # THE ROW ABOVE IS THE ONLY THING ON THIS PLATFORM THAT UNSEALS, and it runs when a person starts
+  # this program. A store with no key service behind it comes back SEALED from every restart — a
+  # node reboot, an eviction, the roll a chart bump triggers — and while it is sealed nothing on the
+  # cluster materializes a secret. Measured on one machine: the store's container exited after about
+  # ten hours, came back sealed, and every workload holding a credential went Degraded until
+  # somebody typed the keys in by hand. The four rows below put a service on the machine that does
+  # what that person did, and a timer that starts it whenever the store is sealed.
+  #
+  # WHY A TIMER AND NOT A BOOT SERVICE, measured on 2026-08-28. The store's pod restarted at
+  # 19:43:21 on a machine that never went down. A service wanted by the boot target had already run
+  # that morning and stood at active (exited), so nothing ran on the pod's restart and eight
+  # applications were Degraded until somebody restarted the unit by hand at 19:59:01. A pod restarts
+  # for reasons a machine knows nothing about — an eviction, a node drain, a chart bump — and
+  # nothing on the machine is written when the store seals, so the state is followed by ASKING the
+  # store once a minute. That question is the same step the row above runs: it reads the seal state
+  # first and does nothing where the store is already serving.
+  #
+  # WHY A SERVICE ON THE MACHINE AND NOT A JOB ON THE CLUSTER. A job in the cluster would have to
+  # carry the unseal keys INTO the cluster they unlock, which inverts the trust: the keys exist so
+  # that whoever holds the machine can bring the store back, and a copy inside the store's own
+  # cluster is a copy the store cannot protect. The keys already stand on this machine, in the file
+  # the initializing row wrote, and nothing moves anywhere new.
+  #
+  # WHY THEY STAND HERE AND NOT IN deploy-cluster. That program writes the machine's other services,
+  # and this one is about the secret store: it reads the credential file two rows above created, and
+  # it can only be exercised where the store is up. Arming the timer here fires the service one
+  # second later against a store that is standing and unsealed, so the first run of the unit happens
+  # in front of an operator instead of at the first reboot. In deploy-cluster the same rows would
+  # install a service whose every attempt fails until this program has run.
+  #
+  # WHAT THE SERVICE RUNS: ansiwise against ansiwise/boot-programs/unseal-vault.yaml, which carries
+  # the row above and nothing else. Not a script — a script feeding keys would be this platform's
+  # one act written twice, and the two disagree the first time either is corrected.
+  #
+  # THE ENVELOPE THE SERVICE HANDS THE RUN. A run reads its answers out of one file, and the two
+  # values this one needs belong to this installation, so the file is written here rather than
+  # travelling in the catalogue. It carries the domain and the stage and no credential; it is
+  # readable by its owner alone anyway, because an envelope is where a credential would go if one
+  # were ever added to it.
+
+  # The service itself, which is the act. Rewritten rather than created, so an installation whose
+  # unit was written by an earlier release ends up with the one this release means instead of
+  # keeping the old text for ever. It names no answer: it used to carry the operating account,
+  # because the engine was read out of that account's home, and it is read from /usr/local/bin now.
+  - step: write_file_from_template
+    template: ansiwise/templates/vault-unseal-service.tpl
+    path: /etc/systemd/system/hostyour-vault-unseal.service
+    file_mode: 420
+    elevated: true
+    when: [secret_store_enabled, books_here_in_config]
+    on_failure: exit
+
+  # The timer, which is WHEN. It is written after the service and never before it: starting a timer
+  # whose service the manager cannot find fails naming that service, and the row below is what
+  # starts it.
+  - step: write_file_from_template
+    template: ansiwise/templates/vault-unseal-timer.tpl
+    path: /etc/systemd/system/hostyour-vault-unseal.timer
+    file_mode: 420
+    elevated: true
+    when: [secret_store_enabled, books_here_in_config]
+    on_failure: exit
+
+  # WHAT TURNS THE TWO FILES INTO A RUNNING UNSEALER. A unit file in the manager's directory is read
+  # by nothing until the manager is told to look again, wanted by nothing until it is enabled, and
+  # armed by nothing until something starts it. This step does all three for the timer and then
+  # reads back what the manager says, so a timer that is not armed is a red row here rather than a
+  # machine whose store seals with nothing watching. Reading the directory again is also what puts
+  # the service file this run wrote in front of the manager.
+  #
+  # THE TIMER AND NOT THE SERVICE, and it costs something to say plainly. This step is satisfied by
+  # a unit that stays active, which a one-shot only does with RemainAfterExit — and a unit standing
+  # at active (exited) is one a timer's start does nothing to, which is the defect being fixed. So
+  # the service carries no such line and is not what is read back here. What that gives up is the
+  # red row a wrong path in the service used to produce at install time; what is left of it is the
+  # journal, because the timer fires the service a second after this row arms it.
+  - step: enable_service
+    unit: hostyour-vault-unseal.timer
+    when: [secret_store_enabled, books_here_in_config]
+    on_failure: exit
+
+  # --- the shape every workload authenticates against -----------------------------------------
+  #
+  # One mount, one cluster auth path, seven policies and six roles. The auth path carries this
+  # cluster's short name because one secret store can serve several clusters, and every policy
+  # templated on a login is written against that path. It is created under the name the profile
+  # already gives it, because that is the name every rendered secret store logs in through.
+  - step: vault_kv_mount
+    rests_on_an_earlier_step: true
+    repository: /srv/hostyour-cloud
+    path: secret
+    when: [secret_store_enabled, books_here_in_config]
+    on_failure: exit
+
+  # ENABLING THE MOUNT IS HALF OF IT. A kubernetes mount that has not been told where its cluster's
+  # API is refuses every login with "could not load backend configuration", which names neither the
+  # mount nor what is missing — and every secret reader on this cluster logs in through this one, so
+  # what an operator sees is every workload holding a credential coming up Degraded at the same
+  # moment with nothing visibly wrong anywhere.
+  #
+  # The address is the cluster's own, from inside it. Beyond it one switch is written, and nothing
+  # else: the store runs on this cluster, so it reads the certificate authority and the reviewing
+  # token out of its own pod.
+  #
+  # THE SWITCH IS WHAT MAKES A PER-UNIT GRANT POSSIBLE. A build namespace may read its own unit's
+  # credentials and no sibling's, and the policy expresses that by templating the unit into the path
+  # rather than by existing once per unit. The unit reaches the policy as login metadata, and the only
+  # thing that puts it there is this: with it Vault lifts a ServiceAccount's annotations into the
+  # login alias, so `vault.hashicorp.com/alias-metadata-unit` on the account becomes `metadata.unit`
+  # in the policy. The chart that renders the account says so in as many words and calls that
+  # annotation "the isolation".
+  #
+  # Without it the template resolves to nothing at all: the path becomes secret/data/build//* and
+  # matches no key, so a build namespace is refused every read that is meant to be its own — while
+  # the two lines the policy spells out literally keep working, which is what makes it look like a
+  # missing entry rather than a mount that was never told to read annotations.
+  - step: vault_auth_method
+    rests_on_an_earlier_step: true
+    repository: /srv/hostyour-cloud
+    type: kubernetes
+    path: <kubernetes-mount>
+    configuration: '{"kubernetes_host":"https://kubernetes.default.svc","use_annotations_as_alias_metadata":true}'
+    when: [secret_store_enabled, books_here_in_config]
+    on_failure: exit
+
+  # Read-only on this cluster's application tier and nothing else. The system tier — the root token,
+  # the unseal keys, the control-plane credentials — is deliberately out of reach of every workload
+  # namespace, and granting it "for simplicity" hands the unseal keys to all of them.
+  - step: vault_policy
+    rests_on_an_earlier_step: true
+    repository: /srv/hostyour-cloud
+    name: <cluster>-eso
+    rules: |
+      path "secret/data/<stage>/app/*" { capabilities = ["read"] }
+      path "secret/metadata/<stage>/app/*" { capabilities = ["read", "list"] }
+      # THE ONE ENTRY OF THE IDENTITY TIER ANY CLUSTER READS: the client secret a person signs in to
+      # its reconciler with. Named as the single path and not as `idp/*` — everything else under
+      # that tier is the provider's own and is read by the provider alone.
+      path "secret/data/<stage>/idp/bootstrap" { capabilities = ["read"] }
+      path "secret/metadata/<stage>/idp/bootstrap" { capabilities = ["read", "list"] }
+      path "secret/data/<stage>/slaves/*" { capabilities = ["read"] }
+      path "secret/metadata/<stage>/slaves/*" { capabilities = ["read", "list"] }
+    when: [secret_store_enabled, books_here_in_config]
+    on_failure: exit
+
+  # One literal leaf and nothing else under the build tier. It exists only where the build plane
+  # runs, because a build is stage-free and its credentials live on exactly one secret store.
+  - step: vault_policy
+    rests_on_an_earlier_step: true
+    repository: /srv/hostyour-cloud
+    name: <cluster>-deploy-pat-read
+    rules: |
+      path "secret/data/build/catalog/repo-pat" { capabilities = ["read"] }
+    when: [secret_store_enabled, books_here_in_config]
+    on_failure: exit
+
+  # One templated policy and one label-bound role cover every consumer there will ever be: the path
+  # interpolates the calling account's own namespace, so a reader in namespace X can only reach that
+  # namespace's entries, and onboarding a consumer needs no write to the secret store at all.
+  - step: vault_policy
+    rests_on_an_earlier_step: true
+    repository: /srv/hostyour-cloud
+    auth_mount: <kubernetes-mount>
+    name: <cluster>-consumer-read
+    rules: |
+      path "secret/data/<stage>/consumer/{{identity.entity.aliases.<accessor>.metadata.service_account_namespace}}/*" { capabilities = ["read"] }
+      path "secret/metadata/<stage>/consumer/{{identity.entity.aliases.<accessor>.metadata.service_account_namespace}}/*" { capabilities = ["read", "list"] }
+    when: [secret_store_enabled, books_here_in_config]
+    on_failure: exit
+
+  # Templated on the tenant the calling account is annotated with and not on its namespace: one
+  # tenant owns several namespaces and every one of them has to reach the same entry, or the
+  # identity provider of that tenant signs with a key its own engine cannot verify. Read only — a
+  # namespace that could write its own crypto could rotate that key out from under its siblings.
+  - step: vault_policy
+    rests_on_an_earlier_step: true
+    repository: /srv/hostyour-cloud
+    auth_mount: <kubernetes-mount>
+    name: <cluster>-tenant-read
+    rules: |
+      path "secret/data/<stage>/tenants/{{identity.entity.aliases.<accessor>.metadata.tenant}}" { capabilities = ["read"] }
+      path "secret/metadata/<stage>/tenants/{{identity.entity.aliases.<accessor>.metadata.tenant}}" { capabilities = ["read", "list"] }
+      path "secret/data/<stage>/tenants/{{identity.entity.aliases.<accessor>.metadata.tenant}}/*" { capabilities = ["read"] }
+      path "secret/metadata/<stage>/tenants/{{identity.entity.aliases.<accessor>.metadata.tenant}}/*" { capabilities = ["read", "list"] }
+      path "secret/data/<stage>/app/registry" { capabilities = ["read"] }
+    when: [secret_store_enabled, books_here_in_config]
+    on_failure: exit
+
+  # Templated on the unit, which is what stops one build namespace reading a sibling's credential —
+  # and some units belong to external parties. The two literal leaves are the platform repositories
+  # a release bump pushes to.
+  - step: vault_policy
+    rests_on_an_earlier_step: true
+    repository: /srv/hostyour-cloud
+    auth_mount: <kubernetes-mount>
+    name: <cluster>-build-read
+    rules: |
+      path "secret/data/build/{{identity.entity.aliases.<accessor>.metadata.unit}}/*" { capabilities = ["read"] }
+      path "secret/metadata/build/{{identity.entity.aliases.<accessor>.metadata.unit}}/*" { capabilities = ["read", "list"] }
+      path "secret/data/build/hostyour-cloud/repo-pat" { capabilities = ["read"] }
+      path "secret/data/build/catalog/repo-pat" { capabilities = ["read"] }
+      path "secret/data/<stage>/app/registry" { capabilities = ["read"] }
+    when: [secret_store_enabled, build_plane_here_in_config, books_here_in_config]
+    on_failure: exit
+
+  # The release bump's own read, and the ONE grant on this host templated on nothing.
+  #
+  # WHAT NEEDS IT. A release bump does not only write its own unit's pins: it searches every OTHER
+  # unit registered at the stage being released for a pin on the image it just built, and reaches
+  # each of them by cloning that unit's delivery branch. A private repository refuses a clone that
+  # presents somebody else's credential, so a bump carrying one credential covers less than it
+  # reports and says nothing about the difference — which is the whole reason this row exists. The
+  # pipeline reads each carrier's own credential at the moment it clones, from the same leaf every
+  # unit's build credential already stands under.
+  #
+  # WHY NOT WIDEN THE ROW ABOVE. That policy templates on the unit the calling account is annotated
+  # with, and the templating IS the isolation: it is what stops one build namespace reading a
+  # sibling's credential. A wildcard leaf added there would take that isolation away from every
+  # secret reader in every build namespace to serve one step of one pipeline. A separate policy on a
+  # separate role bound to a separate account keeps the two apart — one identity reads one unit's
+  # secrets, the other reads one leaf of every unit's.
+  #
+  # WHAT IT COSTS, AND WHERE THE FENCE ACTUALLY IS. This grant opens the repository credential of
+  # every registered unit, and some units belong to external parties. Three things bound it and none
+  # of them is the policy: the role below admits one account name, only in a namespace carrying the
+  # build label, and that label is refused on every namespace the build fan-out did not create
+  # (hostyour-cloud clusters/inventories/consumer-build, templates/vap-namespace-build-label.yaml).
+  # Beyond that, a pod under that account holds no token unless the pipeline projects one, and the
+  # only step given one is the bump — never the step that runs the unit's own build.
+  #
+  # ONE LEAF AND NOT THE TIER. `+` matches a single segment, so this reads build/<unit>/repo-pat and
+  # nothing else under build/<unit>/ — not the npm tokens, not whatever a later leaf adds. It is the
+  # same single-segment shape the manager policy below writes that leaf with.
+  - step: vault_policy
+    rests_on_an_earlier_step: true
+    repository: /srv/hostyour-cloud
+    name: <cluster>-bump-read
+    rules: |
+      path "secret/data/build/+/repo-pat" { capabilities = ["read"] }
+    when: [secret_store_enabled, build_plane_here_in_config, books_here_in_config]
+    on_failure: exit
+
+  # The cluster manager's own policy, in the two shapes a cluster can need it in. Written whole
+  # either way, so the two are separate entries and only one of them ever runs.
+  #
+  # WRITE-ONLY ON EVERY CONSUMER AND TENANT LEAF, AND THAT IS WHAT MAKES CREATE-ONLY POSSIBLE. With
+  # no read grant the manager cannot look before it writes, so its writes are create-only at the
+  # call site — which is exactly the point: a second onboarding of something already running must
+  # fail loudly rather than rotate the keys a pod read once at container start, or the password a
+  # database was initialized with. The delete is on the metadata and not on the data, because a data
+  # delete is soft and leaves version history that create-only refuses to write over; and it is a
+  # delete alone, with no create or update on the metadata, so nothing can set the field that makes
+  # values expire by themselves.
+  - step: vault_policy
+    rests_on_an_earlier_step: true
+    repository: /srv/hostyour-cloud
+    name: manager
+    rules: |
+      path "secret/data/manager/cred/*" { capabilities = ["create", "read", "update", "delete", "list"] }
+      path "secret/metadata/manager/cred/*" { capabilities = ["read", "delete", "list"] }
+      path "secret/data/build/+/repo-pat" { capabilities = ["create", "update"] }
+      path "secret/metadata/build/+/repo-pat" { capabilities = ["delete"] }
+      path "secret/data/<stage>/consumer/+/app" { capabilities = ["create", "update"] }
+      path "secret/metadata/<stage>/consumer/+/app" { capabilities = ["delete"] }
+      path "secret/data/<stage>/consumer/+/postgres" { capabilities = ["create", "update"] }
+      path "secret/metadata/<stage>/consumer/+/postgres" { capabilities = ["delete"] }
+      path "secret/data/<stage>/consumer/+/mongodb" { capabilities = ["create", "update"] }
+      path "secret/metadata/<stage>/consumer/+/mongodb" { capabilities = ["delete"] }
+      path "secret/data/<stage>/tenants/+" { capabilities = ["create", "update"] }
+      path "secret/metadata/<stage>/tenants/+" { capabilities = ["delete"] }
+    when: [secret_store_enabled, build_plane_here_in_config, books_here_in_config]
+    on_failure: exit
+
+  - step: vault_policy
+    rests_on_an_earlier_step: true
+    repository: /srv/hostyour-cloud
+    name: manager
+    rules: |
+      path "secret/data/manager/cred/*" { capabilities = ["create", "read", "update", "delete", "list"] }
+      path "secret/metadata/manager/cred/*" { capabilities = ["read", "delete", "list"] }
+      path "secret/data/<stage>/consumer/+/app" { capabilities = ["create", "update"] }
+      path "secret/metadata/<stage>/consumer/+/app" { capabilities = ["delete"] }
+      path "secret/data/<stage>/consumer/+/postgres" { capabilities = ["create", "update"] }
+      path "secret/metadata/<stage>/consumer/+/postgres" { capabilities = ["delete"] }
+      path "secret/data/<stage>/consumer/+/mongodb" { capabilities = ["create", "update"] }
+      path "secret/metadata/<stage>/consumer/+/mongodb" { capabilities = ["delete"] }
+      path "secret/data/<stage>/tenants/+" { capabilities = ["create", "update"] }
+      path "secret/metadata/<stage>/tenants/+" { capabilities = ["delete"] }
+    when: [secret_store_enabled, build_plane_elsewhere_in_config, books_here_in_config]
+    on_failure: exit
+
+  # The cluster manager's own tier, on a path of its own. What that tier is for is its key to this
+  # host — root here and therefore on every cluster — and the repository credential that can rewrite
+  # the books of every cluster, so neither may sit in the application tier that every namespace's
+  # reader can reach.
+  #
+  # THE NAME IS THE READER'S AND NOT THIS FILE'S. The chart that renders the manager also renders the
+  # secret store it reads through, and that store names the role it logs in under, the account it
+  # logs in as and the entry it reads. All three are on the chart's side, so all three are followed
+  # here. A name picked in this file instead leaves a policy nothing carries, a role no account can
+  # assume and an entry its only reader cannot reach — and nothing reports any of it, because each of
+  # them is a valid object on its own, and only all four together — policy, role, account, entry —
+  # are a read that works.
+  - step: vault_policy
+    rests_on_an_earlier_step: true
+    repository: /srv/hostyour-cloud
+    name: manager-host
+    rules: |
+      path "secret/data/<stage>/manager-host/*" { capabilities = ["read"] }
+      path "secret/metadata/<stage>/manager-host/*" { capabilities = ["read", "list"] }
+    when: [secret_store_enabled, books_here_in_config]
+    on_failure: exit
+
+  # The role name is fixed: the chart that renders a secret store per cluster only re-points the
+  # mount path and the key path, and takes the role name from its own default. Renaming it here
+  # breaks every rendered store on every cluster at once.
+  #
+  # BOUND BY THE LABEL EVERY WORKLOAD NAMESPACE CARRIES, not by a list of names. The rows below
+  # write a namespace SELECTOR on hostyour.cloud/workload, which the platform's ApplicationSet
+  # stamps onto every namespace it creates (clusters/argocd/apps/platform-apps-appset.yaml,
+  # managedNamespaceMetadata) — and so does the slaves ApplicationSet, for a slave's namespace here
+  # on the master. The set a namespace joins by being deployed is the set this role admits.
+  #
+  # WHY A LABEL AND NOT A LIST. A namespace missing from a list is refused at LOGIN, before any
+  # policy is consulted — so a seed reports success, the entry sits in the store written and correct,
+  # and every credential of that application is simply unreadable.
+  #
+  # THIS ROLE HAS ONE WRITER, and it is this program. A role write replaces the role whole, so a
+  # second writer spelling it differently would blind whichever side it did not name.
+  - step: vault_auth_role
+    rests_on_an_earlier_step: true
+    repository: /srv/hostyour-cloud
+    mount: <kubernetes-mount>
+    role: external-secrets
+    # BOUND BY THE LABEL EVERY WORKLOAD NAMESPACE OF THIS PLATFORM CARRIES, not by a list of them.
+    # A list has to be remembered, and a namespace left out of it is refused at LOGIN — before any
+    # policy is consulted — so the seed reports success and the entry is simply unreadable. The
+    # label is `hostyour.cloud/workload`, which this platform's own ApplicationSet puts on every
+    # namespace it manages (clusters/argocd/apps/platform-apps-appset.yaml, managedNamespaceMetadata),
+    # so the set a namespace joins by being deployed is the set the store admits.
+    body: >-
+      {"bound_service_account_names":["external-secrets-sa"],
+      "bound_service_account_namespace_selector":"{\"matchLabels\":{\"hostyour.cloud/workload\":\"true\"}}",
+      "token_policies":["<cluster>-eso","<cluster>-deploy-pat-read"],"ttl":"24h"}
+    when: [secret_store_enabled, build_plane_here_in_config, books_here_in_config]
+    on_failure: exit
+
+  - step: vault_auth_role
+    rests_on_an_earlier_step: true
+    repository: /srv/hostyour-cloud
+    mount: <kubernetes-mount>
+    role: external-secrets
+    # Its twin above, bound the same way and for the same reason.
+    body: >-
+      {"bound_service_account_names":["external-secrets-sa"],
+      "bound_service_account_namespace_selector":"{\"matchLabels\":{\"hostyour.cloud/workload\":\"true\"}}",
+      "token_policies":["<cluster>-eso","<cluster>-deploy-pat-read"],"ttl":"24h"}
+    when: [secret_store_enabled, build_plane_elsewhere_in_config, books_here_in_config]
+    on_failure: exit
+
+  # Three account names and never a wildcard: the namespace label is what bounds this role, and a
+  # name list that admitted anything would let a consumer's own chart mint an account and read
+  # through a store the platform never rendered.
+  #
+  # THE LABEL IS THE CHART'S, SPELLED THE CHART'S WAY — the twin of the correction on the build role
+  # below, and it was missed when that one was made. A consumer's namespace is created by the
+  # fan-out and carries hostyour.cloud/consumer (clusters/argocd/apps/consumers-appset.yaml:122). This row
+  # selected on digitacloud.app/consumer, a key nothing anywhere writes, so the role matched no
+  # namespace ever and every consumer's secret reader was refused at login — before any policy was
+  # consulted, with a message about the role rather than about the label.
+  #
+  # Found by reading the ticket that named both halves rather than by meeting it on a machine: this
+  # installation carries no consumer yet, so nothing had gone wrong that anybody could see.
+  - step: vault_auth_role
+    rests_on_an_earlier_step: true
+    repository: /srv/hostyour-cloud
+    mount: <kubernetes-mount>
+    role: consumer-eso
+    body: >-
+      {"bound_service_account_names":["external-secrets-sa","postgres-eso","mongodb-eso"],
+      "bound_service_account_namespace_selector":"{\"matchLabels\":{\"hostyour.cloud/consumer\":\"true\"}}",
+      "token_policies":["<cluster>-consumer-read"],"ttl":"24h"}
+    when: [secret_store_enabled, books_here_in_config]
+    on_failure: exit
+
+  - step: vault_auth_role
+    rests_on_an_earlier_step: true
+    repository: /srv/hostyour-cloud
+    mount: <kubernetes-mount>
+    role: tenant-eso-<stage>
+    body: >-
+      {"bound_service_account_names":["external-secrets-sa"],
+      "bound_service_account_namespace_selector":"{\"matchLabels\":{\"platform/tenant-managed\":\"true\"}}",
+      "token_policies":["<cluster>-tenant-read"],"ttl":"24h"}
+    when: [secret_store_enabled, books_here_in_config]
+    on_failure: exit
+
+  # The label this role binds carries its grant only because the build plane admits it nowhere else:
+  # an admission policy refuses the label on every namespace that is not a build namespace of a unit
+  # the fan-out created. Without that policy a unit's own chart renders a labelled namespace and
+  # reads the platform's credentials.
+  #
+  # THE LABEL IS THE CHART'S, SPELLED THE CHART'S WAY. A build namespace is created by the fan-out
+  # and carries hostyour.cloud/build — the chart says in as many words that this label "is the whole
+  # binding of the Vault role" and guards it with an admission policy. This row selected on
+  # digitacloud.app/build, a key nothing writes, so the role matched no namespace ever: every
+  # per-unit build namespace was refused at login, its secrets never materialized, and its pipeline
+  # could not pull, push or clone. Measured on the first build namespace an installation ever made.
+  - step: vault_auth_role
+    rests_on_an_earlier_step: true
+    repository: /srv/hostyour-cloud
+    mount: <kubernetes-mount>
+    role: build-eso
+    body: >-
+      {"bound_service_account_names":["external-secrets-sa"],
+      "bound_service_account_namespace_selector":"{\"matchLabels\":{\"hostyour.cloud/build\":\"true\"}}",
+      "token_policies":["<cluster>-build-read"],"ttl":"24h"}
+    when: [secret_store_enabled, build_plane_here_in_config, books_here_in_config]
+    on_failure: exit
+
+  # The release bump's identity, beside the secret reader's and deliberately not the same one. The
+  # account is the one the release pipeline's own pods run under, and both halves are the chart's:
+  # the fan-out renders ServiceAccount pipeline-sa into <unit>-build and the deploy-request trigger
+  # names it in taskRunTemplate. The namespace binding is the same build label as above and is
+  # guarded by the same admission policy, so this role reaches exactly the namespaces that one does.
+  #
+  # ONE ACCOUNT NAME AND NOT THE READER'S. A role that also admitted external-secrets-sa would give
+  # every ExternalSecret in a build namespace the wildcard read of <cluster>-bump-read, which is the
+  # isolation the templated policy above exists to keep. The two accounts read two different things
+  # and each says which.
+  #
+  # THE ACCOUNT MOUNTS NO TOKEN BY DEFAULT, which is what keeps this narrow in practice: pipeline-sa
+  # carries automountServiceAccountToken false, so the unit's own build — the step that runs foreign
+  # code as uid 0 — has nothing to log in with. The bump task projects a token for its own step and
+  # that is the only pod-side use of this role.
+  - step: vault_auth_role
+    rests_on_an_earlier_step: true
+    repository: /srv/hostyour-cloud
+    mount: <kubernetes-mount>
+    role: build-bump
+    body: >-
+      {"bound_service_account_names":["pipeline-sa"],
+      "bound_service_account_namespace_selector":"{\"matchLabels\":{\"hostyour.cloud/build\":\"true\"}}",
+      "token_policies":["<cluster>-bump-read"],"ttl":"1h"}
+    when: [secret_store_enabled, build_plane_here_in_config, books_here_in_config]
+    on_failure: exit
+
+  # THE IDENTITY AND THE TIER BOTH READ `manager`, and they are still two different things owned by
+  # two different files.
+  #
+  # The identity is what the pod presents, and both halves of it are the chart's: clusters/inventories/manager/
+  # templates/serviceaccount.yaml renders ServiceAccount `manager`, clusters/inventories/manager/app.yaml installs
+  # the chart into namespace `manager`, and the deployment writes VAULT_K8S_ROLE with the literal
+  # `manager`. A program cannot rename what a chart creates, so this follows it — a binding that
+  # names an account or a namespace nothing renders is refused before any policy is consulted.
+  #
+  # The tier is the ADDRESS the credentials stand under, and its word is the application's own
+  # default (hostyour-manager/server/kernel/config.ts, VAULT_KV_PREFIX = manager/cred). Nothing sets
+  # that variable in the cluster, so the compiled-in default is what the store actually reads and
+  # writes: the policy above grants secret/data/manager/cred/*, and that grant moves when a release
+  # moves the default, never when a namespace is renamed. The two words agreeing is not what binds
+  # them — a release that moved the prefix and left this policy behind would lock the manager out of
+  # its own store on the first credential write.
+  - step: vault_auth_role
+    rests_on_an_earlier_step: true
+    repository: /srv/hostyour-cloud
+    mount: <kubernetes-mount>
+    role: manager
+    body: >-
+      {"bound_service_account_names":["manager"],"bound_service_account_namespaces":["manager"],
+      "token_policies":["manager"],"ttl":"24h"}
+    when: [secret_store_enabled, books_here_in_config]
+    on_failure: exit
+
+  # A dedicated account and not the one above: this is the read side of the manager's own tier, and
+  # the whole point of a tier of its own is that nothing else in that namespace reaches it.
+  #
+  # The account is the chart's — it renders it beside the secret store that names this role — and the
+  # namespace is the one the application tree installs that chart into.
+  - step: vault_auth_role
+    rests_on_an_earlier_step: true
+    repository: /srv/hostyour-cloud
+    mount: <kubernetes-mount>
+    role: manager-host
+    body: >-
+      {"bound_service_account_names":["manager-host-eso"],
+      "bound_service_account_namespaces":["manager"],
+      "token_policies":["manager-host"],"ttl":"24h"}
+    when: [secret_store_enabled, books_here_in_config]
+    on_failure: exit
+
+  # --- the values ------------------------------------------------------------------------------
+  #
+  # No value is in this file. Each field names the variable of the hand-filled input that holds it,
+  # so a credential is never in the tree, never in a run's arguments and never in a plan.
+  #
+  # EVERY VARIABLE THE HAND-FILLED INPUT CARRIES IS READ BY A ROW BELOW, AND EVERY ROW BELOW READS
+  # ONE OF THEM. This block is the whole of what becomes of the credentials an operator was asked
+  # for: a variable no row reads is a credential somebody obtained and nothing uses, and a row
+  # reading a variable the input does not carry stops the run right here, on a machine that is
+  # already carrying a Vault. A field with another source says so on its own row — `mint` where
+  # nobody can be asked for the value, `fields_owned_elsewhere` where another writer supplies it.
+  #
+  # A ROW GATED ON THE BUILD PLANE READS EXACTLY THE VARIABLES THAT ARE WRITTEN THERE. The
+  # credentials of the build plane are left out of the hand-filled input of every other cluster, so
+  # a row reading one of them without that gate would stop the run on every cluster but one, and a
+  # row that carried the gate without needing it would leave its credential unwritten everywhere
+  # else without saying so.
+  #
+  # The identity provider's own three credentials. Nobody can be asked for them and nothing else can
+  # produce them, so this is where they come into being — once, before anything reads them. The
+  # three variables stay empty in the hand-filled input: an operator who filled them would be
+  # inventing a signing key by hand.
+  #
+  # THE ONE CREDENTIAL THIS ROW DOES NOT MINT IS THE ONE THAT DECIDES WHO OWNS THIS INSTALLATION.
+  # The provider's first administrator is left WITHOUT a password, deliberately, so the provider
+  # keeps its out-of-box flow open and the first person to reach that address chooses it. Minting it
+  # here would close that flow — the provider seeds the account from its environment on the first
+  # start of an empty database and never reads the value again — and would leave an operator in
+  # front of a login asking for a secret nobody told them existed. The reasoning is written beside
+  # the value that is not being set, in clusters/bootstrap/idp/values.yaml, and what that costs is a
+  # window in which the address is open to whoever reaches it first: the LAST row of this program
+  # measures the flow and says at the end whether this installation is still waiting, and where.
+  - step: vault_kv_entry
+    rests_on_an_earlier_step: true
+    repository: /srv/hostyour-cloud
+    mount: secret
+    path: <stage>/idp/database
+    fields:
+      - 'secret-key=IDP_SECRET_KEY'
+      - 'postgres-password=IDP_POSTGRES_PASSWORD'
+      - 'postgres-admin-password=IDP_POSTGRES_ADMIN_PASSWORD'
+    mint: [secret-key, postgres-password, postgres-admin-password]
+    when: [secret_store_enabled, books_here_in_config]
+    on_failure: exit
+
+  # THE FIVE CLIENT SECRETS EVERY LOGIN ON THIS INSTALLATION RESTS ON, and until this row existed
+  # nothing wrote them. Two later rows READ this entry — one puts all five into the identity
+  # provider's own namespace, one puts the dashboard's copy where the dashboard is — and the
+  # provider's blueprints take them out of the environment under these very names. With no writer,
+  # every one of those clients came up holding nothing, and what an operator saw was a provider that
+  # started perfectly and an "invalid_client" at every single login: the reconciler, the dashboards,
+  # the secret store and the manager, all of them.
+  #
+  # Minted and never typed, for the same reason as the signing key above: a client secret an
+  # operator invents by hand is one they have also written down somewhere. Each is generated once,
+  # lives in the store, and is materialized where it is needed — which is the whole point of holding
+  # a credential in one place instead of minting it at every use.
+  - step: vault_kv_entry
+    rests_on_an_earlier_step: true
+    repository: /srv/hostyour-cloud
+    mount: secret
+    path: <stage>/idp/bootstrap
+    fields:
+      - 'argocd-client-secret=IDP_ARGOCD_CLIENT_SECRET'
+      - 'manager-client-secret=IDP_MANAGER_CLIENT_SECRET'
+      - 'grafana-client-secret=IDP_GRAFANA_CLIENT_SECRET'
+      - 'headlamp-client-secret=IDP_HEADLAMP_CLIENT_SECRET'
+      - 'vault-client-secret=IDP_VAULT_CLIENT_SECRET'
+      # NOT A CLIENT SECRET, and it stands here because this is the entry the provider's own
+      # credentials live in. It is what the DEPLOYMENT authenticates to the provider with, for the
+      # acts a declaration cannot perform — adding one account to one group without owning the other
+      # members of it. The provider takes it as the key of a token object its blueprints declare.
+      - 'platform-api-token=IDP_PLATFORM_API_TOKEN'
+    mint:
+      - argocd-client-secret
+      - manager-client-secret
+      - grafana-client-secret
+      - headlamp-client-secret
+      - vault-client-secret
+      - platform-api-token
+    when: [secret_store_enabled, books_here_in_config]
+    on_failure: exit
+
+  # The mail signing key is owned by another writer, which is why it is named here as one: an entry
+  # written with no fields replaces what is there with nothing, so a run that finds the value still
+  # unfilled leaves the field out and, with nothing else left in the entry, writes nothing at all.
+  - step: vault_kv_entry
+    rests_on_an_earlier_step: true
+    repository: /srv/hostyour-cloud
+    mount: secret
+    path: <stage>/app/postfix
+    fields: ['dkim-private-key=MAIL_RELAY_DKIM_PRIVATE_KEY']
+    fields_owned_elsewhere: ['dkim-private-key']
+    when: [secret_store_enabled, books_here_in_config]
+    on_failure: exit
+
+  # The write half of the repository credential. It can rewrite the books of every cluster, so it is
+  # kept off the application tier every namespace's secret reader is granted and stands on the
+  # manager's own tier, which the policy and the role above are the read side of.
+  - step: vault_kv_entry
+    rests_on_an_earlier_step: true
+    repository: /srv/hostyour-cloud
+    mount: secret
+    path: <stage>/manager-host/github
+    fields: ['write-pat=GITOPS_REPO_PAT']
+    when: [secret_store_enabled, books_here_in_config]
+    on_failure: exit
+
+  # THE SECOND ENTRY OF THIS TIER, and no vault_kv_entry row could ever have written it. The chart
+  # that renders the manager materializes a private key and a host-key fingerprint out of
+  # <stage>/manager-host/ssh, and neither source that step has can supply them: the hand-filled
+  # input is a file of single-line assignments, so it cannot hold a private key, and `mint` makes a
+  # random value rather than a key pair whose two halves match. So the entry stood empty, the secret
+  # behind it was never materialized, and what the manager could not do was reach this host over
+  # SSH — which is the path its deploy-slave run takes, and therefore the reason it could not add a
+  # cluster to this installation.
+  #
+  # THE PAIR IS MINTED ONCE AND NEVER AGAIN. Its public half stands in the authorized_keys file of
+  # every machine the manager reaches, and a second pair written over the first would leave the
+  # manager presenting a key none of them has been told about. So a run that finds a key pair keeps
+  # it and writes it back unchanged; only an entry carrying none is given one. Rotating it is a
+  # deliberate act with its own order — place the new public half everywhere first, then replace the
+  # private one — and no row that also runs on an ordinary redeployment may perform it.
+  #
+  # THE FINGERPRINT IS THE OPPOSITE RULE: it is measured on every run and replaced when it differs,
+  # because it describes this machine as it stands. A host key regenerated by a reinstall makes the
+  # stored value name a host that is no longer there, and the manager refuses the connection.
+  - step: vault_kv_ssh_key_pair
+    rests_on_an_earlier_step: true
+    repository: /srv/hostyour-cloud
+    mount: secret
+    path: <stage>/manager-host/ssh
+    # The two field names the manager's own external secret reads this entry under. They are stated
+    # here because the reader chose them, and a name invented in a step would be a name nothing
+    # looks for.
+    private_key_field: ssh-private-key
+    host_key_fingerprint_field: host-key-fp
+    # The public half of the host key this machine presents. THE ED25519 ONE, and which of the
+    # machine's host keys is meant is decided on the other side: the manager's SSH client sets no
+    # host key preference of its own, so the library's default order decides, and that order puts
+    # ssh-ed25519 first wherever the runtime supports it. Naming any other file here would store a
+    # fingerprint of a key the manager is never offered, and every connection would be refused as a
+    # host key mismatch.
+    host_key_path: /etc/ssh/ssh_host_ed25519_key.pub
+    # What the key says about itself in the file it ends up in, named for the cluster it belongs to
+    # so an operator reading authorized_keys can see whose key it is.
+    comment: ansiwise@<cluster>
+    when: [secret_store_enabled, books_here_in_config]
+    on_failure: exit
+
+  # THE OTHER HALF OF THE SAME ACT, and it stands directly here because either half alone is
+  # useless. The entry above is what the manager PRESENTS; this is what this machine ACCEPTS, and a
+  # run that wrote one without the other would leave the manager holding a key no account here has
+  # ever been told about. The account is the one the operator answered, which is the account the
+  # manager's own values name as the user it logs in as.
+  #
+  # THE KEY IS NOT ANSWERED, and it is the one row of this installation where it cannot be: it did
+  # not exist when the run was started. It is taken from what the row above measured, which is the
+  # public half of exactly the private one that was written — read back out of it on every later
+  # run, so a second run appends nothing.
+  - step: install_authorized_key
+    rests_on_an_earlier_step: true
+    public_key: {measured: ssh_public_key}
+    # THE SAME CONDITION AS THE MINT ABOVE, because this row reads what that one publishes: a
+    # row that consumed a measurement its publisher may skip would find it missing exactly when
+    # it runs. The engine refuses the program without it, by name.
+    when: [secret_store_enabled, books_here_in_config]
+    on_failure: exit
+
+  # The read half, on the system tier — the tier no policy of this program grants a workload. What
+  # syncs on a cluster of this installation reads an entry of its own under the slaves tier and
+  # never this one.
+  - step: vault_kv_entry
+    rests_on_an_earlier_step: true
+    repository: /srv/hostyour-cloud
+    mount: secret
+    path: <stage>/system/argocd/repo-read-pat
+    fields: ['pat=GITOPS_REPO_READ_PAT']
+    when: [secret_store_enabled, books_here_in_config]
+    on_failure: exit
+
+  # Alone on its own entry, and so is the storage box below it. Both are read by the same component
+  # that reads its login credentials out of a third entry, and a materialization failure fails one
+  # entry rather than every secret named in it — so a DNS token that could not be read must not be
+  # what stops that component logging anybody in.
+  - step: vault_kv_entry
+    rests_on_an_earlier_step: true
+    repository: /srv/hostyour-cloud
+    mount: secret
+    path: <stage>/app/cloudflare-dns
+    fields: ['api-token=CLOUDFLARE_API_TOKEN']
+    when: [secret_store_enabled, books_here_in_config]
+    on_failure: exit
+
+  # Three fields and not three entries: a machine, an account on it and that account's password are
+  # one credential, and a reader that got two of the three would compose an address it cannot log in
+  # to.
+  - step: vault_kv_entry
+    rests_on_an_earlier_step: true
+    repository: /srv/hostyour-cloud
+    mount: secret
+    path: <stage>/app/storage-box
+    fields:
+      - 'host=STORAGE_BOX_HOST'
+      - 'user=STORAGE_BOX_USER'
+      - 'password=STORAGE_BOX_PASSWORD'
+    when: [secret_store_enabled, books_here_in_config]
+    on_failure: exit
+
+  # The login the registry's pull-through cache of the public registry authenticates with, on the
+  # cluster that carries the registry and on no other. A write replaces the entry whole, so what
+  # stands at this path after this row is these two fields and nothing besides them.
+  - step: vault_kv_entry
+    rests_on_an_earlier_step: true
+    repository: /srv/hostyour-cloud
+    mount: secret
+    path: <stage>/app/registry
+    fields:
+      - 'dockerhub-user=REGISTRY_DOCKERHUB_USER'
+      - 'dockerhub-token=REGISTRY_DOCKERHUB_TOKEN'
+      # THE REGISTRY'S OWN TWO ACCOUNTS, which nothing wrote until this row. One reads and one
+      # writes, and every workload of this installation holds one of them: the pull credential is in
+      # every namespace that starts an image of ours, the push one only where a release is made.
+      #
+      # ATOMIC AND NEVER PRE-COMPOSED. What the charts need is an htpasswd line and a docker config
+      # document, and both used to be asked of the store as finished text nobody wrote — so the
+      # registry could not start and nothing could pull from it. A store holds values; a format
+      # belongs to whoever needs that format, and the charts assemble both from these four.
+      #
+      # The names are not secret and are not minted: a name that changed on every run would lock out
+      # whatever holds the last one. The passwords are minted and no operator ever sees them.
+      - 'pull-user=REGISTRY_PULL_USER'
+      - 'pull-password=REGISTRY_PULL_PASSWORD'
+      - 'push-user=REGISTRY_PUSH_USER'
+      - 'push-password=REGISTRY_PUSH_PASSWORD'
+    mint: [pull-password, push-password]
+    # DOCKER HUB IS OPTIONAL, and an installation without it is complete rather than half-answered.
+    # The mirror in front of that registry falls back to pulling anonymously, which is rate-limited
+    # and works. Refusing the whole seed for a credential nobody promised would refuse to install a
+    # thing that is finished.
+    optional_fields: [dockerhub-user, dockerhub-token]
+    when: [secret_store_enabled, build_plane_here_in_config, books_here_in_config]
+    on_failure: exit
+
+  # THE MONITORING PLANE'S OWN LOGIN, which nothing wrote until this row. Grafana mounts the two
+  # fields as its administrator, and without them its pod does not start at all — it reports a
+  # missing Secret, which says nothing about a store entry nobody wrote.
+  #
+  # The password is minted and never typed: an administrator password an operator invents is one
+  # they have also written down. The user name is not a secret and is not minted — it is a name,
+  # and a name that changed on every run would lock out whoever wrote the last one down.
+  - step: vault_kv_entry
+    rests_on_an_earlier_step: true
+    repository: /srv/hostyour-cloud
+    mount: secret
+    path: <stage>/app/observability
+    fields:
+      - 'admin-user=OBSERVABILITY_ADMIN_USER'
+      - 'grafana-admin-password=OBSERVABILITY_GRAFANA_ADMIN_PASSWORD'
+      # The account the two push endpoints are guarded with. The middleware in front of them checks
+      # an htpasswd line, and the chart composes that line from these two — a store holds values, and
+      # a format belongs to whoever needs it in that format.
+      - 'push-user=OBSERVABILITY_PUSH_USER'
+      - 'push-password=OBSERVABILITY_PUSH_PASSWORD'
+    mint: [grafana-admin-password, push-password]
+    when: [secret_store_enabled, books_here_in_config]
+    on_failure: exit
+
+  # THE TWO DATA SERVERS' OWN CREDENTIALS, which nothing wrote until these two rows — and the
+  # mongodb one had been read by a chart all along. Each is read by the ExternalSecret of the chart
+  # that runs the server, and each is a value that server is STARTED with rather than one it can be
+  # handed afterwards. So a missing entry is not a workload running unauthenticated: the Secret is
+  # never materialized and the pod is held on the secretKeyRef and the secret volume that name it.
+  #
+  # MINTED AND NEVER TYPED, which is why neither is a key of secrets/secrets.<stage>. A database
+  # password an operator invents is one they have also written down, and mint is create-only: a
+  # field the entry already carries is written back unchanged, so a second run cannot rotate the
+  # value a server was started with out from under it.
+  #
+  # WRITTEN HERE THOUGH BOTH SERVERS RUN ON A SLAVE — clusters/inventories/mongodb/app.yaml and clusters/inventories/redis/app.yaml
+  # both carry `runsOn: slave`. <stage>/app/ is ONE tree with two auth mounts in front of it, and
+  # the slave's own <slave>-eso policy reads that same tree, so the entry is made once here and the
+  # namespace is admitted twice: in the external-secrets role above and in the slave's own list in
+  # register-slave.yaml.
+  #
+  # The SCRAM root user's password, which mongod seeds its first account from as
+  # MONGO_INITDB_ROOT_PASSWORD, and the shared secret the replica-set members authenticate to one
+  # another with as --keyFile. Two fields on ONE entry because one ExternalSecret reads both into
+  # one Secret — the password through a secretKeyRef and the keyfile through a secret volume — and
+  # the server is started with both.
+  - step: vault_kv_entry
+    rests_on_an_earlier_step: true
+    repository: /srv/hostyour-cloud
+    mount: secret
+    path: <stage>/app/mongodb
+    fields:
+      - 'mongodb-root-password=MONGODB_ROOT_PASSWORD'
+      - 'mongodb-replica-set-key=MONGODB_REPLICA_SET_KEY'
+    mint: [mongodb-root-password, mongodb-replica-set-key]
+    when: [secret_store_enabled, books_here_in_config]
+    on_failure: exit
+
+  # The `default` user's password, which redis boots with as --requirepass. One field, and it is
+  # what the server, its probes through REDISCLI_AUTH, its metrics exporter and the provisioner
+  # that writes each claim's ACL user all present.
+  - step: vault_kv_entry
+    rests_on_an_earlier_step: true
+    repository: /srv/hostyour-cloud
+    mount: secret
+    path: <stage>/app/redis
+    fields:
+      - 'redis-password=REDIS_PASSWORD'
+    mint: [redis-password]
+    when: [secret_store_enabled, books_here_in_config]
+    on_failure: exit
+
+  # THE MANAGER'S OWN COPY OF ITS CLIENT SECRET, in the tier its workloads may read.
+  #
+  # The value is minted ONCE, with the identity provider's other clients, and lives at
+  # <stage>/idp/bootstrap. That entry holds every client's secret, and the policy the secret readers
+  # log in under permits <stage>/app/* and nothing else — deliberately, or a workload could read
+  # another workload's credential. So the app tier gets an entry per workload carrying that
+  # workload's secret alone, and the provider's entry stays where only the provider reads it.
+  #
+  # Written FROM the minted value rather than minted again: two mints would be two secrets, and the
+  # side that presents one would not be holding what the side that registered it expects.
+  - step: vault_kv_entry
+    rests_on_an_earlier_step: true
+    repository: /srv/hostyour-cloud
+    mount: secret
+    path: <stage>/app/manager
+    fields:
+      - 'oidc-client-secret=MANAGER_OIDC_CLIENT_SECRET'
+    copy_from:
+      - 'oidc-client-secret=<stage>/idp/bootstrap:manager-client-secret'
+    when: [secret_store_enabled, idp_enabled, books_here_in_config]
+    on_failure: exit
+
+  # The same for the monitoring plane, whose own client is registered under its own name.
+  - step: vault_kv_entry
+    rests_on_an_earlier_step: true
+    repository: /srv/hostyour-cloud
+    mount: secret
+    path: <stage>/app/idp
+    fields:
+      - 'grafana-client-secret=IDP_GRAFANA_CLIENT_SECRET'
+    copy_from:
+      - 'grafana-client-secret=<stage>/idp/bootstrap:grafana-client-secret'
+    when: [secret_store_enabled, idp_enabled, books_here_in_config]
+    on_failure: exit
+
+  # The shared secret GitHub signs its calls with, which the build plane checks before it believes
+  # one. Minted here and put into the hook when the repository is onboarded, so the two sides hold
+  # one value that no operator ever sees.
+  - step: vault_kv_entry
+    rests_on_an_earlier_step: true
+    repository: /srv/hostyour-cloud
+    mount: secret
+    path: <stage>/app/image-builder
+    fields:
+      - 'github-webhook-secret=IMAGE_BUILDER_GITHUB_WEBHOOK_SECRET'
+    mint: [github-webhook-secret]
+    when: [secret_store_enabled, build_plane_here_in_config, books_here_in_config]
+    on_failure: exit
+
+  # NEITHER OF THE TWO IS A UNIT'S OWN ENTRY, which is why these are seeded and build/<unit>/repo-pat
+  # is not. A unit's credential is written by the Manager when it onboards that unit, and nothing
+  # can read it earlier: the entry is read by the ExternalSecrets the build fan-out renders from
+  # registrations/<unit>/build.yaml, and the Manager commits that registration one step before it
+  # writes the entry. The Manager's own image is built the same way, through
+  # ansiwise/programs/onboard-manager.yaml. The two below are the platform repositories every unit's
+  # bump pushes to — the two literal leaves of <cluster>-build-read above — and no onboarding writes
+  # them.
+  #
+  # Stage-free by construction: a release is one image and never one per stage, so each of the two
+  # platform repositories has one credential on one secret store. Required and not optional — the
+  # release bump is the one thing a build plane exists to do, and a missing credential that only
+  # warns leaves the gap to surface at the first release instead.
+  #
+  # NEITHER OF THESE IS THE ANSWER THE PLATFORM WRITES ITS BOOKS WITH, and that is what two answers
+  # rather than one are for. This tier is read by every build namespace and some of those belong to
+  # parties outside this organisation, so the answer that reaches it is a separate one — rotating it,
+  # or withdrawing it, touches nothing else.
+  - step: vault_kv_entry
+    rests_on_an_earlier_step: true
+    repository: /srv/hostyour-cloud
+    mount: secret
+    path: build/hostyour-cloud/repo-pat
+    fields: ['pat=BUILD_HOSTYOUR_CLOUD_REPO_PAT']
+    when: [secret_store_enabled, build_plane_here_in_config, books_here_in_config]
+    on_failure: exit
+
+  - step: vault_kv_entry
+    rests_on_an_earlier_step: true
+    repository: /srv/hostyour-cloud
+    mount: secret
+    path: build/catalog/repo-pat
+    fields: ['pat=BUILD_CATALOG_REPO_PAT']
+    when: [secret_store_enabled, build_plane_here_in_config, books_here_in_config]
+    on_failure: exit
+
+  # --- the identity provider ------------------------------------------------------------------
+  #
+  # Deployed by this program and never by the reconciler. The reconciler authenticates through it,
+  # so a self-managing loop makes a broken identity provider unrecoverable: no way in to fix the
+  # thing that is keeping everybody out.
+  - step: helm_repository
+    rests_on_an_earlier_step: true
+    name: authentik
+    url: https://charts.goauthentik.io
+    when: [idp_enabled, books_here_in_config]
+    on_failure: continue
+
+  - step: kubernetes_namespace
+    rests_on_an_earlier_step: true
+    namespace: idp
+    when: [idp_enabled, books_here_in_config]
+    on_failure: continue
+
+  # The credentials the release below reads, put on the cluster out of the store where they came
+  # into being. Five keys out of four fields, because each side was named by whoever reads it: the
+  # identity provider reads three of them through envFrom, and the database it brings with it reads
+  # the other two under the names that database decided on. One field reaching two keys is the whole
+  # reason a credential is held in one place and materialized rather than minted where it is needed.
+  #
+  # THE ADMINISTRATOR'S PASSWORD IS READ ONCE AND NEVER AGAIN. The provider seeds its first account
+  # from it on the first start of an empty database and records that it is set up; every start after
+  # that finds the record and does nothing at all. So the key standing here forever changes nothing,
+  # and a rotation of that account's password is made in the provider — writing a new value into the
+  # store would leave the two disagreeing and nothing would say so.
+  #
+  # IT MUST BE ON THE CLUSTER BEFORE THE RELEASE IS INSTALLED, which is what this row's place in the
+  # order is for. Pods that start without it stand there with the out-of-box flow open for as long
+  # as it takes somebody to notice, and the first stranger who walks that flow owns the account —
+  # after which supplying the value changes nothing at all, because the provider is set up and never
+  # reads it again.
+  - step: kubernetes_secret_from_vault
+    rests_on_an_earlier_step: true
+    repository: /srv/hostyour-cloud
+    mount: secret
+    path: <stage>/idp/database
+    name: idp-credentials
+    namespace: idp
+    fields:
+      - 'AUTHENTIK_SECRET_KEY=secret-key'
+      - 'AUTHENTIK_POSTGRESQL__PASSWORD=postgres-password'
+      - 'password=postgres-password'
+      - 'postgres-password=postgres-admin-password'
+    staging: /run/ansiwise
+    # /run belongs to root, so making the directory under it and writing the manifest into it
+    # both need elevation. The manifest holds a credential on its way to the cluster and is
+    # removed again; it is staged there rather than in the checkout precisely because that
+    # filesystem is memory and is gone at the next restart.
+    elevated: true
+    # On BOTH, and that is a dependency this program did not have before. The identity provider used
+    # to mint its own credentials where it stood; now it reads them out of the secret store, so an
+    # installation that switched the store off cannot have an identity provider either. Gated rather
+    # than assumed, so what happens is a skipped row with its reason instead of a pod that starts and
+    # cannot reach its database.
+    when: [idp_enabled, secret_store_enabled, books_here_in_config]
+    on_failure: exit
+
+  # The environment map and the secrets that bootstrap the IDP
+  - step: kubernetes_object_reversible
+    rests_on_an_earlier_step: true
+    repository: /srv/hostyour-cloud
+    manifest: clusters/bootstrap/idp/idp-bootstrap-env.yaml
+    when: [idp_enabled, books_here_in_config]
+    on_failure: continue
+
+  - step: kubernetes_secret_from_vault
+    rests_on_an_earlier_step: true
+    repository: /srv/hostyour-cloud
+    mount: secret
+    path: <stage>/idp/bootstrap
+    name: idp-bootstrap-secrets
+    namespace: idp
+    fields:
+
+      - 'IDP_ARGOCD_CLIENT_SECRET=argocd-client-secret'
+      - 'IDP_MANAGER_CLIENT_SECRET=manager-client-secret'
+      - 'IDP_GRAFANA_CLIENT_SECRET=grafana-client-secret'
+      - 'IDP_HEADLAMP_CLIENT_SECRET=headlamp-client-secret'
+      - 'IDP_VAULT_CLIENT_SECRET=vault-client-secret'
+      # DELIBERATELY WITHOUT THE PROVIDER'S OWN PREFIX. Every key of this Secret becomes an
+      # environment variable of the provider's pods verbatim, and the provider reads every variable
+      # named after itself as one of its configuration keys. A credential is not one, so this is
+      # named for the platform instead. The blueprint that declares the token reads exactly this
+      # name.
+      - 'PLATFORM_API_TOKEN=platform-api-token'
+    staging: /run/ansiwise
+    # /run belongs to root, so making the directory under it and writing the manifest into it
+    # both need elevation. The manifest holds a credential on its way to the cluster and is
+    # removed again; it is staged there rather than in the checkout precisely because that
+    # filesystem is memory and is gone at the next restart.
+    elevated: true
+    when: [idp_enabled, secret_store_enabled, books_here_in_config]
+    on_failure: continue
+
+  # The blueprints that declare every OIDC client of this installation. Not applied — the release
+  # below mounts this ConfigMap in its pod and its worker discovers whatever files it finds there,
+  # so what has to exist first is the map. Made from the directory rather than from a list of files,
+  # so a blueprint added tomorrow reaches the cluster without a second list being edited to match.
+  - step: kubernetes_configmap_from_directory
+    rests_on_an_earlier_step: true
+    repository: /srv/hostyour-cloud
+    directory: clusters/bootstrap/idp/blueprints
+    name: idp-blueprints
+    namespace: idp
+    staging: /run/ansiwise
+    # /run belongs to root, so making the directory under it and writing the manifest into it
+    # both need elevation. The manifest holds a credential on its way to the cluster and is
+    # removed again; it is staged there rather than in the checkout precisely because that
+    # filesystem is memory and is gone at the next restart.
+    elevated: true
+    when: [idp_enabled, books_here_in_config]
+    # An issue and not a stop, like every other row of this block. The release comes up either way;
+    # what is missing without this is the declaration of its clients, so an operator meets an
+    # identity provider that runs and offers a login to nothing — which is worth a named finding and
+    # not worth abandoning a cluster halfway through.
+    on_failure: continue
+
+  - step: helm_release
+    rests_on_an_earlier_step: true
+    release: idp
+    chart: authentik/authentik
+    chart_version: '2026.5.6'
+    namespace: idp
+    values: /srv/hostyour-cloud/clusters/bootstrap/idp/values.yaml
+    when: [idp_enabled, books_here_in_config]
+    on_failure: continue
+
+  # The objects the identity provider's release does not carry: its public address and the
+  # certificate for it, the forward-auth middleware every protected route in this installation
+  # names, and the binding that makes the operator's own group a cluster administrator. Applied
+  # after the release, because a route to a service that does not exist answers nothing.
+  - step: kubernetes_object_reversible
+    rests_on_an_earlier_step: true
+    repository: /srv/hostyour-cloud
+    manifest: clusters/bootstrap/idp/ingressroute.yaml
+    when: [idp_enabled, books_here_in_config]
+    on_failure: continue
+
+  - step: kubernetes_object_reversible
+    rests_on_an_earlier_step: true
+    repository: /srv/hostyour-cloud
+    manifest: clusters/bootstrap/idp/middleware-forwardauth.yaml
+    when: [idp_enabled, books_here_in_config]
+    on_failure: continue
+
+  # WHERE THE IDENTITY PROVIDER ISSUES THE TOKENS THIS CLUSTER ACCEPTS, composed by the step rather
+  # than by this file. A file that can build a string is a file that can compute, and what then gets
+  # debugged is the file — which is what a format string here used to be.
+  #
+  # The three parts are this installation's: the label the provider is served under, the answer
+  # holding the domain, and the slug the provider registered the application as. The PATH between
+  # them is the provider's own, and the step is the one thing here allowed to know it.
+  - step: measure_issuer_url
+    subdomain: idp
+    domain_answer: books_fqdn
+    application: headlamp
+    when: [idp_enabled, books_here_in_config]
+    on_failure: continue
+
+  - step: wait_for_http_field
+    rests_on_an_earlier_step: true
+    waiting_for: the identity provider to serve the discovery document at its issuer address
+    # THE DOCUMENT, NOT THE ADDRESS. A route whose backend is not up answers 503, and a 503 is
+    # something answering - so a wait on the address alone was over at the moment the thing it
+    # guards was not yet true. Measured on a first installation: three rows below this one failed
+    # together, and the secret store's own log named the cause, "error checking oidc discovery URL
+    # ... 503 Service Unavailable: no available server". What follows this row reads the discovery
+    # document, so that is what is waited for: a 503 is not a JSON object and carries no field, and
+    # the wait keeps asking.
+    #
+    # THE ISSUER ADDRESS ENDS IN A SLASH, which is why no second one stands in front of the path.
+    url: <issuer-url>.well-known/openid-configuration
+    values:
+      issuer-url: { measured: issuer_url }
+    field: issuer
+    # PRESENT RATHER THAN EQUAL TO SOMETHING. The value of this field is the issuer address, which
+    # this run already holds as a measurement - writing it out here would be a second copy of it,
+    # and two copies agree only until one of them is edited.
+    until_present: true
+    accepts_any_certificate: true
+    timeout_seconds: 300
+    when: [idp_enabled, books_here_in_config]
+    on_failure: continue
+
+  - step: set_process_flag
+    rests_on_an_earlier_step: true
+    value:
+      measured: issuer_url
+    args_path: /var/snap/microk8s/current/args/kube-apiserver
+    # The arguments file of a system service belongs to root.
+    elevated: true
+    flag: --oidc-issuer-url
+    file_mode: 384
+    restart_command: [echo, skipping restart until all flags are written]
+    when: [idp_enabled, books_here_in_config]
+    on_failure: continue
+
+  - step: set_process_flags
+    rests_on_an_earlier_step: true
+    args_path: /var/snap/microk8s/current/args/kube-apiserver
+    # The arguments file of a system service belongs to root.
+    elevated: true
+    file_mode: 384
+    flags:
+      - '--oidc-client-id=headlamp'
+      - '--oidc-username-claim=preferred_username'
+      - '--oidc-username-prefix=oidc:'
+      - '--oidc-groups-claim=groups'
+      - '--oidc-groups-prefix='
+    # THE SNAP CARRIES NO SERVICE OF THAT NAME. What it carries is daemon-kubelite, which hosts
+    # the API server together with the scheduler, the controller manager and the node agent, and
+    # reads this file through --apiserver-args-file. Measured: `daemon-apiserver` answers
+    # `snap "microk8s" has no service "daemon-apiserver"`, so the six flags above stood in the
+    # file while the running server carried none of them, and every console login came back to
+    # the sign-in dialog because the API server did not know the issuer.
+    restart_command: [snap, restart, microk8s.daemon-kubelite]
+    ready_command: [microk8s, kubectl, get, namespace]
+    ready_timeout_seconds: 300
+    when: [idp_enabled, books_here_in_config]
+    on_failure: continue
+
+  - step: oidc_admins_binding
+    rests_on_an_earlier_step: true
+    name: oidc-platform-admins
+    group: admins
+    cluster_role: cluster-admin
+    when: [idp_enabled, books_here_in_config]
+    on_failure: continue
+
+  # --- the kubernetes dashboard (headlamp) ----------------------------------------------------
+  #
+  # THE PROJECT MOVED AND THE OLD ADDRESS ANSWERS 404. It used to publish its charts under its own
+  # organisation and now publishes them under kubernetes-sigs; the pinned version is at the new
+  # address unchanged. What a run showed was two failures for one cause — the repository could not
+  # be added, and the release right after it failed with "repo headlamp not found", which reads like
+  # a second problem and is the same one.
+  - step: helm_repository
+    rests_on_an_earlier_step: true
+    name: headlamp
+    url: https://kubernetes-sigs.github.io/headlamp/
+    when: [idp_enabled, books_here_in_config]
+    on_failure: continue
+
+  - step: kubernetes_namespace
+    rests_on_an_earlier_step: true
+    namespace: headlamp
+    when: [idp_enabled, books_here_in_config]
+    on_failure: continue
+
+  - step: kubernetes_secret_from_vault
+    rests_on_an_earlier_step: true
+    repository: /srv/hostyour-cloud
+    mount: secret
+    path: <stage>/idp/bootstrap
+    name: headlamp-oidc
+    namespace: headlamp
+    fields:
+      - 'OIDC_CLIENT_SECRET=headlamp-client-secret'
+    staging: /run/ansiwise
+    # /run belongs to root, so making the directory under it and writing the manifest into it
+    # both need elevation. The manifest holds a credential on its way to the cluster and is
+    # removed again; it is staged there rather than in the checkout precisely because that
+    # filesystem is memory and is gone at the next restart.
+    elevated: true
+    when: [idp_enabled, secret_store_enabled, books_here_in_config]
+    on_failure: continue
+
+  - step: helm_release
+    rests_on_an_earlier_step: true
+    release: headlamp
+    chart: headlamp/headlamp
+    chart_version: '0.42.0'
+    namespace: headlamp
+    values: /srv/hostyour-cloud/clusters/bootstrap/headlamp/values.yaml
+    when: [idp_enabled, books_here_in_config]
+    on_failure: continue
+
+  - step: kubernetes_object_reversible
+    rests_on_an_earlier_step: true
+    repository: /srv/hostyour-cloud
+    manifest: clusters/bootstrap/headlamp/ingressroute.yaml
+    when: [idp_enabled, books_here_in_config]
+    on_failure: continue
+
+  # --- browser logins into the secret store ---------------------------------------------------
+  #
+  # Only where there is an identity provider to log in through. The API of the secret store stays
+  # token-driven either way, so an installation without one keeps its root token and nothing else
+  # changes.
+
+  # THE PROVIDER THE NEXT ROW NAMES, AND NOT ANOTHER ONE. The wait far above this one watches the
+  # headlamp application, and one provider being published says nothing about a second: the
+  # identity provider publishes each application's discovery document on its own, and the row below
+  # is configured against `vault`. Measured on a first installation: headlamp answered 200 at
+  # 19:07:15 and five seconds later the secret store was told `error checking oidc discovery URL`
+  # about /application/o/vault/ (apps3, 2026-08-28, run 20260828T190327Z-67109-c7fb8914).
+  #
+  # THE ADDRESS IS COMPOSED HERE RATHER THAN MEASURED. measure_issuer_url publishes under one fixed
+  # name, and a program may publish a measurement once — a second row measuring the vault
+  # application is refused before anything runs, naming both rows. `<idp-url>` is no use either: it
+  # is filled by the secret store's own package for its own rows, and this is a host row. So the
+  # domain comes from the same answer the headlamp measurement reads, and the rest is the address
+  # the row below is configured with, written out.
+  - step: wait_for_http_field
+    rests_on_an_earlier_step: true
+    waiting_for: the identity provider to serve the vault application's discovery document
+    # THE DOCUMENT AND NOT THE ADDRESS, for the reason the headlamp wait above states: a route whose
+    # backend is not up answers 503, and a 503 is something answering.
+    url: https://idp.<books-fqdn>/application/o/vault/.well-known/openid-configuration
+    values:
+      books-fqdn: { answer: books_fqdn }
+    field: issuer
+    until_present: true
+    accepts_any_certificate: true
+    timeout_seconds: 300
+    when: [secret_store_enabled, idp_enabled, books_here_in_config]
+    on_failure: continue
+
+  - step: vault_auth_method
+    rests_on_an_earlier_step: true
+    repository: /srv/hostyour-cloud
+    type: oidc
+    path: oidc
+    # ENABLING THE MOUNT IS HALF OF IT. A mount that is enabled and never told where the identity
+    # provider is cannot resolve a role, and what a person sees is `Invalid role` — a message about
+    # the role, which exists, rather than about the configuration, which does not. Measured on a
+    # machine whose `auth/oidc/config` answered `No value found` while `auth/oidc/role` listed
+    # `default`.
+    #
+    # The address keeps its trailing slash: the provider publishes its issuer with one, and the
+    # store refuses a discovery document whose issuer differs from the address it was given by a
+    # single character.
+    configuration: >-
+      {"oidc_discovery_url":"<idp-url>/application/o/vault/",
+      "oidc_client_id":"vault","default_role":"default"}
+    # The client secret was MINTED into the store by the row that registered the provider's clients,
+    # so it exists nowhere else — it never was an answer of this run and must not become one.
+    configuration_from_entries:
+      - 'oidc_client_secret=secret/<stage>/idp/bootstrap:vault-client-secret'
+    # The store takes it and its config read omits it, so comparing it would find it missing on
+    # every run and this step could never call itself finished.
+    configuration_write_only: [oidc_client_secret]
+    when: [secret_store_enabled, idp_enabled, books_here_in_config]
+    on_failure: continue
+
+  # Sudo-equivalent everywhere, and safe only because the role below hands it out to nobody whose
+  # groups claim is missing `admins`. A user who authenticates and is not in that group matches no
+  # role and gets no access at all. The root token stays the way back in if the claim ever stops
+  # binding.
+  - step: vault_policy
+    rests_on_an_earlier_step: true
+    repository: /srv/hostyour-cloud
+    name: admin
+    rules: |
+      path "*" {
+        capabilities = ["create", "read", "update", "delete", "list", "sudo", "patch"]
+      }
+    when: [secret_store_enabled, idp_enabled, books_here_in_config]
+    on_failure: continue
+
+  # The whole role as one object, because `bound_claims` is a map and a role whose map fields arrive
+  # as text is refused with a message about types.
+  #
+  # `groups` STANDS AMONG THE SCOPES BECAUSE THE ROLE DECIDES ON IT. A token carries the claim only
+  # where the scope was asked for, so a role bound on a groups claim and not asking for groups can
+  # never match anyone — it was granted to this client and never requested, and every login was
+  # refused for a claim that had simply not been sent.
+  - step: vault_auth_role
+    rests_on_an_earlier_step: true
+    repository: /srv/hostyour-cloud
+    mount: oidc
+    role: default
+    body: >-
+      {"role_type":"oidc","user_claim":"preferred_username","groups_claim":"groups",
+      "bound_audiences":["vault"],"bound_claims":{"groups":["admins"]},
+      "oidc_scopes":["openid","profile","email","groups"],
+      "allowed_redirect_uris":["<vault-url>/ui/vault/auth/oidc/oidc/callback",
+      "http://localhost:8250/oidc/callback"],"token_policies":["admin"]}
+    when: [secret_store_enabled, idp_enabled, books_here_in_config]
+    on_failure: continue
+
+  # --- the first operator, made a member rather than pretended to be one ----------------------
+  #
+  # WHY THESE TWO ROWS EXIST. Every service of this installation that accepts a browser login
+  # decides on a group carried in the token's claim. On a fresh installation the only person who
+  # exists is the account the provider's own bootstrap made, and nothing has put them into the
+  # platform's group — so the first operator would be refused by every one of those services, on a
+  # machine whose install just reported success.
+  #
+  # It used to be closed inside the provider, by an expression that APPENDED the group name to the
+  # claim for anybody the provider considered privileged. That admits people on a value computed at
+  # token time rather than on a membership anyone can look at, and it silently lost to the
+  # provider's own mapping of the same claim: the invented name never reached a token, and every
+  # login was refused for a claim that had never been sent.
+  #
+  # A declaration cannot do it either: the provider's group object states its MEMBER LIST, so
+  # re-applying it removes whoever it does not name — which is why that declaration is marked
+  # create-once, and why it does nothing at all on an installation where the group already exists.
+  # An act belongs in a step, and this is the act.
+  - step: file_from_vault
+    rests_on_an_earlier_step: true
+    repository: /srv/hostyour-cloud
+    mount: secret
+    path: <stage>/idp/bootstrap
+    field: platform-api-token
+    # Beside the store's own credential file and read the same way. The program says the path and
+    # never the token: a program file is read by everyone who may read the installation.
+    # NO SLOT IN THIS NAME, and the reason moved: `file_from_vault` fills the run's slots in
+    # `file_path` now, but `authentik_group_membership` below reads this same file through
+    # `token_path` and fills nothing — the filling lives on VaultLayout, inside ansiwise-vault,
+    # where a step of another package cannot reach it. Two rows that must name ONE file can only
+    # agree on a name neither of them fills, so the slot stays out until both can fill it.
+    file_path: /srv/hostyour-cloud/secrets/idp-api-token.txt
+    file_mode: 384
+    when: [secret_store_enabled, idp_enabled, books_here_in_config]
+    on_failure: continue
+
+  # LAST OF THE IDENTITY ROWS ON PURPOSE. The group and the token are both objects the provider
+  # applies from its own configuration, and it applies them on its own schedule after coming up. A
+  # run that reaches this before either exists is REFUSED by name — it says which of the two is not
+  # there — rather than inventing anything, and the next run finds them.
+  - step: authentik_group_membership
+    rests_on_an_earlier_step: true
+    subdomain: idp
+    domain_answer: books_fqdn
+    # The account the provider's own bootstrap creates. Which account that is, is a fact about the
+    # provider and not about this platform, so it is stated here rather than known by the step.
+    user: akadmin
+    # ONE NAME FOR THE PLATFORM'S STAFF, and every consumer admits on this one: the cluster's role
+    # binding, the reconciler's policy and the secret store's role all name it.
+    group: admins
+    token_path: /srv/hostyour-cloud/secrets/idp-api-token.txt
+    when: [secret_store_enabled, idp_enabled, books_here_in_config]
+    on_failure: continue
+
+  # --- the machine's resident deployment service ------------------------------------------------
+  #
+  # Everything up to here was driven from OUTSIDE the machine: the operator app opens an SSH
+  # session, starts `ansiwise serve` inside it, and that session's own streams are the whole
+  # connection — it ends when the operator disconnects. What the platform's manager needs
+  # afterwards — another deployment run, a new cluster's branch, the tailnet, a release — has to be
+  # asked of something that is already on the machine and comes back with it after a restart.
+  # These three rows are what a program file can put there: the catalogue the service runs programs
+  # from, the token that secures it in the store the manager reads it out of, and the machine's copy
+  # of that token. The unit that starts the service and the switch that turns it on are the binary's
+  # own act, and the paragraph after the last row says with what it is run. The binary itself is
+  # deploy-cluster's, pinned in its tool phase beside argocd and yq.
+  #
+  # WHICH CHECKOUT THE SERVICE POINTS AT, decided here because two trees stand on the machine and
+  # only one of them carries programs. /srv/hostyour-cloud is the machine layer — the branch
+  # deploy-branch generated, the profile, the hand-filled input — and it is what the program rows
+  # point their `repository:` at; it carries no ansiwise/ tree at all. The catalogue — the
+  # ansiwise.yaml, the programs, the templates — lives in the tenant catalog repository, so the
+  # service is given a checkout OF THAT REPOSITORY, at /srv/ansiwise-catalog, and reads its
+  # programs there. Folding the catalogue into the installation branch instead would put it under
+  # deploy-branch's stamping, which rewrites exactly the placeholder text a program file has to
+  # keep.
+  #
+  # Which repository and with what right are this machine's own facts: the branch program wrote
+  # the repository's name into the config file and the read credential into the hand-filled input,
+  # and the row names the file and the key of each. The credential is read-only on purpose — what
+  # runs programs on a machine must not be able to rewrite the catalog they come from.
+  - step: git_clone
+    rests_on_an_earlier_step: true
+    repository: /srv/ansiwise-catalog
+    host: github.com
+    branch: master
+    origin_file: /srv/hostyour-cloud/configs/config.<stage>
+    origin_key: CATALOG_REPO
+    credential_file: /srv/hostyour-cloud/secrets/secrets.<stage>
+    credential_key: CATALOG_REPO_READ_PAT
+    credential_user: x-access-token
+    elevated: true
+    # AND HANDED BACK, which every other clone row in this catalogue states and this one did not.
+    #
+    # Elevation is needed for the credential and the path, never for the RESULT: git runs as root
+    # here, and every file that changed since this machine cloned the catalogue is rewritten as root.
+    # The account that reads the catalogue is this one, and the engine reads the WHOLE of it when it
+    # opens an installation — so a single file left under root stops every program after this one,
+    # with a stack trace about a path instead of a sentence about a permission.
+    #
+    # Measured on apps5 on 2026-08-31: a commit reached the catalogue's master while this program was
+    # running, this row brought it forward, and `tailnet-join-self` died before its first step on
+    # `deploy-platform-services.yaml` — one file, root:root 0640, byte-identical to the repository's,
+    # standing among siblings owned by the operator.
+    #
+    # driver.sh states the same lesson for its own elevated clone and runs `chown -R` after it. This
+    # row is the one place a machine's catalogue is written where nothing did.
+    owner_answer: operator_user
+    when: [secret_store_enabled]
+    on_failure: exit
+
+  # The token the manager presents to the service, and the whole of the service's authentication —
+  # it may do everything, and rotation is deliberately deferred. Nobody can be asked for it and
+  # nothing else can produce it, so it comes into being here: minted once, create-only like every
+  # other minted field of this seed, on the manager's own tier beside the SSH credential the
+  # manager already materializes out of <stage>/manager-host. ANSIWISE_SERVICE_TOKEN is no key of
+  # the hand-filled input at all — not an empty one — and neither are the identity provider's four.
+  # That is the state the input's own header describes for every value this seed produces rather
+  # than reads: an operator who filled such a line in would be inventing a credential by hand.
+  - step: vault_kv_entry
+    rests_on_an_earlier_step: true
+    repository: /srv/hostyour-cloud
+    mount: secret
+    path: <stage>/manager-host/ansiwise
+    fields: ['service-token=ANSIWISE_SERVICE_TOKEN']
+    mint: [service-token]
+    when: [secret_store_enabled, books_here_in_config]
+    on_failure: exit
+
+  # The machine's copy of that token: the one file the service reads it from, held by root alone.
+  # The row materializes and never mints, so the manager's copy and the machine's copy are ONE
+  # value — and replacing it is done by deleting this file and the entry above and running again,
+  # never by a second mint.
+  - step: file_from_vault
+    rests_on_an_earlier_step: true
+    repository: /srv/hostyour-cloud
+    mount: secret
+    path: <stage>/manager-host/ansiwise
+    field: service-token
+    file_path: /etc/ansiwise/service-token
+    file_mode: 384
+    elevated: true
+    when: [secret_store_enabled, books_here_in_config]
+    on_failure: exit
+
+  # THE UNIT AND THE SWITCH ARE NOT ROWS, and cannot be. `ansiwise install-service` writes the unit
+  # the binary carries to /etc/systemd/system/ansiwise.service and enables it, and it composes the
+  # started command out of the option names it will itself be started with — ansiwise-cli
+  # bin/ansiwise.dart for the subcommand, lib/service_installation.dart for ServiceInstallation and
+  # the command it builds. A unit composed anywhere else is a copy of that binary's interface kept
+  # by somebody who cannot see it change, and one naming an option the binary does not have starts,
+  # exits with a usage error, and does it again at every boot with nothing but a journal saying so.
+  #
+  # NOT A ROW IS NOT THE SAME AS A PERSON, and that is what this block used to leave to the reader.
+  # What runs install-service is what placed the binary: hostyour-manager
+  # server/domains/runs/defs/place-ansiwise.ts, whose fourth placement is the SERVICE. It composes
+  # nothing — it invokes install-service and reads the machine afterwards for whether the unit is
+  # enabled, running, and starting the version it just placed on the address it was told — and it is
+  # the same mechanism that put the binary, the catalogue and the platform checkout there, so there
+  # is one thing to drive and not two.
+  #
+  # WHAT THE INSTALLATION IS TOLD is the catalogue the clone above placed. install-service takes the
+  # service's working directory from the directory it is itself run in, so it is run from
+  # /srv/ansiwise-catalog — which is also what makes --config and --runs the right values without
+  # being named: they default to ansiwise.yaml beside that directory and to /var/lib/ansiwise/runs,
+  # and the binary writes both into the unit itself. What IS named is
+  # --programs /srv/ansiwise-catalog/ansiwise/programs, whose default is not where this catalogue
+  # keeps them, and --service-token-file /etc/ansiwise/service-token, the file the row above writes.
+  #
+  # The token value itself arrives on standard input as the answer `service_token`, under
+  # `--answers -`, because a value on a command line stands in every process listing on the machine —
+  # and it is read back out of that same file, ON THE MACHINE, so the value this block minted at
+  # <stage>/manager-host/ansiwise never travels through whoever drives the installation.
+  #
+  # --listen is the machine's tailnet address: ServiceInstallation refuses every address outside
+  # 100.64.0.0/10, since a caller on an address presents that token in a plain HTTP header. WHICH IS
+  # WHY THE ACT CANNOT SIT AT THE END OF THIS PROGRAM EITHER: the machine holds no such address until
+  # it has joined the tailnet, which happens after this run.
+  #
+  # WHERE IT SITS INSTEAD, and it is ONE list and not a rule about every machine: hostyour-manager's
+  # deploy-slave step list (server/domains/runs/defs/deploy-slave.ts), whose `enable-ansiwise-service`
+  # step stands after the join and drives the same placement a second time. The placement is measured
+  # — the binary, the catalogue and the platform checkout are found standing and only the service is
+  # placed — and it measures the service by what the UNIT STARTS, so a machine met at a moved pin has
+  # its unit written again instead of being reported on the new version while it starts the old file.
+  # A master carries no such step: at its first installation it is reached by ansiwise-client, which
+  # places the binary and nothing else. So the arrangement above is that ONE list's, and on a master
+  # the switch is still somebody's to throw.
+
+  # --- the reconciler -------------------------------------------------------------------------
+  #
+  # AND ONLY WHERE THIS CLUSTER KEEPS ITS OWN BOOKS, which is the same thing as saying: only where
+  # this cluster is not driven from somewhere else.
+  #
+  # A SLAVE MUST NOT CARRY ONE. Its applications are driven by an instance that stands on its
+  # MASTER — clusters/argocd/apps/slaves-appset.yaml generates one Application per slave with
+  # `server: https://kubernetes.default.svc`, so the instance runs on the master, in a namespace
+  # named after the slave, and reaches the slave through the bearerToken and caData its registration
+  # put in the master's store. A reconciler installed on the slave as well would be a SECOND driver
+  # of the same cluster: two owners of every object, each with `selfHeal` on, each undoing what the
+  # other just did.
+  #
+  # These rows carried `reconciler_enabled` alone and nothing told a master from a slave, so every
+  # slave got one. Measured on apps6 on 2026-09-01: the release installed, the route was applied,
+  # and clusters/argocd/root-app.yaml was pointed at the slave's own branch — a second app-of-apps
+  # beside the master's.
+  #
+  # WHOSE BOOKS is the discriminator the tree already has, and it is not a proxy: the master's own
+  # generator selects a slave BY that fact — `booksCluster: <master>` in its selector — so a cluster
+  # whose books are elsewhere is exactly a cluster something else drives.
+  - step: helm_repository
+    rests_on_an_earlier_step: true
+    name: argo
+    url: https://argoproj.github.io/argo-helm
+    when: [reconciler_enabled, books_here_in_config]
+    on_failure: continue
+
+  - step: kubernetes_namespace
+    rests_on_an_earlier_step: true
+    namespace: argocd
+    when: [reconciler_enabled, books_here_in_config]
+    on_failure: continue
+
+  # THE SAME WAIT THE STORE'S NAMESPACE GETS, and for the same reason with a milder consequence.
+  # Every component of the reconciler mounts the trust bundle, and a pod created before the
+  # distributor has written it into this namespace cannot mount it. A Deployment retries and comes up
+  # moments later where the store's StatefulSet — which the chart updates `OnDelete` — would not, so
+  # this is the difference between a race that usually resolves itself and one that is measured.
+  # Turning it into a wait costs a second on a run where the bundle is already there.
+  - step: wait_for_command_output
+    rests_on_an_earlier_step: true
+    waiting_for: the trust bundle to reach the namespace the reconciler runs in
+    command: microk8s
+    command_arguments:
+      - kubectl
+      - -n
+      - argocd
+      - get
+      - configmap
+      - platform-trust
+      - -o
+      - 'jsonpath={.metadata.name}'
+    answer: platform-trust
+    elevated: true
+    timeout_seconds: 120
+    interval_seconds: 5
+    when: [reconciler_enabled, books_here_in_config]
+    on_failure: exit
+  # THE SIGN-IN SECRET IS READ AND NO LONGER WRITTEN IN HERE. `argocd-oidc` (key clientSecret) is
+  # what clusters/bootstrap/argocd/values.yaml resolves as `$argocd-oidc:clientSecret`, and a row
+  # here could only put it there with the store's ROOT TOKEN — which exists on the cluster that
+  # keeps the books and nowhere else. A cluster keeping none could not have it at all, and the
+  # deployment that tried died at this row (apps4, 2026-08-29).
+  #
+  # It now arrives the way every other secret on every cluster does: clusters/inventories/argocd-signin
+  # renders a SecretStore and an ExternalSecret into the reconciler's namespace, and this cluster's
+  # own ESO reads the entry at <stage>/idp/bootstrap with this cluster's own policy. One mechanism
+  # instead of two, and the object is a resource of a GitOps Application — visible in the reconciler
+  # it belongs to rather than applied past it.
+  #
+  # It arrives AFTER this program, which costs nothing: a reconciler syncs without the secret and
+  # only a person signing in needs it.
+
+  - step: helm_release
+    rests_on_an_earlier_step: true
+    release: argocd
+    chart: argo/argo-cd
+    chart_version: '10.2.1'
+    namespace: argocd
+    values: /srv/hostyour-cloud/clusters/bootstrap/argocd/values.yaml
+    when: [reconciler_enabled, books_here_in_config]
+    on_failure: continue
+
+  # The reconciler's own public address and its certificate.
+  - step: kubernetes_object_reversible
+    rests_on_an_earlier_step: true
+    repository: /srv/hostyour-cloud
+    manifest: clusters/bootstrap/argocd/ingressroute.yaml
+    when: [reconciler_enabled, books_here_in_config]
+    on_failure: continue
+
+  # --- the handoff -----------------------------------------------------------------------------
+  #
+  # Last, and last for a reason: the applications this starts read on their first sync what the seed
+  # above wrote. After it the installer decides nothing more about this cluster.
+  #
+  # ONE OBJECT, AND IT IS WHY THE ROW IS THE IRREVERSIBLE KIND rather than the ordinary one. Nothing
+  # in the branch's application tree reaches the cluster except through the single application this
+  # applies: it is what creates the projects, the generators and every platform application below
+  # them. The ordinary row's undo deletes what its manifest names, and deleting this one takes all
+  # of them with it — including everything this run never applied. So the point of no return is
+  # announced instead, and the three sentences an operator reads are written here, because the tool
+  # package knows how a manifest is applied and nothing about the branch it stands in.
+  #
+  # ONE MANIFEST, FOR EVERY STAGE. It used to be one per stage and the row named `argocd/<stage>/`;
+  # the trees were unified into a single parameterised root and the row was not moved with them, so
+  # it pointed at a directory that no longer exists. What that produced was the worst shape a
+  # failure can have: the last step of the program failed, the row said `continue`, the run reported
+  # itself green with every step accounted for — and the reconciler was handed nothing, so not one
+  # platform application was ever created. An operator reading that record sees a finished
+  # installation and an empty ArgoCD, with nothing connecting the two.
+  #
+  # SO THE ROW ENDS THE RUN NOW. Every step before this one exists to make this one possible, and a
+  # run that did everything except hand over has not installed anything — saying so is the whole
+  # difference between a report and a claim.
+  - step: kubernetes_object_irreversible
+    rests_on_an_earlier_step: true
+    repository: /srv/hostyour-cloud
+    manifest: clusters/argocd/root-app.yaml
+    irreversible_reason: >-
+      this is where the authority over the cluster moves: from here the reconciler owns every object
+      of every platform application, and taking the application away again takes all of them with it
+    repair: >-
+      The trunk carries exactly one of these, at clusters/argocd/root-app.yaml, and every stage uses it — so
+      a branch without it is a branch that has fallen behind the trunk. Restore it with "git -C
+      /srv/hostyour-cloud merge master" and re-run.
+    when: [reconciler_enabled, books_here_in_config]
+    on_failure: exit
+
+  # --- what the operator is left holding ---------------------------------------------------------
+  #
+  # LAST, AND AFTER THE HANDOFF, because it is the sentence a person reads when the run is over. The
+  # identity provider is deliberately installed with no bootstrap password — the paragraph in
+  # clusters/bootstrap/idp/values.yaml says why — so a fresh installation stands on the provider's
+  # out-of-box flow and the first person to reach that address chooses their own password and
+  # becomes the administrator of everything here. Every other service of this installation signs in
+  # THROUGH that account, so until somebody takes it the installation is finished and unheld, and
+  # the address is open to whoever gets there first.
+  #
+  # NOTHING ELSE ABOUT A FINISHED RUN SAYS SO. The record ends, every row is accounted for, and an
+  # operator reading it green has no way to know that anything is waiting or where to go. This row
+  # names the address in its own sentence.
+  #
+  # A STEP AND NOT A CLOSING TEXT IN THIS FILE, and that is the point rather than a convenience. A
+  # sentence written here would be the same sentence on the second run of this installation, an hour
+  # after somebody walked the flow — a run telling an operator something untrue about the machine in
+  # front of them. The step asks the provider, anonymously and exactly as that first person would,
+  # and says what it found.
+  #
+  # NO CERTIFICATE WAIVER HERE, unlike the readiness waits above. Those establish that an address
+  # answers at all, in the window where the route stands and its certificate is still being issued.
+  # This one hands a person an address to open in a browser, and a certificate nothing can verify is
+  # an address that person cannot open — so an unverifiable one is a finding rather than something
+  # this row reads past.
+  - step: report_out_of_box_flow
+    rests_on_an_earlier_step: true
+    subdomain: idp
+    domain_answer: books_fqdn
+    when: [idp_enabled, books_here_in_config]
+    # The installation is finished by the time this runs, and a report that could not be made must
+    # not undo it. What a failure costs is that the run ends with a named issue instead of a clean
+    # exit — which is the difference between "nobody was told" and "nobody could be told".
+    on_failure: continue
+
+# What this program has to be told about the installation it runs on.
+#
+# Four, and they are all of it. The domain, the role and the master are what the identity provider's
+# address is composed from, by the step that points the API server at it and by the gate that
+# measures it. The stage names the credential file, the hand-filled input and the manifest the
+# handoff applies, and it stands in the auth role every tenant's secret reader logs in under. What
+# is left — the address of Vault, this cluster's short name, its auth mount — is read out of
+# `installation/profile.yaml` and answered by nobody.
+answers:
+  # THE PASSWORD THIS RUN WAS STARTED WITH, and the one answer nobody sends under this name.
+  #
+  # It is filled by the run itself from what the caller handed over beside the answers, because this
+  # installation takes elevation from the caller rather than from a file on the machine. Declaring it
+  # is how a program says "I need to persist it" — a row above writes it into the store so the
+  # manager, which is the caller of every run after this one, can hand it over in turn.
+  #
+  # An answer of this name arriving in the envelope is refused: the value is already there once, and
+  # the same value in two places is the drift this exists to prevent.
+  - name: elevation_password
+    kind: text
+    secret: true
+    describes: >-
+      The password that raises a command to root on this machine. Never typed into a program file and
+      never read out of one: it is what the caller of this run handed over, and it is written into the
+      secret store so whatever calls the next run can hand it over too.
+
+  - name: fqdn
+    kind: text
+    describes: >-
+      The domain THIS cluster answers under, as it is reached from outside.
+
+  - name: stage
+    kind: text
+    allowed: [dev, test, prod]
+    describes: >-
+      Which of the product's three stages this installation runs. It names the credential file the
+      quorum and the root token of Vault stand in, the hand-filled input every seeded value is read
+      out of, and the manifest the handoff applies.
+
+  - name: role
+    kind: text
+    allowed: [master, slave, master+slave]
+    describes: >-
+      Every part this cluster carries — "master", "slave", or "master+slave" where one machine does
+      both jobs. The identity provider of an installation stands on the cluster holding the master
+      part, and every other cluster accepts the tokens it issues.
+
+  - name: operator_user
+    kind: text
+    describes: >-
+      The account that operates this machine. It is put in the group the manager's admin socket
+      stands in, so the run that onboards the manager can ask that socket for a session.
+
+  - name: books_fqdn
+    kind: text
+    required: false
+    # LEFT EMPTY MEANS THIS CLUSTER. The value falls back to this cluster's own domain, so nobody
+    # types the same domain into two fields and no pair can disagree. It replaces a default of the
+    # empty string, which meant absent and left something else to fill the gap.
+    #
+    # It is NOT called `master`: in this system that word is the product branch — agnostic,
+    # belonging to nobody, where fixes land before they are merged into an installation's branch.
+    default_from: fqdn
+    describes: >-
+      The domain of the cluster that keeps the books — the cluster maps and the registrations this
+      installation knows about itself. Leave it empty where this cluster keeps them itself.

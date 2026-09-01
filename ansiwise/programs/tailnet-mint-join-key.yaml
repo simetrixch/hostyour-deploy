@@ -1,0 +1,81 @@
+# Minting the credential that puts ONE slave on the private network, on the cluster that can: the
+# coordinator and its admin surface live with the master part, so this program runs there while the
+# join itself runs on the slave — two machines, two programs, and the caller that drives both
+# carries the key between them.
+#
+# CREATE-ONLY, BY THE COORDINATOR'S OWN BOOKS. The coordinator lists the keys it would still
+# redeem, and one that is still redeemable is handed back rather than replaced — so the caller may
+# run this as often as it needs, and every run after the first hands back the key the first one
+# minted, never a second live one. Only a key the coordinator itself reports as used or expired is
+# replaced: a dead key is not a live credential, so replacing it rotates nothing.
+#
+# THE COORDINATOR IS ASKED FIRST, ALWAYS — a coordinator that cannot be asked BLOCKS the run rather
+# than answering "no key, mint one" from silence. The caller that acts on this program's verdict is
+# a rejoin that logs the slave out next; a mint that reported success without the coordinator
+# standing behind it would leave that machine on no network with nothing to join.
+#
+# HOW THE KEY REACHES THE CALLER: through key_file alone, readable by the operating account only —
+# read it, carry it to the slave's tailnet-rejoin as the secret answer auth_key, and remove it. It
+# is never an output line, because a run's record keeps output and a credential must have no way
+# into a file that outlives it. The path carries the slave's name, so two slaves minted at once
+# never share a file; a leftover file holds a spent or replaced key at worst, and the next run
+# rewrites it.
+#
+# ONE COORDINATOR USER PER SLAVE, named after it — the same doctrine the whole platform removes
+# machines by: destroying the user takes its keys and its node with it and touches no other slave.
+name: tailnet-mint-join-key
+roles: [master]
+steps:
+  # THE TOOL FIRST, AND THIS ONLY MEASURES. The coordinator runs as a workload of this cluster, and
+  # microk8s is the one command the reaching invocation below starts.
+  - step: require_commands
+    commands: [microk8s]
+    on_failure: exit
+
+  # The mint. The invocation reaches into the coordinator's own pod, because there is no other way
+  # in: its admin listener is bound to loopback and the public address serves the CLIENT protocol —
+  # the deployment name is the catalogue element's own (<release>-app under the app alias, release
+  # headscale-<stage>). 24 hours is the step's own default lifetime: the key is consumed
+  # minutes after it is minted, and an unused credential that lives longer is a standing key into
+  # the network.
+  - step: tailnet_join_credential
+    headscale:
+      - microk8s
+      - kubectl
+      - exec
+      - -n
+      - headscale
+      - deploy/headscale-<stage>-app
+      - --
+      - headscale
+    # microk8s keeps its configuration where only root may read it, and such a client says
+    # "insufficient permissions" on its OUTPUT and exits ZERO — so this is stated, not risked.
+    headscale_needs_root: true
+    user_answer: slave_cluster_name
+    run_answer: stage
+    key_file: /tmp/ansiwise-tailnet-join-key-<slave_cluster_name>
+    on_failure: exit
+
+answers:
+  - name: stage
+    kind: text
+    allowed: [dev, test, prod]
+    describes: >-
+      Which of the product's three stages this installation runs. It stands in the coordinator
+      deployment's name, which is how the invocation above finds the right workload.
+
+  - name: slave_fqdn
+    kind: text
+    describes: >-
+      The domain of the slave this credential is FOR, as its cluster is reached from outside. The
+      key puts exactly one machine on the network, once — mint per slave, never shared.
+
+  # The slave's short name, worked out rather than asked: asking for both invites a pair that does
+  # not match, and the coordinator user created under the mismatch is one no removal ever finds.
+  - name: slave_cluster_name
+    kind: text
+    derived: first_dns_label_of
+    from: slave_fqdn
+    describes: >-
+      The slave's name at the coordinator — the first label of its domain, the same name the
+      platform files the slave's cluster under everywhere else.

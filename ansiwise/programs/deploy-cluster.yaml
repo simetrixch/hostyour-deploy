@@ -1,0 +1,1168 @@
+# Turning a prepared machine into the single-node cluster everything else is deployed onto.
+#
+# Where this starts: a machine deploy-host has judged and provisioned, on a branch deploy-branch has
+# stamped. Where it stops: a node that answers, whose pods are on this platform's own address range,
+# whose lookups resolve from inside a pod, whose addons are on and whose unwanted addons are off,
+# whose volumes land on the data filesystem, and whose certificate issuer is registered so every
+# later address can be given a certificate.
+#
+# THE ORDER IS THE PROGRAM. Five of the constraints below are the reason this file reads the way it
+# does, and each of them is a failure that was silent when it was got wrong:
+#
+#   1. The packet-filtering backend is written BEFORE any addon is switched on. Set now, the service
+#      proxy paints native rules on its first run; set afterwards, rules already exist in the other
+#      backend and nothing here removes them.
+#   2. The pod network is converted BEFORE anything is given an address out of it. At that point a
+#      handful of system pods have to be given new ones, which is free; later it is every workload
+#      on the machine, which is why the conversion refuses a cluster that carries any.
+#   3. The image mirror is written BEFORE the first image is pulled, or the bring-up spends the
+#      public registry's allowance and stops.
+#   4. Everything that patches what an addon installed comes AFTER the addons are on. The name
+#      service's configuration only exists once the name addon is up; the network agent's settings
+#      only once the network addon is; the ingress controller only once the ingress addon is.
+#   5. The addons that must be OFF are switched off after the addons that must be on are switched
+#      on, because some of them come on by themselves when the snap installs.
+#
+# The steps of the pod-network conversion are ordered and not one of them may move. Deleting the
+# address pool before the manifest carries the new range brings the pool straight back on the old
+# one; the restart that makes the service proxy read the new range rides on the row that writes its
+# flag, and the network agent is replaced only after the node has proven it is back up; giving the
+# pods new addresses before the pool converged hands them addresses out of the old pool again.
+#
+# WHAT THIS FILE DOES NOT DECIDE. There is no step that asks whether the conversion has already
+# happened: every step of it reads the live address pool and the service proxy's own arguments in
+# its own check, which is what makes each of them a no-op on a machine that is already converted and
+# what makes a second run of the whole program change nothing.
+name: deploy-cluster
+roles: [master, slave]
+# What every step below is given without its row writing it.
+#
+# These are facts of THIS product's checkout and of the distribution it runs on, not of the tools
+# that read them. A tool package must not know them, and a row repeating them is a place to edit the
+# day one changes. A name here that no step of this program declares is refused with the program,
+# before anything runs.
+defaults:
+  # 384 is 0600: a file the cluster's services read as root, and nothing else has business in.
+  # Written as the number the machine stores, because a leading zero in a file is text. It is what
+  # the argument files are written with AND what the network manifest under the snap is written
+  # with, which is why it stands here rather than on either row.
+  file_mode: 384
+  # The services under the snap are no processes of their own — they run inside kubelite — so
+  # restarting one of them by its own name would do nothing at all.
+  restart_command: [snap, restart, microk8s.daemon-kubelite]
+  # WHAT ANSWERING AGAIN MEANS, and it is not optional here. The service manager reports success
+  # when it has ACCEPTED the restart, not when the cluster is serving — so without this the row
+  # returns while the API is still coming back, and the next row asks it a question and gets a
+  # failure carrying no output at all. Measured on a real machine: a restart at 23:14:08.670 and the
+  # next row's first question at 23:14:08.904. Two hundred and thirty-four milliseconds. Every check
+  # by hand a minute later answered perfectly, which is why it went unseen.
+  ready_command: [microk8s, status, --wait-ready]
+  # How the cluster snap is asked which addons are on, and how one is switched on or off. The verbs
+  # are that snap's own; WHICH snap runs this cluster is this product's choice, so the words stand
+  # here and the steps carry no tool name of their own.
+  status_command: [microk8s, status]
+  enable_command: [microk8s, enable]
+  disable_command: [microk8s, disable]
+  # The network manifest the pod range is stamped into and the pool is rebuilt from.
+  manifest_path: /var/snap/microk8s/current/args/cni-network/cni.yaml
+  # EVERY path in this block belongs to root — they are all inside a distribution's own directories,
+  # which is where a cluster installed that way keeps what it reads. A step reaching one as the
+  # account that started the run gets a permission error, and a step polling one gets a refusal that
+  # exits zero and reads as an answer.
+  elevated: true
+  # The packet-filtering table the steering rules live in, named by the step that writes them and by
+  # the unit that destroys them when it stops.
+  table_name: hostyour-public-src
+  # The three numbers the steering is made of, and the reason they stand here rather than on five
+  # rows: the drop-in numbers the routing table, the rules file puts the mark on a connection, the
+  # script installs a rule keyed on that mark into that table at that number, the service takes
+  # exactly those out again, and the activation reads the kernel for them. One value each, so no two
+  # of them can drift into describing different rules while every command still returns zero.
+  #
+  # The mark is clear of everything else on this machine: the network agent, the service proxy and
+  # the port publisher each own their own bits and reconcile them, and this one is outside all three
+  # and outside the agent's own mask. The table is free of what this machine already routes with, and
+  # the number sits above the exceptions the drop-in keeps on the main table.
+  mark: '0x1000'
+  table: 100
+  priority: 10100
+  # The file the certificate issuer is rendered into, read by the step that writes it and by the two
+  # that apply it. cert-manager mandates no name for it, so the tool package carries none.
+  issuer_manifest_path: /var/snap/microk8s/common/hostyour/clusterissuer.yaml
+  # The shapes the release tags below are written with, taken off a pin before it is held against
+  # what a tool answers: one project writes v4.53.3, another writes jq-1.8.2. At most one comes off
+  # any one pin.
+  pin_prefixes: [v, jq-]
+
+  # The image mirror, written ONCE for the two rows that must not disagree about it: the gate that
+  # refuses a machine whose pull credential is fillable and unfilled, and the write that puts that
+  # credential into the file the container runtime reads. A gate reading one file while the write
+  # reads another would pass a machine that then gets no mirror, and the run is green either way.
+  #
+  # Every one of these is a fact of THIS checkout and of what THIS product mirrors — where the
+  # profile stands, which key inside it holds the mirror's address, which file holds the credential
+  # and under which name, what the example file writes in its place, and which registry is mirrored
+  # at all. The machine package carries none of them.
+  repository: /srv/hostyour-cloud
+  # THE MAP OF THIS CLUSTER, which is where an installation's answers are written — one file,
+  # read as parameters by the reconciler's generators and as values by Helm. The slot is filled
+  # from this program's own `fqdn` answer, because a file that carries one installation's answers
+  # is named for that installation and cannot be written into a tree every installation is cut
+  # from. No `domain_answer` here: no step of this program takes one, and the slot needs none —
+  # the machine this runs on IS the installation the map describes.
+  profile_path: clusters/active/<fqdn>.yaml
+  mirror_host_key: global.endpoints.registry.host
+  secrets_path: secrets/secrets.<stage>
+  credential_key: REGISTRY_PULL_DOCKERCONFIGJSON
+  placeholder_prefix: BASE64_OF_
+  mirrored_registry: docker.io
+  # Which machine this is, and which machine the registry stands on, are ANSWERED and never written
+  # here — a program file ships to every installation. What stands here is the NAME of each answer,
+  # and the steps read the run under those names. An empty build_plane_fqdn says the registry
+  # stands on this very machine, and a machine that IS the registry pulls nothing through a mirror
+  # of itself.
+  this_machine_answer: fqdn
+  mirror_machine_answer: build_plane_fqdn
+  # Which answer the "<stage>" in secrets_path stands for. A container runtime has no such axis of
+  # its own — a product with regions instead of stages names that answer here and writes "<region>"
+  # — so the word is stated once, here, rather than known by the package.
+  run_answer: stage
+
+  # How the cluster client is invoked here. The tool package defaults to a plain `kubectl` on the
+  # path, which is correct for it and wrong for this product: the client ships inside the snap and is
+  # reached through it, so every step that talks to the cluster is given the words to start.
+  kubectl: [microk8s, kubectl]
+  # The wrapped client keeps its configuration where only root may read it, and refuses
+  # everyone else on its OUTPUT at exit code zero — so a step would read a refusal as an answer.
+  kubectl_needs_root: true
+  # The prefix the API server puts in front of every group it reads out of a token, and the prefix
+  # the binding's subject carries. ONE value for both, because they are the same word seen from two
+  # sides: a server that prefixes and a binding that does not match nobody, the run comes back green,
+  # and the administrators simply have no rights. Empty here — user names are prefixed to keep them
+  # apart from the cluster's own accounts, groups are not, and the binding names the bare group.
+  groups_prefix: ''
+steps:
+  # ---------------------------------------------------------------------------------------------
+  # The one answer this program cannot carry out every value of, refused before anything is read or
+  # written.
+  #
+  # A staging authority signs with a root that is in no machine's trust store. Its certificates
+  # ISSUE — the certificate service reports them Ready — and then every step that speaks https to
+  # this installation's own address fails on them. Measured on apps1, 2026-08-24: the certificate
+  # was issued in fifty-four seconds and deploy-platform-services died one step later at vault_init
+  # on CERTIFICATE_VERIFY_FAILED. Nothing in an installation puts that root into the machine's
+  # store, so an installation on a staging authority cannot reach its own secret store at all.
+  #
+  # WHY IT IS REFUSED HERE and not left to the step it breaks: this row reads an answer and touches
+  # nothing, so a run that cannot end is stopped before a snap is installed, a network is converted
+  # and a certificate is spent. Where it breaks is step 13 of deploy-platform-services, the
+  # program that runs after this one.
+  #
+  # WHAT THE PATTERN READS is https and the word `staging` in the host, and nothing else. An
+  # authority whose root this machine does not carry, named without that word, passes this row and
+  # fails at that same step: this refuses the directory that was measured, not every root a machine
+  # is missing.
+  # ---------------------------------------------------------------------------------------------
+  - step: require_answer_matches
+    answer: letsencrypt_server
+    pattern: '^https://(?![^/]*staging)[^/]+/[^\s]*$'
+    refusal: >-
+      the certificate authority's directory is answered over https and is never a staging one. A
+      staging authority signs with a root that is in no machine's trust store, so every later step
+      that speaks https to this installation's own address fails on it — measured 2026-08-24:
+      vault_init on CERTIFICATE_VERIFY_FAILED, one step after the certificate had issued. Answer
+      the authority's production directory.
+    on_failure: exit
+
+  # ---------------------------------------------------------------------------------------------
+  # The tools this program assumes, before the first of them is used.
+  #
+  # WHAT IS NOT HERE IS AS DELIBERATE AS WHAT IS. `microk8s` is absent because THIS program installs
+  # it; requiring it at the head would refuse every machine the program exists to prepare. So are
+  # `jq`, `yq`, `argocd`, `vault` and the tailnet client, for the same reason — they are fetched in
+  # the tool phase below, and `require_cli_tool_versions` is what holds that phase to its list.
+  #
+  # What IS here is what a fresh Ubuntu carries and this program never installs: the snap client the
+  # cluster arrives as, the service manager it is started by, the addressing and packet-filtering
+  # tools the network conversion drives, the resolver the name service is read from, the mount and
+  # link tools the storage path is decided by, and the account tools the operator is added to the
+  # cluster group with. "A fresh Ubuntu carries it" is a fact about the usual machine and not about
+  # this program: on an image somebody trimmed, a run without this gate finds out in the middle of a
+  # pod-network conversion.
+  #
+  # IT MEASURES AND INSTALLS NOTHING. A program that quietly installed something would be a program
+  # whose dry run lied, having shown a plan without the installation it was about to perform.
+  # ---------------------------------------------------------------------------------------------
+  - step: require_commands
+    commands:
+      [snap, systemctl, ip, netplan, resolvectl, mountpoint, readlink, getent, groups]
+    on_failure: exit
+
+  # ---------------------------------------------------------------------------------------------
+  # The snap.
+  #
+  # Two steps for four states a machine can be found in. The install answers for three of them —
+  # nothing installed, installed and switched off, installed on another channel — because those are
+  # one end state reached from three starting points, and its check is what tells them apart. The
+  # removal is the fourth, and it is the one that has to be asked for.
+  #
+  # The removal stands first so a forced rebuild installs from nothing. What it costs on this
+  # machine: every object in the cluster and every volume the snap holds goes with it.
+  #
+  # THE CHANNEL IS BOUNDED FROM BOTH SIDES, and neither bound is a lag to be caught up on. Below
+  # 1.35 the ingress addon is nginx, and every Traefik resource this platform ships has no
+  # controller behind it. 1.36 broke on the pinned Ubuntu release when that release came out and was
+  # rolled back. So raising the pin follows a rehearsal cluster coming up clean, and lowering it is
+  # not a decision at all — across a Kubernetes minor the API server does not support the downgrade,
+  # whatever channel is named here.
+  #
+  # `classic` is what MicroK8s asks for; snapd refuses the flag for a snap that does not.
+  # ---------------------------------------------------------------------------------------------
+  - step: remove_snap
+    snap: microk8s
+    force: false
+    on_failure: exit
+
+  - step: install_snap
+    snap: microk8s
+    channel: 1.35/stable
+    classic: true
+    on_failure: exit
+
+  # Everything after this talks to an API server, and one that is not up yet answers a connection
+  # refused rather than an error anyone can act on. Waiting here once turns a scattering of
+  # unexplained failures further down into one line that says what was not ready.
+  #
+  # ASKED AS ROOT, and that is what this row was missing rather than a longer window. The snap
+  # refuses the question to an account that is not in its own group, says so on its OUTPUT, and
+  # exits zero — so the poll saw an answer that was simply not the one it waits for and sat out the
+  # whole window. Measured twice: at 300 seconds and again at 900, while the cluster had been up
+  # for most of both.
+  #
+  # The account is put in that group by a row further down, which is correct: a group is read at
+  # login and a process already running does not gain it. So the poll cannot wait for that row —
+  # it asks as root, which needs no group at all.
+  #
+  # The window is back at 300 for the same reason. It was raised on the belief that a cold start
+  # took longer than the number allowed, and the belief was wrong; leaving it high would have hidden
+  # the next question of this shape behind fifteen minutes of waiting instead of five.
+  - step: wait_for_command_output
+    rests_on_an_earlier_step: true
+    waiting_for: the node to report that it is running
+    command: microk8s
+    command_arguments: [status]
+    answer: microk8s is running
+    elevated: true
+    timeout_seconds: 300
+    interval_seconds: 5
+    on_failure: exit
+
+  # ---------------------------------------------------------------------------------------------
+  # The network the cluster paints its rules into, before an addon paints any.
+  # ---------------------------------------------------------------------------------------------
+  - step: set_process_flag
+    rests_on_an_earlier_step: true
+    args_path: /var/snap/microk8s/current/args/kube-proxy
+    flag: '--proxy-mode'
+    value: nftables
+    on_failure: continue
+
+  # ---------------------------------------------------------------------------------------------
+  # The pod network. Seven ordered steps and two gates in front of them.
+  # ---------------------------------------------------------------------------------------------
+  - step: require_pod_cidr_free_of_reserved_ranges
+    pod_cidr: 10.244.0.0/16
+    service_cidr: 10.152.183.0/24
+    on_failure: exit
+
+  - step: require_unpopulated_cluster_for_pod_cidr_migration
+    rests_on_an_earlier_step: true
+    args_path: /var/snap/microk8s/current/args/kube-proxy
+    pod_cidr: 10.244.0.0/16
+    allow_populated_migration: false
+    on_failure: exit
+
+  # WHICH VARIABLE, AND WHAT READS IT, IS THIS ROW'S TO SAY. The step knows a manifest that writes a
+  # name on one line and its value on the next; the name below is Calico's own, the same in every
+  # manifest that installs it, and a package that has to serve any network plugin is not one of the
+  # things that knows that.
+  #
+  # Calico reads this once, when it creates its address pool, and never mutates an existing pool from
+  # it — so a machine can carry a perfectly stamped manifest and still run on the old range. The rows
+  # below are what ask the live pool.
+  - step: stamp_variable_value_in_manifest
+    rests_on_an_earlier_step: true
+    variable: CALICO_IPV4POOL_CIDR
+    value: 10.244.0.0/16
+    on_failure: exit
+
+  - step: set_process_flag
+    rests_on_an_earlier_step: true
+    args_path: /var/snap/microk8s/current/args/kube-proxy
+    flag: '--cluster-cidr'
+    value: 10.244.0.0/16
+    on_failure: exit
+
+  - step: remove_default_ipv4_ippool
+    rests_on_an_earlier_step: true
+    pod_cidr: 10.244.0.0/16
+    on_failure: exit
+
+  - step: reapply_calico_manifest
+    rests_on_an_earlier_step: true
+    pod_cidr: 10.244.0.0/16
+    on_failure: exit
+
+  # The restart that makes kube-proxy read --cluster-cidr again already happened on the row that
+  # wrote the flag: its restart_command and ready_command come from the defaults above. The ready
+  # wait there trusts an exit code, and this snap's status exits zero on a node reporting itself
+  # down — so the node being UP is proven here, by the line only a running node prints. The whole
+  # snap is deliberately not restarted: kube-proxy runs inside the service the flag row restarts,
+  # and nothing this conversion writes is read by the snap's other services.
+  - step: wait_for_command_output
+    rests_on_an_earlier_step: true
+    waiting_for: the node to report that it is running after the network flags were rewritten
+    command: microk8s
+    command_arguments: [status]
+    answer: microk8s is running
+    # As root, for the reason the first poll of this program gives: the snap refuses the question to
+    # an account outside its group, says so on its output and exits zero, so the poll sits out its
+    # window waiting for an answer it is not allowed to be given. The row that puts the account in
+    # that group runs BELOW this one, and a group is read at login in any case.
+    elevated: true
+    timeout_seconds: 300
+    interval_seconds: 5
+    on_failure: exit
+
+  # The network agent reads its range from its own environment, which it only takes again when its
+  # pods are replaced. This replaces them and proves the running pods carry the new range.
+  - step: replace_calico_agent_for_pod_cidr
+    rests_on_an_earlier_step: true
+    pod_cidr: 10.244.0.0/16
+    rollout_timeout_seconds: 120
+    on_failure: exit
+
+  - step: verify_ippool_converged_with_self_heal
+    rests_on_an_earlier_step: true
+    pod_cidr: 10.244.0.0/16
+    timeout_seconds: 180
+    interval_seconds: 5
+    on_failure: exit
+
+  # Last of the seven, and the run goes on without it: the pods are rebuilt by their controllers, so a
+  # machine that did not manage it is one whose system pods come back with the right addresses on
+  # their own.
+  - step: recycle_kube_system_pod_ips
+    rests_on_an_earlier_step: true
+    pod_cidr: 10.244.0.0/16
+    on_failure: continue
+
+  # ---------------------------------------------------------------------------------------------
+  # The image mirror, before the first image is pulled.
+  #
+  # The credential is judged twice: once here, and once inside the step that writes the mirror, so
+  # that running this program on its own keeps the same guard.
+  #
+  # Where the mirror is written down and what it is reached with comes from the defaults block at
+  # the head of this file, which is what makes the gate and the write read one file rather than two
+  # rows being kept in step by hand. What stands on the write is what only the write decides.
+  # ---------------------------------------------------------------------------------------------
+  - step: require_registry_pull_credential
+    on_failure: exit
+
+  - step: write_containerd_registry_mirror
+    rests_on_an_earlier_step: true
+    # Where the container runtime reads per-registry configuration on a machine this snap installed.
+    certs_directory: /var/snap/microk8s/current/args/certs.d
+    # Where a pull goes when the mirror does not answer, which is the mirrored registry itself. With
+    # it a mirror that is down makes a pull slower; without it, impossible.
+    fallback: https://registry-1.docker.io
+    on_failure: exit
+
+  # ---------------------------------------------------------------------------------------------
+  # The addons, and the account that operates the machine.
+  #
+  # Access control is FIRST in the list on purpose. Until it is on, the API server allows
+  # everything: every access rule applied afterwards is accepted, looks correct, and enforces
+  # nothing.
+  # ---------------------------------------------------------------------------------------------
+  - step: add_user_to_group
+    rests_on_an_earlier_step: true
+    group: microk8s
+    on_failure: continue
+
+  # Each addon is written the way the snap takes it: the name, or the name, a colon and the
+  # arguments that addon is switched on with. Nothing here needs the second form — the name service
+  # is given its servers by editing the object it installed, which is the row further down, because
+  # arguments given here are only taken on a FIRST switch-on and a re-run would silently keep
+  # whatever the first one set.
+  - step: enable_addons
+    rests_on_an_earlier_step: true
+    addons: [rbac, dns, hostpath-storage, ingress, cert-manager, metrics-server]
+    on_failure: exit
+
+  - step: wait_for_addons_enabled
+    rests_on_an_earlier_step: true
+    addons: [rbac, dns, hostpath-storage, ingress, cert-manager, metrics-server]
+    timeout_seconds: 300
+    interval_seconds: 5
+    on_failure: continue
+
+  # ---------------------------------------------------------------------------------------------
+  # What the addons installed, corrected. All of it after the addon loop, because none of these
+  # objects exists before it.
+  # ---------------------------------------------------------------------------------------------
+  # NOTHING IS DONE HERE ABOUT THE CLUSTER'S NAME SERVICE, and that is the correction this comment
+  # carries. Two rows stood here: one measured the machine's real name servers, the other wrote them
+  # literally into the cluster resolver's configuration, because the pinned Ubuntu's /etc/resolv.conf
+  # names the local stub and a pod's own loopback is not the machine's.
+  #
+  # THE DISTRIBUTION ALREADY SOLVES IT, one level below. Its dns addon works out which resolver file
+  # on this machine is the real one and points the node agent at it —
+  # /snap/microk8s/current/addons/core/addons/dns/enable calls find-resolv-conf.py and writes
+  # --resolv-conf into the agent's arguments. The cluster resolver runs under the agent's own policy,
+  # so what it reads as /etc/resolv.conf is that file's contents and never the stub. Measured on
+  # apps1: the machine's /etc/resolv.conf says 127.0.0.53, and inside the resolver's own container it
+  # says 185.12.64.1 and 185.12.64.2.
+  #
+  # So the two rows corrected something that was already right, and cost three things for it. The
+  # written value is a SNAPSHOT where the file it replaced is live, so a machine whose name servers
+  # change keeps forwarding to the old ones. The platform's own chart owns that configuration after
+  # the handover and writes the file back, so every later run reported "the step ran and the machine
+  # is still not in the state it produces" — a row fighting a reconciler over a field neither needed
+  # to touch. And a reader had two places to look for one fact.
+  - step: measure_host_iptables_backend
+    on_failure: continue
+
+  - step: align_calico_backend
+    rests_on_an_earlier_step: true
+    backend: {measured: backend}
+    rollout_timeout_seconds: 120
+    on_failure: continue
+
+  # THE SECOND HALF OF THE SAME QUESTION, and it is a different failure with the same face. The row
+  # above decides which packet-filtering table the network agent writes its masquerade into; this
+  # pair decides which SOURCE PORTS that masquerade may hand a connection leaving a pod.
+  #
+  # Left alone the agent masquerades across the whole port space — its rule carries the fully random
+  # spread and no range — and the network a machine hangs on need not carry the answer back for every
+  # port. Measured on apps2, 2026-08-24: the machine's own net.ipv4.ip_local_port_range is
+  # 32768 60999; from a pod, 11 of 20 connections to github.com:443 were answered and 10 of 20 to
+  # 1.1.1.1:443, while a hostNetwork pod on the same node scored 20 of 20 to both. Correlating the
+  # translated source port on eth0 with whether a SYN-ACK came back, over 18 attempts with no
+  # exception: every answered port was at or above 32768 and every unanswered one below it. A plain
+  # socket ON THE MACHINE, bound by hand to 5000, 9000, 15000, 20000 or 30000, timed out too, and to
+  # 33000, 40000 or 50000 did not — with nothing filtering on the machine and the reply never
+  # reaching the interface. So what discards the answer is upstream of the machine, and no rule on
+  # the machine could have been the fix. Patching the agent by hand took the same pod to 20 of 20.
+  #
+  # WHY THIS IS NOT A ROW FOR ONE HOSTING PROVIDER. Nothing here writes 32768 down. The rule is that
+  # pods masquerade out of the same source ports the machine itself opens its own connections from,
+  # so whatever path works for the machine works for them — and the range is read off the machine's
+  # kernel, which is why a machine tuned to another range, or one whose network carries every port
+  # back, ends up described correctly by the same two rows.
+  #
+  # No pod is replaced here, and the row above is why the difference is worth stating: the agent
+  # repaints its rules when this setting changes, and the patch alone was what took the measured pod
+  # from 11 of 20 to 20 of 20.
+  - step: measure_host_local_port_range
+    on_failure: continue
+
+  - step: align_calico_nat_port_range
+    rests_on_an_earlier_step: true
+    port_range: {measured: local_port_range}
+    on_failure: continue
+
+  # THE SET THE AGENT LEFT IN THE OTHER TABLE, and it is not inert. The two rows above move the
+  # agent onto the backend this machine filters with; what neither of them does is take away what it
+  # painted BEFORE that, and the kernel evaluates both. That abandoned set admits the interfaces
+  # that existed when it was frozen and ends in a DROP for every other one, so it passes exactly the
+  # pods that were already running and discards every pod created afterwards.
+  #
+  # Measured on apps3 during a from-zero install, 2026-08-26: the older set's `cali-from-wl-dispatch`
+  # had dropped 4256 packets while every drop counter in the pinned set stood at 0; a pod started
+  # after the pin reached neither another pod, nor this machine, nor the cluster's own API address;
+  # and the older set still listed an interface of a pod that no longer existed. What an operator
+  # sees is none of that — the ingress controller simply never becomes ready, and the row below this
+  # one reports a rollout that timed out.
+  #
+  # AFTER the two rows above and not before, because what makes the old set safe to remove is that
+  # the agent has already painted the new one. It refuses on its own if the pin has not landed.
+  - step: remove_calico_rules_from_other_backend
+    rests_on_an_earlier_step: true
+    backend: {measured: backend}
+    on_failure: continue
+
+  # The ingress controller ships locked down: a route may only name middleware that lives beside it.
+  # This platform has ONE middleware doing authentication, in the identity namespace, and without
+  # this argument every route meant to be behind a login loses its reference to it silently — the
+  # route goes on answering, without asking anybody who they are.
+  #
+  # A plain-TCP entry point is added as a pair: an argument declaring it and the port it is
+  # published on. Neither half works alone. The roll is part of this step: on one machine the
+  # replacement pod cannot be created while the old one holds the machine's ports, so a patch
+  # without it looks like it succeeded while the running controller keeps its old arguments.
+  - step: patch_container_arguments_and_ports
+    rests_on_an_earlier_step: true
+    namespace: ingress
+    kind: daemonset
+    name: traefik
+    container: traefik
+    arguments:
+      - --providers.kubernetescrd.allowCrossNamespace=true
+    ports: []
+    rollout_timeout_seconds: 90
+    on_failure: continue
+
+  # NOTHING SWITCHES THE DISTRIBUTION'S OWN REGISTRY ADDON OFF HERE, and it is worth saying why so
+  # that the row does not come back.
+  #
+  # It stood here because this platform brings its own registry and two of them on one machine is one
+  # too many. It never had anything to do: the distribution does not switch that addon on by itself
+  # and no step of this program switches it on either, so on every machine it has ever run it was
+  # already off.
+  #
+  # AND AFTER THE PLATFORM STANDS, IT CANNOT BE MEASURED. The distribution decides whether an addon is
+  # on by looking for a TEXT — `deployment.apps/registry` — in the output of one listing of everything
+  # on the cluster (`is_enabled` in scripts/wrappers/common/utils.py:553 is a substring test, fed by
+  # utils.py:566). This platform's own registry renders `deployment.apps/registry-dev-app`, which
+  # carries that text. So the moment our registry exists the distribution reports its addon as on,
+  # switching it off fails because the objects it would remove were never there, and the row reports
+  # a machine that will not do what it asks — for ever, on every repeat run.
+  #
+  # What is given up: a machine on which somebody switched that addon on by hand keeps it, serving
+  # unauthenticated on localhost:32000. That is a machine somebody changed, and this program stopped
+  # being able to tell that machine from an ordinary one the moment the platform was installed on it.
+
+  # ---------------------------------------------------------------------------------------------
+  # Who the API server accepts. Safe before the identity provider exists: an issuer it cannot reach
+  # does not stop it, it only makes token validation fail until the address answers.
+  # ---------------------------------------------------------------------------------------------
+  # ALL SIX IN ONE ACT, WITH ONE RESTART. They were two rows, and the first was handed `echo` where
+  # its restart command belongs — so it wrote its flag, `echo` returned 0, and the row reported
+  # success while nothing had restarted. A record that says a process was restarted when it was not
+  # is worse than a row that fails.
+  #
+  # The issuer address stood apart because it is the only one a run has to work out. It is a slot
+  # now, filled from the answer naming the cluster that keeps the books — the same notation every
+  # template in this installation uses, and a slot nothing fills is refused rather than written into
+  # the argument file as literal text.
+  - step: set_process_flags
+    rests_on_an_earlier_step: true
+    args_path: /var/snap/microk8s/current/args/kube-apiserver
+    file_mode: 384
+    flags:
+      - '--oidc-issuer-url=https://idp.<books-cluster>/application/o/headlamp/'
+      - '--oidc-client-id=headlamp'
+      - '--oidc-username-claim=preferred_username'
+      - '--oidc-username-prefix=oidc:'
+      - '--oidc-groups-claim=groups'
+      - '--oidc-groups-prefix='
+    values:
+      books-cluster: { answer: books_fqdn }
+    # THE SNAP CARRIES NO SERVICE OF THAT NAME. What it carries is daemon-kubelite, which hosts
+    # the API server together with the scheduler, the controller manager and the node agent, and
+    # reads this file through --apiserver-args-file. Measured on a bare machine: daemon-apiserver
+    # answers `snap "microk8s" has no service "daemon-apiserver"`, so the six flags above stand in
+    # the file while the running server carries none of them, and every console login comes back
+    # to the sign-in dialog because the API server does not know the issuer.
+    restart_command: [snap, restart, microk8s.daemon-kubelite]
+    ready_command: [microk8s, kubectl, get, namespace]
+    ready_timeout_seconds: 300
+    on_failure: continue
+
+  # The other half of the same wiring, and neither half works alone: the flags above make the API
+  # server accept a token, this says what the person behind that token may do. With only the first,
+  # every call after a successful login comes back forbidden — which reads as a broken dashboard and
+  # is a missing binding.
+  #
+  # It stands on EVERY cluster of an installation. A cluster that holds the master part deploys the
+  # identity provider and re-applies this same binding by name when it does; one that does not holds
+  # no identity provider of its own and points at the master's, which is what the row above already
+  # arranges. Applying it here, before the provider exists, costs nothing: a binding names a group,
+  # and a group nobody is in yet grants nobody anything.
+  - step: oidc_admins_binding
+    rests_on_an_earlier_step: true
+    name: oidc-platform-admins
+    group: admins
+    cluster_role: cluster-admin
+    on_failure: continue
+
+  # ---------------------------------------------------------------------------------------------
+  # Steering replies on a machine whose public address arrives on one interface while another owns
+  # the default route. Every one of these does nothing at all on a machine with a single interface;
+  # the measurement in front of them is what each of them asks.
+  # ---------------------------------------------------------------------------------------------
+  - step: measure_public_nic
+    on_failure: continue
+
+  - step: write_netplan_public_src_routing
+    path: /etc/netplan/60-public-src-routing.yaml
+    template: ansiwise/templates/netplan-public-src-routing.tpl
+    on_failure: continue
+
+  # Before anything is applied: a drop-in that became a second declaration of the interface rather
+  # than folding into the installer's takes the interface's address configuration away the moment
+  # the configuration is applied.
+  #
+  # The proof is that ONE declaration carries both halves, so both are named here: `dhcp4` is what
+  # the image's installer writes for an interface that takes its address from the network, which is
+  # how these machines arrive, and `routing-policy` is what the drop-in above contributes. A
+  # statically addressed machine names whatever ITS installer wrote instead.
+  - step: require_netplan_merged
+    installer_key: dhcp4
+    drop_in_key: routing-policy
+    on_failure: continue
+
+  - step: apply_netplan
+    on_failure: continue
+
+  - step: write_connmark_nft_table
+    path: /etc/nftables.d/hostyour-public-src.nft
+    template: ansiwise/templates/connmark-nft-table.tpl
+    on_failure: continue
+
+  - step: write_public_src_routing_script
+    path: /usr/local/sbin/hostyour-public-src-routing.sh
+    rules_path: /etc/nftables.d/hostyour-public-src.nft
+    template: ansiwise/templates/public-src-routing-script.tpl
+    on_failure: continue
+
+  - step: write_public_src_routing_unit
+    path: /etc/systemd/system/hostyour-public-src-routing.service
+    script_path: /usr/local/sbin/hostyour-public-src-routing.sh
+    template: ansiwise/templates/public-src-routing-unit.tpl
+    on_failure: continue
+
+  - step: activate_public_src_routing
+    unit_name: hostyour-public-src-routing.service
+    on_failure: continue
+
+  # ---------------------------------------------------------------------------------------------
+  # Where the volumes land.
+  # ---------------------------------------------------------------------------------------------
+  - step: require_storage_mount
+    rests_on_an_earlier_step: true
+    on_failure: exit
+
+  - step: create_storage_directory
+    rests_on_an_earlier_step: true
+    on_failure: exit
+
+  - step: link_storage_path
+    rests_on_an_earlier_step: true
+    link_path: /var/snap/microk8s/common/default-storage
+    force: false
+    on_failure: exit
+
+  - step: set_default_storage_class
+    rests_on_an_earlier_step: true
+    timeout_seconds: 120
+    interval_seconds: 5
+    on_failure: continue
+
+  # ---------------------------------------------------------------------------------------------
+  # Certificates. Recorded rather than fatal: the rest of the cluster converges without them, and a
+  # run that ended green without saying so would send the operator on to the deployment with every
+  # certificate hanging.
+  # ---------------------------------------------------------------------------------------------
+  # The last part of the certificate service to come up is the one that admits certificate objects,
+  # so it is what readiness is decided on: while it is not running, applying an issuer is refused by
+  # the API server with a message about a webhook rather than about certificates.
+  #
+  # WHY THIS DEADLINE CAN BE REACHED ON A HEALTHY CLUSTER, and why that is correct: some versions of
+  # the certificate service do not label their admission part `app=webhook`, so this row finds
+  # nothing and waits out its budget. The run is meant to continue — the failure is recorded and
+  # `on_failure: continue` carries it. The plausible wrong repair is to loosen the row until it
+  # passes, and that would make "ready" mean less on the version this platform actually pins.
+  - step: wait_for_command_output
+    rests_on_an_earlier_step: true
+    waiting_for: the part of the certificate service that admits certificate objects to be running
+    command: microk8s
+    command_arguments:
+      - kubectl
+      - -n
+      - cert-manager
+      - get
+      - pods
+      - -l
+      - app=webhook
+      - -o
+      - 'jsonpath={range .items[*]}{.status.phase}{"\n"}{end}'
+    answer: Running
+    # As root: the snap refuses the question to an account outside its group, and a group is
+    # read at login so the row that adds the account cannot help a process already running.
+    elevated: true
+    timeout_seconds: 300
+    interval_seconds: 5
+    on_failure: continue
+
+  # ---------------------------------------------------------------------------------------------
+  # The issuer every certificate on this cluster is issued by, and there are TWO of them because the
+  # name IS the choice.
+  #
+  # `platform-acme` is the public authority; `platform-local` is one this cluster mints for itself.
+  # Exactly one exists at a time, and which one every manifest references is stamped into the values
+  # chain and into the base layer's certificate by deploy-branch, out of CLUSTER_ISSUER in this
+  # installation's config.
+  #
+  # WHY NOT ONE NAME FOR BOTH FORMS, which is what stood here. The certificate service watches the
+  # name a certificate is issued BY and never the specification behind it. With one name, turning the
+  # authority over rewrote the object and re-issued NOTHING — measured on apps5 on 2026-09-01: the
+  # object went from `ca:` to `acme:`, the cluster's own chain was deleted, and every certificate
+  # went on being served signed by that deleted root while every application reported itself healthy.
+  # Two names make the flip change what a certificate references, and the service issues them all
+  # again by itself.
+  #
+  # It is also the older lesson of this very block, applied properly: a cluster once read
+  # `letsencrypt-prod` beside https://acme-staging-v02.api.letsencrypt.org/directory for a day, and
+  # the name was the half that was false. A name that says `acme` over a `ca:` spec is the same
+  # mistake; a name that IS the authority cannot make it.
+  # ---------------------------------------------------------------------------------------------
+  - step: remove_existing_cluster_issuer
+    name: platform-acme
+    force: false
+    on_failure: continue
+
+  # AND THE PUBLIC AUTHORITY TAKEN OFF where this installation names the other one. Its counterpart —
+  # the row further down that removes the cluster's own chain where the public one is named — has
+  # stood since the switch was built; this side had nothing, because with one name there was nothing
+  # to take off. Two names need two removals, or a cluster ends up holding both and answers the
+  # question of what issues its certificates twice.
+  #
+  # `force: true`, because this is the deliberate act of changing authority rather than a rebuild
+  # finding its own issuer already there. The ACME account key in the secret of the same name stays
+  # behind, which is that step's own rule: the registration it belongs to is not recoverable once it
+  # is gone, and coming back to the public authority should not have to register again.
+  - step: remove_existing_cluster_issuer
+    rests_on_an_earlier_step: true
+    when: [certificates_withheld]
+    name: platform-acme
+    force: true
+    on_failure: continue
+
+  # THE OTHER FORM OF THE SAME OBJECT, for an installation that is not spending an issuance at the
+  # public authority yet. The switch does not decide whether this cluster has an authority — nothing
+  # installs without one, because the store mounts its certificate as a volume and a pod whose
+  # volume names a missing Secret never starts. It decides WHICH authority, and this is the one the
+  # cluster mints for itself. The manifest says the rest.
+  - step: kubernetes_object_reversible
+    rests_on_an_earlier_step: true
+    when: [certificates_withheld]
+    repository: /srv/hostyour-cloud
+    manifest: clusters/bootstrap/cert-manager/platform-authority.yaml
+    # The mark this program puts on what it owns, carried by the manifest itself. It is what lets
+    # the removal row below delete these objects and refuse anything else standing under the same
+    # name — a name collision must not hand somebody else's object to our removal.
+    owner_label: hostyour.cloud/platform-authority
+    owner_label_value: 'true'
+    on_failure: exit
+
+  # The object every certificate names, in its withheld form. Its own file, because the chain above
+  # is REMOVED when the switch goes on while this one is REPLACED by the public form — two lives,
+  # and a manifest is what a removal names its objects by.
+  #
+  # NO OWNERSHIP PAIR HERE, unlike the row above, and that is what keeps the switch turnable BOTH
+  # ways. Stated, this row would refuse a live object of the same name not carrying the mark — and
+  # after a flip to on, `platform-acme` is exactly that: the public form, applied by the rows below,
+  # which carry no such label. An installation turned back off would then stop here instead of
+  # rewriting the object it is meant to rewrite. Nothing removes this one by manifest, so the mark
+  # buys nothing to set against that.
+  - step: kubernetes_object_reversible
+    rests_on_an_earlier_step: true
+    when: [certificates_withheld]
+    repository: /srv/hostyour-cloud
+    manifest: clusters/bootstrap/cert-manager/platform-authority-issuer.yaml
+    on_failure: exit
+
+  # Minting a root the cluster signs itself is immediate, so this window is short and its whole job
+  # is to stand between applying the chain and reading the root out of it.
+  - step: wait_for_command_output
+    rests_on_an_earlier_step: true
+    when: [certificates_withheld]
+    waiting_for: the authority this cluster mints for itself to be issued
+    command: microk8s
+    command_arguments:
+      - kubectl
+      - -n
+      - cert-manager
+      - get
+      - certificate
+      - platform-ca
+      - -o
+      - 'jsonpath={.status.conditions[?(@.type=="Ready")].status}'
+    answer: 'True'
+    elevated: true
+    timeout_seconds: 120
+    interval_seconds: 5
+    on_failure: exit
+
+  # AND THEN THE MACHINE HAS TO TRUST IT, or nothing else in this installation works. Every later
+  # program reaches this cluster's own addresses over https with verification on — the store's
+  # roughly fifty rows, the identity provider's discovery documents — and a root the machine does
+  # not have is a refusal on every one of them. Measured on apps5 on 2026-08-31 against a certificate
+  # signed by an authority present nowhere but that machine: `exit 1, 0 proven`; with the same
+  # authority in the machine's bundle and nothing else changed, `exit 0, 1 proven`.
+  #
+  # It is NOT done where the switch is on: the public authority's root is in the machine's store
+  # already, and a cluster that mints nothing has nothing here to trust.
+  - step: trust_cluster_authority
+    rests_on_an_earlier_step: true
+    when: [certificates_withheld]
+    namespace: cert-manager
+    secret: platform-ca
+    field: ca.crt
+    path: /usr/local/share/ca-certificates/platform-ca.crt
+    refresh: [update-ca-certificates]
+    bundle: /etc/ssl/certs/ca-certificates.crt
+    on_failure: exit
+
+  - step: write_cluster_issuer_manifest
+    rests_on_an_earlier_step: true
+    when: [certificates_enabled]
+    template: ansiwise/templates/cluster-issuer-manifest.tpl
+    name: platform-acme
+    # WHICH answer holds the authority, for the same reason the mailbox below is one: a provider
+    # whose authority is not this one's names its own directory, and a single address written here
+    # would be that provider's installation registering with somebody else's service. WHAT MAY BE
+    # ANSWERED is bounded by the gate at the head of this program: a staging directory is refused
+    # there, because its root is in no machine's trust store and every later step that speaks https
+    # to this installation's own address fails on it.
+    acme_server_answer: letsencrypt_server
+    ingress_class: public
+    # WHICH answer holds the mailbox. The step used to know the name, which put one certificate
+    # authority's word inside a package that must serve any product — and the authority is already
+    # named on the row above, so the step was neutral everywhere except in the one word it could not
+    # help writing. The resolver refuses a row naming an answer this program does not declare.
+    email_answer: letsencrypt_email
+    on_failure: continue
+
+  - step: apply_cluster_issuer
+    rests_on_an_earlier_step: true
+    when: [certificates_enabled]
+    name: platform-acme
+    on_failure: continue
+
+  # The first wait is warned rather than recorded, because the step after it is the one recovery
+  # this gets and it can still make the issuer register. That step is where the budget ends.
+  # Until the account is registered, no certificate on this cluster can be issued.
+  #
+  # AND ONLY WHERE THIS INSTALLATION ASKS FOR CERTIFICATES AT ALL, the same condition the three
+  # rows around it carry. A wait is as conditional as the act it waits for: with the switch off no
+  # issuer was written and none was applied, so this would sit out its window against an object
+  # that is absent by design and then record the absence as a fault. Measured on apps5 on
+  # 2026-08-31, run 20260831T145222Z-5011-95ce504e: rows 44, 45 and 47 were skipped, row 46 was not,
+  # and its `on_failure: continue` still ended the program at exit 2 and stopped the installation
+  # four steps from the end of a cluster that was otherwise built.
+  - step: wait_for_command_output
+    rests_on_an_earlier_step: true
+    when: [certificates_enabled]
+    waiting_for: platform-acme to report that its account is registered
+    command: microk8s
+    command_arguments:
+      - kubectl
+      - get
+      - clusterissuer
+      - platform-acme
+      - -o
+      - 'jsonpath={.status.conditions[?(@.type=="Ready")].status}'
+    answer: 'True'
+    # As root: the snap refuses the question to an account outside its group, and a group is
+    # read at login so the row that adds the account cannot help a process already running.
+    elevated: true
+    timeout_seconds: 60
+    interval_seconds: 10
+    on_failure: continue
+
+  # The deployments are named because the release that installed the certificate service is what
+  # gave them these names. A release under another name gives its deployments that name, and a
+  # restart of one that is not there returns zero while nothing is rolled.
+  - step: restart_cert_manager_and_reapply_cluster_issuer
+    rests_on_an_earlier_step: true
+    when: [certificates_enabled]
+    name: platform-acme
+    namespace: cert-manager
+    deployments: [cert-manager, cert-manager-webhook, cert-manager-cainjector]
+    settle_seconds: 15
+    wait_seconds: 60
+    interval_seconds: 10
+    on_failure: continue
+
+  # AND THE AUTHORITY THIS CLUSTER MINTED FOR ITSELF, taken off once it issues from the public one.
+  #
+  # AFTER the rows above and not before: while the switch was off, `platform-acme` WAS this chain,
+  # and taking the chain away first would leave the cluster with an issuer pointing at a root that
+  # is gone. The rows above have replaced that object with the public form by the time this runs, so
+  # what stands here has no job left — and a cluster holding an authority nothing issues from
+  # answers the question of what signs its certificates twice.
+  #
+  # The root itself stays in the machine's trust store, and taking it out again is not yet built:
+  # simetrixch/hostyour-cloud#153 carries that. It signs nothing after this row, so what it costs is
+  # a machine trusting an authority with no work rather than a wrong certificate being accepted.
+  - step: remove_kubernetes_object
+    rests_on_an_earlier_step: true
+    when: [certificates_enabled]
+    repository: /srv/hostyour-cloud
+    manifest: clusters/bootstrap/cert-manager/platform-authority.yaml
+    owner_label: hostyour.cloud/platform-authority
+    owner_label_value: 'true'
+    on_failure: continue
+
+  # THE NAME THIS ISSUER CARRIED BEFORE, taken off a cluster that still holds one under it.
+  #
+  # An installation built before the rename has a ClusterIssuer called `letsencrypt-prod`, applied
+  # by the rows above when they wrote that name. Once this run has stamped `platform-acme`
+  # into the values every later manifest reads, nothing references the old object, and a cluster
+  # left holding both answers the question of what issues its certificates twice. `force: true` is
+  # what makes this row act at all; on a cluster that never carried the old name it finds nothing
+  # and is satisfied without touching anything.
+  #
+  # The account key in the secret of the same name stays behind, which is this step's own rule: the
+  # registration it belongs to is not recoverable once it is gone, and the new name registers an
+  # account of its own.
+  - step: remove_existing_cluster_issuer
+    rests_on_an_earlier_step: true
+    name: letsencrypt-prod
+    force: true
+    on_failure: continue
+
+  # ---------------------------------------------------------------------------------------------
+  # The tools an operator uses on this machine. Recorded rather than fatal — the cluster itself does
+  # not need them — but a machine that quietly ends up with other versions than the platform pins is
+  # the divergence the pins exist to stop.
+  #
+  # jq comes first among them because things later in this same run read structured output with it.
+  # The order of these rows is the only thing that says so.
+  # ---------------------------------------------------------------------------------------------
+  - step: install_tool_prerequisites
+    packages: [curl, unzip]
+    on_failure: continue
+
+  - step: install_packages
+    packages: [jq]
+    on_failure: continue
+
+  # `version_command` is what the step runs to read what is already on the machine, and it decides
+  # the skip: a tool at the pin is left alone and one that drifted is fetched again. Each project
+  # spells it its own way, and that is a fact of the tool rather than of the step, so it stands here
+  # beside the tool it belongs to.
+  # THE ENGINE THIS PROGRAM IS RUNNING IN IS ASSERTED BELOW AND FETCHED NOWHERE, and the two halves
+  # of that are decided by different things.
+  #
+  # It is ASSERTED because it can finally be asked. The binary answers --version with its release
+  # tag now (simetrixch/ansiwise-cli#7), so a machine whose engine drifted off the pin is a fact
+  # this program can state instead of one nobody could read — which is why the entry stands in the
+  # assert row below where none could before.
+  #
+  # It is FETCHED NOWHERE because /usr/local/bin/ansiwise has ONE writer, and it is not this
+  # program: one mechanism places the binary on a
+  # machine that has none, the same one for a master reached by the client and a slave reached by
+  # the manager. An install_pinned_tool row here would write a plain file over the link that
+  # mechanism maintains — two writers of one path, which is the state where what stands on a machine
+  # depends on which of them ran last.
+  #
+  # ANSIWISE-REST IS IN NEITHER, and for a third reason again: it is the executable a service runs,
+  # and nothing here restarts a unit, so a machine could be told
+  # its version was current while the service went on serving the old one.
+
+  - step: install_pinned_tool
+    tool: argocd
+    version: v3.4.5
+    url: https://github.com/argoproj/argo-cd/releases/download/<version>/argocd-linux-amd64
+    version_command: [version, --client, --short]
+    on_failure: continue
+
+  - step: install_pinned_tool
+    tool: vault
+    version: v2.0.3
+    url: https://releases.hashicorp.com/vault/<bare-version>/vault_<bare-version>_linux_amd64.zip
+    archive: /tmp/vault.zip
+    version_command: [version]
+    on_failure: continue
+
+  - step: install_pinned_tool
+    tool: yq
+    version: v4.53.3
+    url: https://github.com/mikefarah/yq/releases/download/<version>/yq_linux_amd64
+    version_command: ['--version']
+    on_failure: continue
+
+  - step: install_tailscale_client
+    on_failure: continue
+
+  # Last inside the tool phase, and the only thing binding the list of tools to the steps above: a
+  # tool named here with no step to fetch it is caught here and nowhere else.
+  #
+  # `unpinnable` names the two whose install path takes no version. jq comes from the package
+  # manager, which carries exactly ONE of it, and the tailnet client from its makers' own installer,
+  # which fetches whatever they publish on the day — so no re-run of this program could reach the
+  # pin for either, and failing on the version they do carry would make an install that can never
+  # end green. The difference is reported instead, so an operator who cares can act on it. Being
+  # MISSING still fails, for every tool without exception.
+  #
+  # `version_commands` says how each of them is asked what version it is. A tool named in `tools`
+  # with no entry here is refused rather than passed over, so the two lists cannot drift apart.
+  - step: require_cli_tool_versions
+    tools:
+      - ansiwise=0.8.104-stable-20260901205451
+      - argocd=v3.4.5
+      - vault=v2.0.3
+      - yq=v4.53.3
+      - jq=jq-1.8.2
+      - tailscale=v1.98.10
+    unpinnable: [jq, tailscale]
+    version_commands:
+      - ansiwise=--version
+      - argocd=version --client --short
+      - vault=version
+      - yq=--version
+      - jq=--version
+      - tailscale=version
+    on_failure: continue
+
+  # The two aliases go into the operator's OWN shell file, which is the one place in this program
+  # the blanket elevation above is wrong: the step writes the file and does not hand it back
+  # afterwards, so writing it as root would leave the operator unable to edit their own shell
+  # configuration on the machine they operate. The row says so rather than the step, because who
+  # owns a path is what an installation decides.
+  - step: add_shell_alias
+    alias: kubectl
+    command: microk8s.kubectl
+    elevated: false
+    on_failure: continue
+
+  - step: add_shell_alias
+    alias: helm
+    command: microk8s.helm3
+    elevated: false
+    on_failure: continue
+
+  # Last of all, and the one step here that replaces a file whole: any context the operator added
+  # for another cluster is gone with it. The command is named because the host package drives a
+  # machine and owns no cluster client: on this machine the client ships inside the snap and hands
+  # the credentials over through it.
+  #
+  # As root, and that is what admits it: the snap refuses the question to an account outside its
+  # group, and a group is read at login, so the row further up that puts the account in that group
+  # cannot help the session this run is happening in. What is written is the operator's all the
+  # same — the step hands the directory over to the account once it stands.
+  - step: export_kubeconfig
+    rests_on_an_earlier_step: true
+    credentials_command: [microk8s, config]
+    elevated: true
+    on_failure: continue
+
+# What this program has to be told about the installation it is bringing up.
+#
+# Every one of these stood in the file above as a step argument with one installation's value for
+# it — a domain, a stage, an account, a mailbox. A program file ships to every installation, so a
+# value written into it is somebody else's: this cluster would have asked a certificate authority
+# for a domain it does not answer at and pointed its dashboard at an identity provider that is not
+# its own. The names are the ones deploy-branch and deploy-host already use, so an operator answers
+# each question once.
+answers:
+  - name: fqdn
+    kind: text
+    describes: >-
+      The domain THIS cluster answers under, as it is reached from outside. Everything this program
+      writes about the cluster's own address is this value.
+
+  - name: stage
+    kind: text
+    allowed: [dev, test, prod]
+    describes: >-
+      Which of the product's three stages this installation runs. It names the secrets file this
+      program reads the registry pull credential out of.
+
+  - name: role
+    kind: text
+    allowed: [master, slave, master+slave]
+    describes: >-
+      Every part this cluster carries — "master", "slave", or "master+slave" where one machine does
+      both jobs. A cluster that holds the master part runs the identity provider every cluster of
+      the installation authenticates against; one that does not is pointed at the master's.
+
+  - name: books_fqdn
+    kind: text
+    required: false
+    # LEFT EMPTY MEANS THIS CLUSTER. The value falls back to this cluster's own domain, so nobody
+    # types the same domain into two fields and no pair can disagree. It replaces a default of the
+    # empty string, which meant absent and left something else to fill the gap.
+    #
+    # It is NOT called `master`: in this system that word is the product branch — agnostic,
+    # belonging to nobody, where fixes land before they are merged into an installation's branch.
+    default_from: fqdn
+    describes: >-
+      The domain of the cluster that keeps the books — the cluster maps and the registrations this
+      installation knows about itself. Leave it empty where this cluster keeps them itself.
+
+  - name: build_plane_fqdn
+    kind: text
+    required: false
+    default: ''
+    describes: >-
+      The cluster the image registry stands on, when it is not this one. Leave it empty where this
+      cluster hosts the registry itself — pulls then stay local and no mirror is written.
+
+  - name: operator_user
+    kind: text
+    describes: >-
+      The account that operates this machine. It is put in the group that may talk to the cluster,
+      its shell gets the two aliases, and the cluster's credentials are written into its home.
+
+  - name: letsencrypt_email
+    kind: text
+    describes: >-
+      The mailbox the certificate authority writes to before a certificate expires. Nothing here
+      judges the address — it is yours, and a rule that recognised an example would refuse an
+      operator whose own mailbox reads like one. The authority itself refuses some: a mailbox at a
+      domain reserved for documentation comes back as "contact email has forbidden domain", which is
+      what an address ending in example.com, test.com or localhost will do.
+
+  - name: letsencrypt_server
+    kind: text
+    describes: >-
+      The certificate authority this installation registers with, written as the address of its
+      directory. Every installation of this platform answers
+      https://acme-v02.api.letsencrypt.org/directory; a provider whose authority is a different one
+      names that instead, which is the only reason this is an answer rather than a line of the
+      program.
+
+      NEVER A STAGING SERVICE, and the first step of this program refuses one rather than leaving
+      it to be discovered later. Its certificates are signed by a root no machine carries, so an
+      installation that answers one cannot reach its own secret store — measured on 2026-08-24: the
+      certificate issued in fifty-four seconds and the run died one step later on
+      CERTIFICATE_VERIFY_FAILED, at vault_init. An installation that cannot talk to itself proves
+      nothing, which was the whole of what a staging service was being answered for.
+
+      TWO LIMITS TO LIVE WITH, and the second is the one that bites. Fifty certificates per
+      registered domain per week, and FIVE for one exact set of names. A machine reinstalled to be
+      proven spends one of those five per hostname per attempt, so the fifth rebuild in a week is
+      refused with 429 and the wait runs to a week after the first of them. Nothing here raises it:
+      what avoids it is an installation that does not throw its certificates away when it is rebuilt.
+
+  - name: lan_cidr
+    kind: text
+    required: false
+    default: ''
+    describes: >-
+      The network this machine shares with the other clusters, as an IPv4 range, or empty when it
+      shares none. It is refused when it overlaps the pod network, because pods on an overlapping
+      range cannot reliably reach the other machines.
+
+  - name: storage_mount
+    kind: text
+    required: false
+    default: ''
+    describes: >-
+      Where this machine's separate storage is mounted, or empty when it has none. A path that is
+      named and is NOT a mount is refused: a volume written to the root disk instead of the storage
+      one fills the machine and nothing reports it.
+
+  - name: storage_subdirectory
+    kind: text
+    required: false
+    default: ''
+    describes: >-
+      The directory under that mount which the cluster's volumes are kept in, written as the whole
+      path and not as a name relative to the mount, or empty to leave them where the snap puts them.

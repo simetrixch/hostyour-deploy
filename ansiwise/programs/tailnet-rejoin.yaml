@@ -1,0 +1,91 @@
+# Logging a slave out of the private network and joining it again with a fresh credential — the
+# repair for the case tailnet-reconnect cannot answer: the machine's credential is gone, or its node
+# was deleted at the coordinator.
+#
+# THE LOGOUT IS WHAT MAKES THE JOIN REAL. The client keeps serving a cached view of the network for
+# a while after its node is deleted at the coordinator, so a machine that still reports Running
+# would be skipped by the join as "already on the network" — and a rejoin that was skipped repaired
+# nothing. Discarding the node key first turns the join from a no-op into a registration.
+#
+# THE CREDENTIAL ARRIVES AS A SECRET ANSWER, minted moments earlier by tailnet-mint-join-key on the
+# cluster that runs the coordinator. It rides the run's envelope, is staged on the machine as a file
+# only root can read for exactly the length of the join, and never stands in this file, in an
+# argument, or in the record.
+#
+# THE CERTIFICATE STEP IS THE SECOND HALF OF JOINING, not an extra. A rejoin hands the machine a
+# FRESH address, and everything the master does with a slave dials that address over verified TLS —
+# the per-slave reconciler pins verification on it, and a serving certificate that does not name the
+# address is refused in the handshake, presenting as an unreachable machine. So the address goes
+# into the request template the distribution renders, the stale one is removed (the coordinator is
+# free to hand it to a DIFFERENT machine, whose identity this one would then satisfy), and the
+# re-sign is proven by reading the certificate itself.
+name: tailnet-rejoin
+# BOTH ROLES for the reason tailnet-disconnect gives: the caller's plan is where a master target is
+# refused, and the role a served run carries is the binary's default.
+roles: [master, slave]
+steps:
+  # THE TOOLS FIRST, AND THIS ONLY MEASURES. The client performs the membership acts; openssl is
+  # what the certificate proof is read with, and a machine missing either must be named as such
+  # before the logout takes the membership away.
+  - step: require_commands
+    commands: [tailscale, openssl]
+    on_failure: exit
+
+  # Discard the node key. From here until the join lands this machine is on NO network — which is
+  # why the caller mints the credential BEFORE starting this program, and why this program is
+  # reached over the machine's public address.
+  - step: tailnet_logout
+    on_failure: exit
+
+  # Join with the fresh credential. The step refuses a machine that is logged in to a DIFFERENT
+  # coordinator rather than moving it silently; here the logout above has already settled that.
+  # DNS stays declined (the step's default): with DNS accepted the client rewrites the machine's
+  # resolver configuration, and on a MicroK8s node that takes the cluster's own resolution with it.
+  - step: tailnet_join
+    on_failure: exit
+
+  # Make the machine reachable at the address the join handed it. The values are MicroK8s's own
+  # layout: the editable request template the snap re-renders (the marker line is where its
+  # renderer appends addresses), the serving certificate beside it, and the snap's own re-sign —
+  # server.crt ONLY, because `--cert ca.crt` would replace the cluster authority every kubeconfig
+  # and the master's stored cluster credential already trust. The wait afterwards is fatal on
+  # purpose: everything the master does next dials this node, and a node still restarting fails
+  # that with an error about the master's own command instead of about the re-sign in progress.
+  - step: stamp_tailnet_address_in_certificate
+    template: /var/snap/microk8s/current/certs/csr.conf.template
+    certificate: /var/snap/microk8s/current/certs/server.crt
+    marker: '#MOREIPS'
+    resign: [microk8s, refresh-certs, --cert, server.crt]
+    # WHAT THE NEXT CALLER WILL USE, and not a neighbouring readiness. The re-sign restarts the API
+    # server, and `status --wait-ready` answers about the NODE — it succeeded on apps6 on 2026-09-01
+    # while the API was still refusing, and the next program died twenty-five seconds later on
+    # "the connection to the server 127.0.0.1:16443 was refused". Asking the API itself is the only
+    # question whose answer means what this row needs it to mean. The step asks it over and over
+    # until it answers, within the window below.
+    settled_by: [microk8s, kubectl, get, --raw, /readyz]
+    # The snap's certificate directory belongs to root, and so does the client's socket the address
+    # is read off.
+    elevated: true
+    on_failure: exit
+
+answers:
+  # Where the coordinator serves, reached over its public name — a machine that has not joined yet
+  # has no other path to it. One coordinator per installation, on the cluster with the master part,
+  # at tale.<master-domain>; the caller states it because this catalogue serves every installation
+  # and the master's domain is a fact of exactly one.
+  - name: login_server
+    kind: text
+    describes: >-
+      The address the private network's coordinator answers at, scheme and all — for this platform
+      that is https://tale.<domain of the cluster holding the master part>. The client logs in
+      there, and a machine already logged in somewhere ELSE is refused rather than moved.
+
+  # The credential itself, secret: it never reaches the record, the log or an argument, and the
+  # join stages it as a root-only file for exactly its own duration.
+  - name: auth_key
+    kind: text
+    secret: true
+    describes: >-
+      The single-use join credential minted for THIS machine by tailnet-mint-join-key on the
+      cluster that runs the coordinator. It expires on the coordinator's clock, so mint it in the
+      same breath as this run — not the day before.

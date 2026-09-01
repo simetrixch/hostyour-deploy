@@ -1,0 +1,130 @@
+# Publishing the mail DNS of one sender domain: its SPF, its address record, its DKIM key and its
+# DMARC policy, through the DNS provider's API.
+#
+# AN OPERATION THE OPERATOR TRIGGERS, NOT A STEP OF A DEPLOYMENT. It touches a DNS zone that is not
+# part of the machine — often the apex of a domain whose mail already runs on somebody else's
+# service — so it runs when a person decides it runs, against answers that person gives, and a green
+# dry run of the same answers is what admits it like every other program.
+#
+# ONE RUN PUBLISHES ONE SENDER DOMAIN. An installation that sends as several apexes runs this once
+# per apex, with the answers of that apex; there is no domain list in any file, because a list in a
+# file is a loop, and a program file may not loop. What every run shares — where the checkout is,
+# where the hand-filled input stands, which variable holds the API token — is stated once under
+# defaults.
+#
+# THE TRAP THIS PROGRAM IS BUILT AROUND: a domain may carry exactly ONE v=spf1 record. A second one
+# is a permanent error receivers fail the domain's mail on — silently, at their end, for every
+# sender the domain has. So the SPF step MERGES into the record it finds, preserving every mechanism
+# and the closing qualifier that are already there, and REFUSES the domain wholesale when it finds
+# two, naming both. That refusal stands FIRST in this program with on_failure exit, so a domain
+# whose SPF is already broken gets no A, no DKIM and no DMARC either — never a partially rewritten
+# mail zone on top of a permanent error.
+#
+# WHAT THIS PROGRAM DOES NOT DO. The reverse-DNS entry of the sending address is set where the
+# address is rented, not in any DNS zone this token can edit — no row here can carry it. And no row
+# derives the DKIM public key from the private one: the key pair has no writer in this installation
+# yet, so the public half is a hand-filled value below and the DKIM row says out loud when it is
+# still empty.
+name: publish-mail-dns
+roles: [master]
+
+defaults:
+  # The checkout this installation runs from, and under it the ONE hand-filled input every
+  # credential of the installation is typed into. The API token already stands there for the
+  # cluster manager's own DNS records — this program reads the SAME variable, so the credential
+  # has one home and no second copy that can drift.
+  repository: /srv/hostyour-cloud
+  secrets_path: secrets/secrets.<stage>
+  token_variable: CLOUDFLARE_API_TOKEN
+  # Which answer the "<stage>" above stands for. The word is stated once, here, rather than known
+  # by the package — a product with regions instead of stages would name that answer and write
+  # "<region>".
+  run_answer: stage
+
+steps:
+  # SPF FIRST, AND THE ORDER IS THE SAFETY PROPERTY. This is the one row that can find the domain
+  # already broken (two v=spf1 records) and refuse it. Standing first with on_failure exit, its
+  # refusal stops the run before any other record of the domain is touched — the wholesale refusal
+  # the old publisher enforced with a per-domain abort list, expressed here as order.
+  - step: cloudflare_spf_record
+    apex_answer: mail_domain
+    address_answer: egress_address
+    on_failure: exit
+
+  # The apex answers the egress address directly: sender addresses are mailbox@<apex>, the sending
+  # machine greets with the apex, and the reverse-DNS of the address points back at it — one server
+  # name, however many sender domains. The step writes proxied off and corrects a record it finds
+  # proxied on, because a proxied answer resolves to the service's own addresses, which carry no
+  # mail path.
+  - step: cloudflare_a_record
+    fqdn_answer: mail_domain
+    address_answer: egress_address
+    on_failure: exit
+
+  # Published ONLY where a signing key exists. The step reads the public half out of the same
+  # hand-filled input the token stands in, and with the variable still empty it publishes nothing
+  # and says so — a DKIM record nothing signs with makes receivers fail mail that is otherwise
+  # fine. The private half never comes near this program.
+  - step: cloudflare_dkim_record
+    apex_answer: mail_domain
+    selector_answer: dkim_selector
+    public_key_variable: MAIL_RELAY_DKIM_PUBLIC_KEY
+    on_failure: exit
+
+  - step: cloudflare_dmarc_record
+    apex_answer: mail_domain
+    policy_answer: dmarc_policy
+    mailbox_answer: dmarc_mailbox
+    on_failure: exit
+
+answers:
+  - name: stage
+    kind: text
+    allowed: [dev, test, prod]
+    describes: >-
+      Which of the product's three stages this installation runs. It names the hand-filled input
+      the API token and the DKIM public key are read out of, and it is the default DKIM selector.
+
+  - name: mail_domain
+    kind: text
+    shape: hostname
+    describes: >-
+      The domain mail is sent AS — the part after the @ of the sender addresses. Its zone must be
+      on the DNS account the token can edit. This may be a live mail domain of another service:
+      the SPF merge preserves what that service published, and two existing v=spf1 records refuse
+      the whole domain rather than guess.
+
+  - name: egress_address
+    kind: text
+    describes: >-
+      The public IPv4 address the mail actually leaves from — the cluster's egress. It becomes the
+      apex's address record and the ip4 mechanism the SPF merge adds. Answer with the address, not
+      a name: this program publishes the records a name resolves by, so resolving one here would
+      be circular.
+
+  - name: dkim_selector
+    kind: text
+    required: false
+    # LEFT EMPTY MEANS THE STAGE. The signer of this installation signs with the stage as its
+    # selector, so the value falls back to the stage answer and nobody types the same word into
+    # two fields where the pair could disagree. It matters only where a key is published at all.
+    default_from: stage
+    describes: >-
+      The DKIM selector — the label receivers look the key up under, which must be the one the
+      signer actually writes into its signatures. Leave it empty to use the stage, which is what
+      this installation's signer does.
+
+  - name: dmarc_policy
+    kind: text
+    allowed: [none, quarantine, reject]
+    default: none
+    describes: >-
+      What receivers do with mail that fails DMARC alignment. Start at none — reports without
+      enforcement — and tighten to quarantine or reject once the reports show only your own mail.
+
+  - name: dmarc_mailbox
+    kind: text
+    shape: mailbox
+    describes: >-
+      The mailbox receivers send their aggregate DMARC reports to. It is how you learn who is
+      sending as this domain, so answer with one somebody actually reads.

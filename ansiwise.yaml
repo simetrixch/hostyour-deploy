@@ -1,0 +1,213 @@
+# Which plugins this installation turns on.
+#
+# Data and nothing else: a list of names. Every name here has to be compiled into the binary
+# that reads it, and one that is not is refused by name rather than ignored.
+log_level: info
+plugins:
+  # The six tool plugins, then the one that knows a PAIR of them. There is no product plugin: what
+  # this installation is about is said by the program files and their rows, not by a package. Order
+  # is not precedence — a name registered twice is refused rather than resolved — it is only how
+  # they read.
+  - ansiwise-host
+  - ansiwise-kubernetes
+  - ansiwise-vault
+  # The step that reads a held value out of the store and writes it onto the cluster. It knows both
+  # tools and cannot be split into two rows, so it is neither the store plugin's nor the cluster
+  # plugin's; without this name turned on, that step is not in the registry a program resolves
+  # against.
+  - ansiwise-vault-kubernetes
+  - ansiwise-helm
+  - ansiwise-git
+  # The identity provider this installation logs people in through. It knows the shapes that provider
+  # defines for itself — above all the path under which it serves every application it stands in
+  # front of — so the address a token is issued at is composed in code instead of by a format string
+  # in a program file.
+  - ansiwise-authentik
+  # The DNS provider this installation's public names are published through. It knows the provider's
+  # v4 API and the public record grammars — SPF, DKIM, DMARC — and composes those records in code;
+  # which domain, which address and which policy are answers of the run that publishes them.
+  - ansiwise-cloudflare
+  # The versions this installation stands on: the one declaration that says what a component is,
+  # which version it is pinned at, where its upstream lives and which files carry that version. The
+  # plugin knows registries, release feeds and chart indexes; it names no component.
+  - ansiwise-versions
+  # The coordinator's side of the private network: it mints, create-only and asking the coordinator
+  # first, the single-use credential a machine joins with, and hands it over through a file the row
+  # names — never through output, which a run record keeps.
+  - ansiwise-headscale
+  # Holding a request-and-response conversation, in the protocol's own words. It knows a method, an
+  # address, a header, a body, a status and a field of a JSON answer, and nothing about who is on
+  # the other end of it: which address answers, which field matters and which value means what are
+  # written in the program rows that speak. It is what lets this installation ask its own Manager
+  # to do something instead of writing the result of it by hand — and it reaches a socket file as
+  # readily as a host, which is how a caller that is not a browser gets a session at all.
+  - ansiwise-http
+
+# WHERE THE PASSWORD THAT RAISES A COMMAND TO ROOT COMES FROM: whoever started the run, and nothing
+# on the installed machine.
+#
+# It arrives beside the answers, in the same envelope and over the same channel, and it lives exactly
+# as long as the process does. That is what every other credential of this platform already does, and
+# until this key existed the sudo password was the one that did not: it stood in the clear in the
+# operating account's home directory for as long as the installation stood, and an operator who
+# cleared the machine of credentials — which is the right instinct — left it unable to run at all.
+#
+# THIS IS WHY THIS FILE IS NO LONGER A MACHINE'S OWN. The alternative, `password_file:`, names a path
+# that differs per machine, so a file carrying it could not be the same on two installations and had
+# to be edited after every copy. This form is identical everywhere, which is what lets the whole of
+# this configuration live in the repository and reach a machine unchanged.
+elevation:
+  password_from_caller: true
+
+# The conditions the program rows behind `when:` name, and what each of them reads.
+#
+# A program row writes a bare word — `when: [secret_store_enabled]` — and a tool package brings
+# the generic condition "the key is true in that file" without knowing which file or which key,
+# because a package that named ours would be useless to anybody else holding the same tool. This
+# block is the one place both halves meet: the name a row writes, the generic condition it is, and
+# the two values that point it at this product's own facts. Nothing here evaluates — each key
+# holds exactly one value and no expression, no comparison and no reference to another key.
+#
+# WHAT THE FILE IS. `configs/config.<stage>` in the checkout deploy-branch generates, filled from
+# `configs/config.example` by the `fill_key_value_file` row of that program. The template ships every
+# switch below already carrying the word `true`, and a filled file is never rewritten where a key
+# already holds a value, so an operator turns a phase off by editing that one file and nothing else.
+#
+# THE NAME CARRIES THE STAGE, AND THE BINDING BELOW CARRIES A SLOT FOR IT. `<stage>` in the path is
+# filled from the answer `run_answer` names, so a prod installation reads `config.prod` and a dev one
+# reads `config.dev` — one binding, one file per installation, and the name a person reads first says
+# what the file is.
+#
+# It is a slot and not a written-out name because an installation's configuration is read ONCE,
+# before a program is resolved, and it holds no answers: `stage` is an answer, supplied per run. A
+# binding naming one stage literally is therefore right on exactly one kind of installation and
+# refuses every other before its first step — which is what stood here, and what made two of the
+# three stages this product ships unable to run deploy-platform-services at all.
+#
+# WHY IT MUST ALREADY BE THERE. Every condition of a program is measured once, before the first step
+# runs, so a run whose config file is missing is refused having touched nothing. That also means no
+# program may write this file and then gate a later row on it: the answer was taken before that row
+# existed. deploy-branch writes it, and deploy-platform-services — the only program whose rows
+# carry `when:` — runs afterwards.
+#
+# `true` AND `false` ARE THE WHOLE OF WHAT IS READ. `TRUE`, `yes`, `1` and a mistyped `ture` are each
+# refused by name before the first step, rather than read as "no" and silently switching off every
+# row waiting on that key.
+conditions:
+  # The platform's only secret store. Nothing else on the cluster holds a credential at rest, so
+  # while this is off no workload materializes a secret and the whole store phase of
+  # deploy-platform-services leaves no namespace, no release and no credential file behind.
+  secret_store_enabled:
+    predicate: key_is_true
+    file: /srv/hostyour-cloud/configs/config.<stage>
+    run_answer: stage
+    key: ENABLE_SECRET_STORE
+
+  # Whether this installation runs an identity provider. A cluster without one stands; it simply
+  # cannot log anybody in yet.
+  idp_enabled:
+    predicate: key_is_true
+    file: /srv/hostyour-cloud/configs/config.<stage>
+    run_answer: stage
+    key: ENABLE_IDP
+
+  # WHICH AUTHORITY THIS INSTALLATION'S CERTIFICATES ARE ISSUED BY, read as the NAME it is — one of
+  # exactly two the product writes. `platform-acme` is the public authority; anything else is an
+  # authority the cluster mints for itself, which this platform names `platform-local`.
+  #
+  # A NAME AND NOT A SWITCH, and the difference is the whole reason this reads the way it does. The
+  # certificate service watches the name a certificate is issued BY and never the specification
+  # behind it, so a boolean beside one fixed name could be turned over while every certificate went
+  # on being signed by the authority that had just been taken away. Measured on apps5 on 2026-09-01:
+  # the object was rewritten from `ca:` to `acme:`, nothing was re-issued, and the cluster served
+  # certificates whose root the same run had deleted, with every application still reporting itself
+  # healthy. The name is stamped into the values chain, so turning it over changes what a certificate
+  # references and the service issues everything again by itself.
+  #
+  # It is here rather than in the installer's own config because it is a property of the
+  # INSTALLATION and not of the run that made it: changing the authority later is editing this value
+  # on the machine's branch and running the program again, from a person or over the manager's door.
+  certificates_enabled:
+    predicate: key_has_value
+    file: /srv/hostyour-cloud/configs/config.<stage>
+    run_answer: stage
+    key: CLUSTER_ISSUER
+    value: platform-acme
+
+  # THE SAME KEY READ THE OTHER WAY, so that the rows which give the cluster an authority of its own
+  # run exactly where the rows that ask the public one do not. Two registered names over one reading
+  # rather than a negation behind `when:`, which would be an operator — and a negation would also
+  # have HELD on every file this refuses to read, running the rows for an authority nobody named.
+  certificates_withheld:
+    predicate: key_lacks_value
+    file: /srv/hostyour-cloud/configs/config.<stage>
+    run_answer: stage
+    key: CLUSTER_ISSUER
+    value: platform-acme
+
+  # Whether this installation hands its cluster over to a reconciler. The last rows of
+  # deploy-platform-services are that handover, and with this off the cluster is left standing with
+  # the platform's own services on it and nothing watching a repository.
+  reconciler_enabled:
+    predicate: key_is_true
+    file: /srv/hostyour-cloud/configs/config.<stage>
+    run_answer: stage
+    key: ENABLE_RECONCILER
+
+  # WHETHER THE MACHINE BEING INSTALLED IS ALSO THE ONE THAT KEEPS THE BOOKS. One installation has
+  # ONE secret store and ONE place people sign in, both on the cluster holding its maps and its
+  # registrations — so a row that PROVIDES either of those belongs to that cluster alone, while a
+  # row that gives THIS cluster its own share of them (its auth mount, its policies) belongs
+  # everywhere. Without this the two were told apart by nothing: a slave installed a store of its
+  # own that nothing dials, beside a map of its own saying it runs none.
+  #
+  # Read the same way `build_plane_here_in_config` below is read, and for the same reason: nobody
+  # writes the relation down, because both of its sides are already written down and a third key
+  # carrying the answer could disagree with them.
+  books_here_in_config:
+    predicate: key_values_agree
+    file: /srv/hostyour-cloud/configs/config.<stage>
+    run_answer: stage
+    key: BOOKS_CLUSTER
+    other_key: CLUSTER_FQDN
+
+  books_elsewhere_in_config:
+    predicate: key_values_differ
+    file: /srv/hostyour-cloud/configs/config.<stage>
+    run_answer: stage
+    key: BOOKS_CLUSTER
+    other_key: CLUSTER_FQDN
+
+  # Whether the machine being installed is also the one that builds. NOBODY WRITES THIS DOWN, and
+  # nobody should: it follows from whether the address of the builder and the address of this
+  # machine are the same address, and both of those are written down. A key carrying the answer as
+  # well would be the same fact in two places, and the two can disagree.
+  #
+  # ONE RELATION, TWO MOMENTS, AND THE NAME SAYS WHICH. `_in_config` reads
+  # configs/config.<stage>, which a step of deploy-branch WRITES, so it can only be asked after that
+  # step has run and it gates rows. `_in_answers` reads the run's own answers, which is the only
+  # place the relation stands before the first step — where whether an answer had to be given at all
+  # is decided. The pair is not a duplicate; there is no moment both serve.
+  #
+  # `here` and `elsewhere` are two names rather than one, because a `not:` behind `when:` would be
+  # an operator, and an operator is where a program file starts being a language. Each name is one
+  # registered comparison, and a row still writes one bare word. Only three of the four are
+  # registered: nothing yet asks the answers whether the build plane is elsewhere.
+  build_plane_here_in_config:
+    predicate: key_values_agree
+    file: /srv/hostyour-cloud/configs/config.<stage>
+    run_answer: stage
+    key: BUILD_PLANE_FQDN
+    other_key: CLUSTER_FQDN
+
+  build_plane_elsewhere_in_config:
+    predicate: key_values_differ
+    file: /srv/hostyour-cloud/configs/config.<stage>
+    run_answer: stage
+    key: BUILD_PLANE_FQDN
+    other_key: CLUSTER_FQDN
+
+  build_plane_here_in_answers:
+    predicate: answer_values_agree
+    answer: build_plane_fqdn
+    other_answer: fqdn

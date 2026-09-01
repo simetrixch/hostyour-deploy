@@ -1,0 +1,26 @@
+# Putting a slave back on the private network with the credential it already holds.
+#
+# Re-establishing FROM THE MACHINE'S SIDE: a bare `up` against the coordinator the client's own
+# preferences name. Nothing is minted, no master is touched and the coordinator is asked for
+# nothing. This is the verb for a machine that was disconnected, or whose daemon stopped.
+#
+# A machine whose credential is GONE — logged out, or its node deleted at the coordinator — cannot
+# come back this way: the run fails saying so, and tailnet-rejoin is the program that mints a fresh
+# credential on the master and joins with it.
+name: tailnet-reconnect
+# BOTH ROLES for the reason tailnet-disconnect gives: the caller's plan is where a master target is
+# refused, and the role a served run carries is the binary's default.
+roles: [master, slave]
+steps:
+  # THE TOOL FIRST, AND THIS ONLY MEASURES — the same reason tailnet-disconnect gives.
+  - step: require_commands
+    commands: [tailscale]
+    on_failure: exit
+
+  # The bare up. BARE is load-bearing: the moment any flag is present the client re-derives its
+  # whole preference set from the command line and refuses, because every machine here was joined
+  # with a login server and DNS declined — two non-default preferences. The step bounds the wait
+  # from outside instead, and asserts the membership off the client's own state rather than off the
+  # exit code.
+  - step: tailnet_reconnect
+    on_failure: exit

@@ -1,0 +1,342 @@
+# THE PLATFORM'S OWN MANAGER, ONBOARDED AS A CONSUMER — by the Manager, over the route every
+# other consumer takes, so that nothing about this one unit is a mechanism of its own.
+#
+# WHAT IT REPLACED. A first installation used to RENDER the Manager's registration from a
+# template — written by deploy-branch and again by regenerate-branch, a SECOND writer of
+# registrations/** over a tree whose only writer is the Manager itself: two hands on one file
+# with nothing arbitrating, and the installer's hand rewriting the Manager's on every re-run.
+# Both rows and the template are gone, and neither branch program names registrations/ any more,
+# down to the directory list its commit row carries. This run is what puts
+# registrations/hostyour-manager/build.yaml there, and its builds[] — manager, gate-runner, dbtools —
+# come out of the unit's own deploy/platform.yaml, which is the same list the release pipeline holds
+# the registration against.
+#
+# WHY IT IS NOT A SECOND MECHANISM EITHER. This program re-implements nothing. It sends ONE request
+# that creates an onboarding run, approves that run, and watches it settle — the same three acts a
+# person performs in the wizard, against the same addresses, through the same chokepoint, the same
+# audit and the same executor. Every step of the onboarding itself is the Manager's own, in its
+# own order, and this file knows none of them. A program that spelled those steps out as rows would
+# be exactly the unit-only path that is forbidden.
+#
+# WHERE IT RUNS AND WHEN. On the MASTER, after the Manager is serving: it is the Manager that
+# is being asked to do the work, so it has to be up before the first row. It runs on the machine
+# itself and not from outside, because the credential this whole conversation rests on is minted
+# through a socket file that has no address off the machine.
+#
+# THE CREDENTIAL IS MINTED, NEVER TYPED. There is no standing credential for a programmatic caller,
+# and there is deliberately none to put in an answer: a row asks the socket for a session, publishes
+# it as a SECRET, and the rows after it carry it as a bearer. What makes that safe is a rule the
+# framework enforces before the run starts rather than a habit — the argument the rows fill is
+# declared secret, and only a measurement declared secret may fill it, so a row wired from a plain
+# field is refused with the program.
+#
+# AND IT IS MINTED TWICE, WHICH IS A FACT ABOUT SESSIONS AND NOT A SECOND MECHANISM. A session goes
+# idle-stale, and the one door here hands a bearer a value it then holds unchanged — the Manager
+# slides the idle window only for a caller it can hand a new value to, which is a browser holding a
+# cookie. So a bearer ages from the moment it was sealed however often it is used. The first four
+# rows fit inside one session by their own deadlines; the last row waits on a whole release cycle
+# and does not, so it is given a session minted immediately in front of it. Same socket, same route,
+# same act — only later.
+#
+# THE FORM IS BUILD-ONLY, AND THE REQUEST SAYS SO BY WHAT IT LEAVES OUT. The Manager's manifest
+# declares no chart — it is the control plane and cannot validate, pin or deploy itself — so what it
+# onboards for is the three IMAGES, built by the same release pipeline as every other unit. The
+# request carries "stage" and never "clusterId": exactly one of the two is required, and which one
+# is given IS the choice of form.
+#
+# AND THE APPROVE CARRIES NO SECRETS, which is a fact about this unit and not a shortcut. Its
+# manifest declares `secrets: []` — the bootstrap secrets are seeded by the installer, not demanded
+# by the manifest — so the list of operator-supplied secrets the approve is checked against is
+# empty, and a body with none in it is admitted. A unit whose manifest declared one would be refused
+# here, loudly, rather than approved without it.
+#
+# NOTHING IN THIS FILE IS TAKEN BACK. Each of the requests changes the far side, and the protocol
+# has no request that unmakes any of them, so a second run re-sends.
+#
+# WHERE THAT SECOND RUN FAILS IS NOT THE CREATE. The create is answered 201 with a fresh run id
+# whatever stands already — planning is what decides whether the unit can be onboarded, and it
+# reports its answer through the run rather than through the request. So a second run gets an id,
+# waits, and is told by the RUN that it settled failed; the row that ends non-zero is a wait and not
+# the create. The outcome is still the honest one — an operator sees a failure rather than a quiet
+# second onboarding made and reported as the first — but which row says so is worth knowing before
+# somebody reads a red create as the only shape a repeat can take.
+name: onboard-manager
+roles: [master]
+steps:
+  # --- the session, minted through the socket file ----------------------------------------------
+  #
+  # The one door a caller that is not a browser comes through. It has no address a peer off this
+  # machine could name, which is why this program runs on the master and not from outside.
+  #
+  # WHAT DECIDES WHETHER THIS ROW GETS THROUGH IS THE SOCKET FILE'S OWN MODE, AND THIS PROGRAM DOES
+  # NOT SET IT. Connecting to a unix domain socket needs WRITE permission on the file, and the file
+  # is created and its mode set by the Manager's own process, under the account that process
+  # runs as. The engine opens the connection in-process, as the account the run was started as: the
+  # row starts no process, so there is nothing here for the per-command elevation to raise, and the
+  # account is the one that connects. Being on the master is therefore necessary and not
+  # sufficient — the run reaches this file only where the mode the Manager set grants that
+  # account write permission, and where it does not, this row ends with a permission refusal naming
+  # the path and the program stops before anything is onboarded.
+  #
+  # THE ACCOUNT'S SIDE OF THAT MODE IS NOT THIS PROGRAM'S EITHER, AND IT HAS A SECOND HALF THAT IS
+  # EASY TO READ AS A FAILURE. The mode is 0770 owned by the uid and gid the Manager's process
+  # runs as, so the group triad is what admits an account outside the container;
+  # deploy-platform-services is what puts a group of that number on the machine and the operating
+  # account in it. A supplementary
+  # group joins a process at LOGIN and never afterwards, so a run started from the same shell that
+  # membership row ran in still meets the refusal — with the group already on the machine and
+  # already naming the account. What is missing then is a new login, and nothing this program can do
+  # produces one.
+  #
+  # AN EXCHANGE AND NOT A REQUEST THAT CHANGES SOMETHING, because there is nothing at the far side to
+  # look at afterwards. The session IS what the call did; no address holds it, and asking again would
+  # mint a second one rather than confirm the first. So the engine measures this row against what it
+  # published, and stamps it declared rather than proven — the honest word for a call nothing can
+  # re-read.
+  #
+  # PUBLISHED AS A SECRET, which is decided by the step's kind and never by this row: a row that
+  # could declare a value secret is a row that could forget to. From the moment it is published the
+  # run's redactor hides it on every surface — the events, the header, the plan an operator reads.
+  - step: exchange_http_secret
+    method: POST
+    url: http://localhost/auth/session
+    # The path is a fact of THIS machine and of no other: the file stands in the Manager's own
+    # data directory, and where that directory lands is chosen by the storage layer at the moment
+    # the claim is bound. A path written out here would be right on one installation and wrong on
+    # every other, so the row spells a slot and the run fills it.
+    socket_path: <admin-socket>
+    field: session
+    values:
+      admin-socket: { answer: admin_socket_path }
+    # The name the later rows take it under. Without the rename both exchange rows of this program
+    # would publish the name their own kind declares, two values would stand under one name, and the
+    # program would be refused before its first step.
+    publish: { http_exchanged_secret: manager_session }
+    on_failure: exit
+
+  # --- the run that onboards this unit ----------------------------------------------------------
+  #
+  # ONE POST, and everything the onboarding is follows from it inside the Manager. It answers with
+  # the identifier of the run it created, which is the only thing this program needs to know about
+  # it: the next two rows address that run and nothing else.
+  #
+  # WHAT THE BODY SAYS AND WHY EACH PART IS WHERE IT IS. The unit's name, its repository and its
+  # owner are the same on every installation of this product — they are what the unit IS, they stand
+  # in its own manifest, and a run may not be asked to invent them — so they are written out. The
+  # version, the release channel and the stage are this run's to state. The credential is a raw field
+  # of the request, sealed by the Manager before any run exists; it rides here as a secret answer
+  # and stands in no record.
+  #
+  # WHAT THIS ADDRESS NEEDS THE MANAGER TO ALREADY BE, because the answer it gives otherwise says
+  # one true thing and not the one an operator can act on. Consumer onboarding is a family the
+  # Manager registers only where its own deployment carries the settings for it — the gate
+  # address and the platform repository credential — and where it does not, this address answers
+  # 501 with "onboarding is not configured on this manager". That is the Manager being honest
+  # about itself; what it cannot know is which file of the installation was supposed to carry those
+  # settings. They stand in installation/values/manager.yaml on the install branch, which the
+  # reconciler loads after the application's own values, and deploy-branch writes it from
+  # ansiwise/templates/manager-values.tpl — the account that operates the machine and the address it
+  # answers on inside the cluster network, which between them render both halves of the gate. A
+  # branch cut before that row existed carries no such file, and this row then reports a refusal that
+  # is correct and that no answer of this program can change — what stands in the way is one file on
+  # that branch, and not anything this program is told.
+  - step: exchange_http_field
+    method: POST
+    url: <manager-url>/api/consumers
+    content_type: application/json
+    body: >-
+      {"consumerName":"hostyour-manager",
+      "repoURL":"https://github.com/simetrixch/hostyour-manager.git",
+      "owner":"platform@simetrixch",
+      "version":"<version>","channel":"<channel>","stage":"<stage>",
+      "repoPat":"<repo-pat>"}
+    # The session the row above minted. It is filled by the framework from that measurement, and the
+    # rule that makes it safe is checked before the run starts: this argument is declared secret, and
+    # only a measurement declared secret may fill it.
+    bearer: { measured: manager_session }
+    values:
+      manager-url: { answer: manager_url }
+      version: { answer: version }
+      channel: { answer: channel }
+      stage: { answer: stage }
+      repo-pat: { answer: build_manager_repo_write_pat }
+    field: runId
+    publish: { http_exchanged_field: onboarding_run_id }
+    on_failure: exit
+
+  # --- the approval ------------------------------------------------------------------------------
+  #
+  # The same act the operator performs in the console, at the same address. It carries no body: the
+  # secrets an approve is checked against are the ones the unit's manifest DEMANDS, and this unit's
+  # manifest demands none.
+  #
+  # --- the run has to be PLANNED before it can be approved -----------------------------------------
+  #
+  # THE CREATE ANSWERS BEFORE THE PLAN EXISTS. `POST /api/consumers` hands back a run id while the
+  # run still stands at `planning` — the planning streams, and the id is the handle for watching it.
+  # `planning` to `approved` is not a transition the Manager admits: its own table lists
+  # `planning>planned`, `planning>failed` and `planning>cancelled` and nothing else, so an approve
+  # sent the moment the id arrives is answered 409 and this program would exit non-zero on EVERY
+  # healthy run — the one shape a run failure must never have.
+  #
+  # So this row waits for the state the approve is legal from, and it names the two ways planning
+  # ends badly, so a plan that cannot be made ends the wait at once instead of sitting out the
+  # window in front of a state that will not change again.
+  - step: wait_for_http_field
+    waiting_for: the run that onboards this manager to finish planning
+    url: <manager-url>/api/runs/<run-id>
+    field: status
+    until: [planned]
+    failing: [failed, cancelled]
+    bearer: { measured: manager_session }
+    values:
+      manager-url: { answer: manager_url }
+      run-id: { measured: onboarding_run_id }
+    timeout_seconds: 300
+    interval_seconds: 5
+    on_failure: exit
+
+  # AN EXCHANGE AGAIN, and for a reason worth stating rather than inheriting. What could be read
+  # afterwards to prove an approval happened is the run's own state — and the executor starts the run
+  # the moment it is approved, so by the time a second look arrives that state has already moved on
+  # to running, and further still to a terminal one. A row proving itself on "the run stands at
+  # approved" would fail on every healthy run and pass only on a stuck one. What this row proves is
+  # that the Manager accepted the approval, and the row below proves what came of it.
+  - step: exchange_http_field
+    method: POST
+    url: <manager-url>/api/runs/<run-id>/approve
+    bearer: { measured: manager_session }
+    values:
+      manager-url: { answer: manager_url }
+      run-id: { measured: onboarding_run_id }
+    field: ok
+    publish: { http_exchanged_field: approval_accepted }
+    on_failure: exit
+
+  # --- the session again, for the one row that outlives the first one ----------------------------
+  #
+  # A BEARER NEVER LEARNS THAT ITS SESSION HAS GONE STALE. The Manager slides the idle window on
+  # every authenticated request by re-sealing the value and handing it back — and it hands it back
+  # in a cookie, so a caller that presented a bearer keeps the value it already holds. The rows
+  # above cost one exchange each plus a planning wait bounded at 300s, which fits well inside the
+  # window; the row below waits on a release cycle and does not. So the session it carries is minted
+  # here, immediately in front of it, and is used by nothing else.
+  #
+  # WHAT IT COSTS TO GET THAT WRONG, measured against the step rather than guessed: a stale session
+  # answers 401, and a 401 is neither the state being waited for nor an address that holds nothing,
+  # so the wait reads it as "not yet" and keeps asking. A row that outlived its credential therefore
+  # did not fail at the moment it lost it — it went on polling a door that would never open again
+  # and ended on a deadline, with "not authorised" as the last thing it saw.
+  #
+  # THE NAME IS ITS OWN. Both mints publish what their kind declares, and two values standing under
+  # one name is refused with the program before its first step.
+  - step: exchange_http_secret
+    method: POST
+    url: http://localhost/auth/session
+    socket_path: <admin-socket>
+    field: session
+    values:
+      admin-socket: { answer: admin_socket_path }
+    publish: { http_exchanged_secret: manager_session_for_the_settle }
+    on_failure: exit
+
+  # --- what came of it ---------------------------------------------------------------------------
+  #
+  # THE THREE STATES A RUN ENDS IN are the Manager's own (shared/enums.ts RUN_STATUS), and all
+  # three are named here: one that means it worked and two that mean it is over and did not. Naming
+  # only the first would leave a failed run to sit out the whole window in front of a state that
+  # never changes again, and report a deadline where the Manager had already said in one word what
+  # happened.
+  #
+  # THE WINDOW IS WHAT THE CREDENTIAL COVERS, AND NOT WHAT THE WORK MIGHT TAKE. What is being waited
+  # for is a whole release cycle — the pipeline is triggered inside the run, and the run does not
+  # settle until the images are built — and this row used to name an hour for it. An hour is longer
+  # than the session in front of it lives, so the back half of that hour was spent asking with a
+  # value the Manager had already stopped accepting. 1770 is the idle window the Manager gives
+  # a session (SESSION_IDLE_SECONDS, 1800s where the deployment names no other) less the longest the
+  # mint above it may take (an exchange's own bound on one request, 30s), so the last ask this row
+  # makes still carries a session inside that window.
+  #
+  # AND THE COST OF THAT CEILING IS SAID HERE RATHER THAN DISCOVERED ON A MACHINE: a release cycle
+  # that needs longer than 1770s ends this row on a deadline. Watching one through would need the
+  # wait to mint again part-way, which is wait_for_http_field's to do and not a row's — the step
+  # carries one bearer for the whole wait. Everything in between — planning, approved, running, an
+  # address mid-restart — is what "not yet" looks like, and each is carried to the record, so a
+  # deadline that IS reached says what the last ask saw rather than only how long it waited.
+  - step: wait_for_http_field
+    waiting_for: the run that onboards this manager as a consumer to settle
+    url: <manager-url>/api/runs/<run-id>
+    field: status
+    until: [succeeded]
+    failing: [failed, cancelled]
+    bearer: { measured: manager_session_for_the_settle }
+    values:
+      manager-url: { answer: manager_url }
+      run-id: { measured: onboarding_run_id }
+    timeout_seconds: 1770
+    interval_seconds: 15
+    on_failure: exit
+
+answers:
+  - name: stage
+    kind: text
+    allowed: [dev, test, prod]
+    describes: >-
+      Which of the product's three stages this installation runs. It is what makes the request the
+      build-only form: exactly one of a cluster and a stage may be given, and a build-only unit is
+      the one that names the stage — where the release this onboarding triggers puts what it builds.
+
+  - name: version
+    kind: text
+    describes: >-
+      The version this onboarding releases, as three numbers separated by dots and nothing else. It
+      is not a tag and not a revision: the release script mints the full tag repository-side from
+      this, and the run only starts it.
+
+  - name: channel
+    kind: text
+    allowed: [alpha, beta, stable]
+    describes: >-
+      Which release channel this version is cut on, which is the ceiling on the stages it may ever
+      reach.
+
+  - name: manager_url
+    kind: text
+    default: http://127.0.0.1:8484
+    describes: >-
+      Where this machine's own Manager answers, scheme and port included. The default is what it
+      is on every installation of this product — the Manager's pod runs on the node's own network
+      and serves that port on it — so this is asked only to be answered differently where a machine
+      is not that.
+
+  - name: admin_socket_path
+    kind: text
+    # THE DEFAULT IS THE CHART'S OWN PATH, AND IT IS A COPY OF IT. hostyour-cloud
+    # clusters/inventories/manager/values-common.yaml:101 sets adminSocket.path, the Deployment hands
+    # that same string to the manager as ADMIN_SOCKET_PATH and mounts its directory off the node, and
+    # this line writes it a second time. Nothing compares the two. A branch that moves the value
+    # answers this differently, which is what the answer stays free text for; a branch that moves it
+    # and does not answer gets a connect refusal naming a path the chart no longer writes.
+    #
+    # IT USED TO HAVE NO DEFAULT, and the reason is gone rather than forgotten: the socket stood
+    # under the Manager's data directory, which is a bound claim whose directory the storage
+    # provisioner composes with a generated uid, so no path could be right on two installations. The
+    # chart decides the path now and it is the same on all of them.
+    default: /var/lib/hostyour-manager/admin.sock
+    describes: >-
+      The socket file the session is minted through, as an absolute path on this machine. The default
+      is what the chart of this product writes on every installation, so this is answered only where a
+      branch moved it. The run connects to it as the account it was started as, and connecting needs
+      write permission on the file: a path that is correct but whose mode the Manager did not open to
+      that account ends the first step with a permission refusal rather than a wrong-path one.
+
+  - name: build_manager_repo_write_pat
+    kind: text
+    secret: true
+    describes: >-
+      The repository credential this unit onboards with — the same answer deploy-branch takes under
+      this name, so one value is given once whichever program asks for it. It is a raw field of the
+      create request, which the Manager seals before any run exists and then writes itself to
+      build/hostyour-manager/repo-pat, the path every unit's build reads its credential at. Nothing
+      seeds that path any more: the run's own seed-repo-pat step writes it, one step after the
+      registration that brings the reader into existence.

@@ -1,0 +1,30 @@
+# Which plugins a run THIS MACHINE starts by itself turns on.
+#
+# WHY THERE IS A SECOND ONE OF THESE, and it comes down to a single block. ansiwise.yaml beside this
+# file says the password that raises a command to root is handed over by whoever starts the run, and
+# the binary refuses EVERY run under that configuration when none arrived — before the gate, before
+# the first step, whether or not the program has a step that needs root. That is correct for a run
+# an operator or the manager starts. It is impossible for a run the machine starts at boot: there is
+# no caller, and the alternative the binary offers — a password in a file on the machine — is the one
+# credential this platform deliberately stopped keeping at rest.
+#
+# So a run started by the machine names no elevation route at all. Nothing it runs raises a command
+# to root, and a step that tried would be refused by name at the moment it tried rather than passed
+# over: the service runs AS root, so what it reads it reads directly and never through sudo.
+#
+# WHAT MAY BE RUN UNDER THIS: the programs in ansiwise/boot-programs, and nothing else. They stand
+# in a directory of their own because a run resolves EVERY program in the directory it is given and
+# is refused where any of them names a step this file has not turned on — so pointing this at the
+# ordinary programs would make it a copy of ansiwise.yaml's plugin list and condition block, and a
+# copy nobody updates is one that fails at a restart. A program that needs root belongs among those
+# ordinary programs, where an installation says where that password comes from.
+#
+# THE GATE STANDS. There is no `gate:` block, so a real run still needs a clean dry run of the same
+# input behind it — and the unit performs that dry run seconds before, rather than waiving the proof
+# and recording that it went without one.
+log_level: info
+plugins:
+  # The secret store, and nothing beside it. A plugin list is what a program is resolved against, so
+  # naming more here would let a program that has no business running unattended resolve under this
+  # file.
+  - ansiwise-vault

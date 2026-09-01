@@ -1,0 +1,169 @@
+# A master joining the private network it runs the coordinator for, in ONE run.
+#
+# WHY THIS IS ITS OWN PROGRAM AND NOT TWO. A machine joins by redeeming a credential the coordinator
+# mints, and on a master both halves stand on the same box: the coordinator runs there as a workload,
+# and the machine that has to redeem the key is the machine that mints it. A slave's join works
+# because something stands between the two — the manager mints on the master, reads the file off it
+# and carries the value into the slave's run as an answer. Nothing stands between a master and
+# itself, so until the engine could work an answer out of a file the machine already holds, the two
+# halves could not meet inside one run and the master was left off its own network. Measured on the
+# live installation: the coordinator listed the slave and not the master, `tailscale status` answered
+# `Logged out.`, and the slave's tailnet address was unreachable from the master that has to dial it.
+#
+# HOW THE HALVES MEET. The mint row names the answer holding the path it writes to, rather than
+# composing that path for itself — a path a step composes inside itself reaches no later row. The
+# join row's credential is then worked out of that same file by `secret_in_file_at`, so the value
+# never passes through a person, a record or a command line. Nobody supplies the credential: the
+# answer that names it is derived, and the file it names is written earlier in this same run.
+#
+# WHY IT WAITS FIRST. The coordinator is not put here by any program — it is a workload the
+# reconciler brings, at sync wave 42, after the installation has handed the cluster its root
+# application. So the moment this program starts, the coordinator may not exist yet, and minting
+# against a coordinator that cannot be asked is refused rather than guessed at. The row below waits
+# for it the way this installation already waits for its certificate, its secret store and its
+# identity provider — all of them delivered the same way.
+#
+# ROLES. Master only, and that is the whole of the distinction: a slave has no coordinator to wait
+# for and no key of its own to mint, and its join is the manager's act from the other side.
+name: tailnet-join-self
+roles: [master]
+
+steps:
+  - step: require_commands
+    commands: [microk8s, tailscale, openssl]
+    on_failure: exit
+
+  # AVAILABILITY, NOT EXISTENCE. A deployment that exists but serves nothing answers the admin
+  # surface with silence, and silence is what the mint refuses on — so waiting for the object to
+  # appear would hand the next row the very state it is written to reject.
+  #
+  # THE ANSWER IS COMPARED LINE FOR LINE, not looked for inside one — the step's own words are "the
+  # line the command has to write for the wait to be over". So the probe has to WRITE that line and
+  # nothing else, which rules out the readable forms: `kubectl wait` says
+  # "deployment.apps/headscale-prod-app condition met", and a poll waiting for "condition met" sits
+  # out its whole window against a coordinator that has been available all along. Measured on apps5
+  # on 2026-08-31: 600 seconds, against a deployment that was 1/1 the entire time.
+  #
+  # It also cannot name the stage: this step fills no slots, so `<stage>` would be asked for
+  # literally. Reading the condition of every deployment in the namespace answers both at once, and
+  # it is exact — the namespace holds the coordinator and nothing else. A second deployment there
+  # would make this read "True True" and the wait would end unsatisfied, which is the direction a
+  # wrong answer should fail in.
+  - step: wait_for_command_output
+    rests_on_an_earlier_step: true
+    waiting_for: the coordinator to report itself available, which it can only do once the reconciler has brought it
+    command: microk8s
+    command_arguments:
+      - kubectl
+      - -n
+      - headscale
+      - get
+      - deploy
+      - -o
+      - 'jsonpath={.items[*].status.conditions[?(@.type=="Available")].status}'
+    answer: 'True'
+    elevated: true
+    timeout_seconds: 600
+    interval_seconds: 10
+    on_failure: exit
+
+  # The credential, minted for THIS machine under its own name at the coordinator. `key_file_answer`
+  # rather than `key_file`: the path has to be a value the row below can be derived from, and a path
+  # written into this row would be filled inside the step and go no further.
+  #
+  # EVERY ROW BELOW RESTS ON THE WAIT. The installer runs a program test, then dry, then run, and a
+  # wait does not wait in the first two — it measures. So without this the mint asks a coordinator
+  # that the row above has not yet waited for, is refused on silence exactly as it should be, and
+  # the whole installation stops in `test` before `run` is ever reached. Measured on apps5,
+  # 2026-08-31: the coordinator's deployment was seconds old when the mint asked it.
+  - step: tailnet_join_credential
+    rests_on_an_earlier_step: true
+    headscale:
+      - microk8s
+      - kubectl
+      - exec
+      - -n
+      - headscale
+      - deploy/headscale-<stage>-app
+      - --
+      - headscale
+    headscale_needs_root: true
+    user_answer: cluster_name
+    run_answer: stage
+    key_file_answer: key_file
+    on_failure: exit
+
+  - step: tailnet_join
+    rests_on_an_earlier_step: true
+    on_failure: exit
+
+  # The address the machine answers on the private network is not in the certificate it was issued
+  # before it had one, so every in-cluster caller that dials it over that address is refused by the
+  # name it dialed. Same rows as the rejoin performs, for the same reason.
+  - step: stamp_tailnet_address_in_certificate
+    rests_on_an_earlier_step: true
+    template: /var/snap/microk8s/current/certs/csr.conf.template
+    certificate: /var/snap/microk8s/current/certs/server.crt
+    marker: '#MOREIPS'
+    resign: [microk8s, refresh-certs, --cert, server.crt]
+    # WHAT THE NEXT CALLER WILL USE, and not a neighbouring readiness. The re-sign restarts the API
+    # server, and `status --wait-ready` answers about the NODE — it succeeded on apps6 on 2026-09-01
+    # while the API was still refusing, and the next program died twenty-five seconds later on
+    # "the connection to the server 127.0.0.1:16443 was refused". Asking the API itself is the only
+    # question whose answer means what this row needs it to mean. The step asks it over and over
+    # until it answers, within the window below.
+    settled_by: [microk8s, kubectl, get, --raw, /readyz]
+    elevated: true
+    on_failure: exit
+
+answers:
+  - name: fqdn
+    kind: text
+    shape: hostname
+    denied: [example.invalid]
+    describes: >-
+      The domain of this installation, as its cluster is reached from outside. The machine's name at
+      the coordinator is the first label of it, so this is the one thing that has to be said about
+      which machine is joining.
+
+  - name: cluster_name
+    kind: text
+    derived: first_dns_label_of
+    from: fqdn
+    describes: >-
+      This machine's name at the coordinator — the first label of its domain, the same name the
+      platform files this cluster under everywhere else.
+
+  - name: stage
+    kind: text
+    allowed: [dev, test, prod]
+    describes: >-
+      Which of the product's three stages this installation runs. It stands in the coordinator
+      deployment's name, which is how the invocation above finds the right workload.
+
+  - name: login_server
+    kind: text
+    describes: >-
+      The address the private network's coordinator answers at, scheme and all — for this platform
+      that is https://tale.<domain of this cluster>. The client logs in there, and a machine already
+      logged in somewhere ELSE is refused rather than moved. It is stated rather than worked out,
+      because this catalogue serves every installation and the domain is a fact of exactly one.
+
+  - name: key_file
+    kind: text
+    default: /tmp/ansiwise-tailnet-join-key-self
+    describes: >-
+      Where the credential is put between the two rows that need it — written by the mint, read by
+      the join, and readable by that account alone. It carries a default because both rows are in
+      this one program and nobody outside it has any reason to choose the path; an installation that
+      needs a different one says so here rather than in either row.
+
+  - name: auth_key
+    kind: text
+    required: false
+    derived: secret_in_file_at
+    from: key_file
+    describes: >-
+      The credential itself, worked out of the file the mint above wrote. Nobody supplies it: it did
+      not exist when this run started, and it is secret because the rule says so, whatever this
+      declaration claims.

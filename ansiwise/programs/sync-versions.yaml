@@ -1,0 +1,65 @@
+# Stamping the version pins across the tree.
+#
+# clusters/platform/versions.yaml in the platform checkout is the ONE place a component version is decided —
+# and deciding is all that editing it does. This program is what makes the decision felt: it writes
+# every pin into every site the declaration names — the image tags and appVersions of the platform's
+# apps, the dependency versions of its charts, the chart and channel and tool pins inside the deploy
+# programs of THIS repository, and the build arguments of the manager's dbtools image, which lives
+# in a sibling repository precisely because its build cannot read the declaration across the
+# boundary and a copy of it there would be a second source for a version that must have exactly one.
+#
+# WHERE THIS RUNS: on the workstation that holds the three checkouts, never on a cluster machine —
+# which is what the role below pins. Invoke it with `--role workstation`, dry first:
+#
+#   ansiwise --program sync-versions --mode dry ...
+#   ansiwise --program sync-versions --mode run ...
+#
+# and a run is refused without a green dry of the same fingerprint, as always. What this program
+# leaves behind is CHANGED WORKING TREES and nothing more: review `git diff` in every stamped
+# checkout and commit each in its own workflow. The undo of the one step below puts every stamped
+# file back byte for byte, so an interrupted run leaves no half-stamped tree behind.
+#
+# WHY ONE STEP AND ONE POLICY. The declaration is stamped whole or not at all: every site the
+# declaration names either takes its pin or the step refuses BEFORE writing anything, listing every
+# problem at once — an anchor a file lost, a dependency a chart renamed, a checkout that is not
+# where its answer says. Its predecessor was seven shell phases, five of which had no stated
+# failure policy at all; here the policy is stated, once, and it is exit, because a partly stamped
+# tree reporting success is the exact failure the stamp exists to end.
+#
+# The report side of this pair is report-versions. Both read the SAME declaration, so what one
+# stamps and what the other reports cannot drift apart.
+name: sync-versions
+roles: [workstation]
+
+answers:
+  # The three checkouts, asked rather than written here, because where a workstation keeps them is
+  # a fact of that workstation and of nothing else. Each answer is the PATH of a checkout's root;
+  # the tree LABELS the declaration writes (platform, deploy, manager) are mapped to these answers
+  # on the row below.
+  - name: platform_checkout
+    kind: text
+    describes: >-
+      The path of the platform checkout (hostyour-cloud) — the tree that carries
+      clusters/platform/versions.yaml, the declaration everything here stamps from, and the apps/ sites the
+      pins are written into.
+  - name: deploy_checkout
+    kind: text
+    describes: >-
+      The path of THIS repository's checkout — the tree whose deploy programs carry the bootstrap
+      chart versions, the cluster snap channel and the CLI tool pins as literals, each stamped from
+      the declaration.
+  - name: manager_checkout
+    kind: text
+    describes: >-
+      The path of the manager checkout (hostyour-manager) — the sibling tree whose dbtools image
+      states as build arguments the database client series this declaration decides.
+
+steps:
+  - step: stamp_version_pins
+    declaration_tree: platform
+    declaration_path: clusters/platform/versions.yaml
+    trees:
+      platform: {answer: platform_checkout}
+      deploy: {answer: deploy_checkout}
+      manager: {answer: manager_checkout}
+    on_failure: exit

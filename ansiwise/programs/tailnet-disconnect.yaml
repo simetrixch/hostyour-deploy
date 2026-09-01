@@ -1,0 +1,30 @@
+# Taking a slave off the private network — and off it ONLY.
+#
+# The client keeps its node key and its coordinator, the coordinator keeps its node, and nothing is
+# revoked anywhere: the machine can re-establish its membership later with what it already holds,
+# which is exactly what tailnet-reconnect does. The machine goes on answering on its public address,
+# which is how the two programs that put it back reach it at all — an act that takes a machine off
+# the private network cannot travel over that network.
+#
+# ITS OWN PROGRAM ON PURPOSE, one act long. A disconnect is a repair verb an operator aims at one
+# machine deliberately — before moving it, before debugging its network — and a program that did
+# anything beside the one act would be a program nobody dares run on a live slave.
+name: tailnet-disconnect
+# BOTH ROLES, and the refusal of the master lives with the CALLER, not here. Taking the machine
+# that runs the coordinator off its own network is not a repair, and the manager's plan refuses a
+# master target before anything is approved — but a run launched over the machine's own service
+# carries the binary's default role, so a [slave]-only gate here would refuse every machine alike.
+roles: [master, slave]
+steps:
+  # THE TOOL FIRST, AND THIS ONLY MEASURES. The client is put on the machine by deploy-cluster;
+  # this program may be run months later, against a machine somebody has touched in between, and a
+  # missing client must be named as such rather than surfacing as the leave failing strangely.
+  - step: require_commands
+    commands: [tailscale]
+    on_failure: exit
+
+  # The leave itself. Its check reads the client's own state, so a machine already off the network
+  # is reported as having nothing to do — and a `down` the client accepted while staying on the
+  # network is a failure, not a success.
+  - step: tailnet_leave
+    on_failure: exit

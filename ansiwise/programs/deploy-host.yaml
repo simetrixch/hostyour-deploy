@@ -1,0 +1,230 @@
+# Bringing up a machine reached with nothing but a username and a password.
+#
+# The order is the point. The cheap local measurements come first, so a machine that was never going
+# to work is refused before anything is written to it. Only then is anything installed.
+#
+# require_commands stands AFTER install_packages on purpose: it is what proves the install produced
+# the commands, rather than that the package manager returned zero. An install can succeed and leave
+# nothing behind, and the shell this replaces has a comment saying exactly that.
+name: deploy-host
+roles: [master, slave]
+steps:
+  # THE TOOLS THIS PROGRAM ASSUMES, BEFORE THE FIRST OF THEM IS USED. Everything below starts
+  # commands a fresh Ubuntu carries — and "a fresh Ubuntu carries it" is a fact about the usual
+  # machine, not about this program. An image somebody trimmed is the case where a run finds out
+  # halfway through, with packages already installed and a step failing on a command nobody looked
+  # for.
+  #
+  # It MEASURES and installs nothing, and that is the whole shape of it: a program that quietly
+  # installed something would be a program whose dry run lied, having shown a plan without the
+  # installation it was about to perform. Installing is a step of this program, below, and the two
+  # are kept apart precisely so a dry run can say what would be installed without installing it.
+  #
+  # What each is for: `apt-get` and `dpkg-query` are the package manager the install step drives;
+  # `nproc` and `df` answer the size and disk gates; `getent` and `sshd` decide whether a key login
+  # would work; `stat` reads the mode of the key file.
+  - step: require_commands
+    commands: [apt-get, dpkg-query, nproc, df, getent, sshd, stat]
+    on_failure: exit
+
+  - step: require_pinned_ubuntu
+    release: '26.04'
+    on_failure: exit
+
+  # THE ONLY THREE THINGS THIS PROGRAM ASKS ABOUT RATHER THAN MAKES, and they are the three it
+  # cannot make: a processor, a byte of memory, and the release that is already installed. Everything
+  # else a machine needs is put there by a step below or by a row of another program — the data
+  # filesystem included, which deploy-cluster answers by path and links the cluster onto.
+  #
+  # So the alternative to refusing here is not "check less". It is failing somewhere inside the
+  # cluster distribution an hour later, with a message about a pod rather than about the machine.
+  #
+  # These are the MINIMUM a machine is admitted at and not what one should be given. The floor is the
+  # owner's: two processors and forty gigabytes. The memory figure is the cluster distribution's own
+  # recommendation — it states it runs in as little as 540 MB and that a system carrying workloads
+  # wants 4 GB — so it is measured rather than chosen here.
+  - step: require_machine_size
+    vcpu: 2
+    memory_kilobytes: 4000000
+    on_failure: exit
+
+  # The OPERATING SYSTEM disk, which is what packages, snaps and the cluster distribution itself are
+  # unpacked onto. It is not where the cluster's data goes: that is a separate filesystem this
+  # machine either carries or does not, answered per machine and checked by deploy-cluster, which
+  # admits a machine that has none and leaves the cluster on its own default.
+  - step: require_free_disk
+    path: /
+    gigabytes: 40
+    on_failure: exit
+
+  - step: install_packages
+    packages: [git, openssl, curl, jq, apache2-utils]
+    on_failure: exit
+
+  # `provided_by` is what turns a refusal into something an operator can act on: told to install
+  # `htpasswd` they go looking for a package that does not exist, told `apache2-utils` they are
+  # done. It is one distribution's package name and stands here rather than in the step.
+  # THE SECOND ONE, and it is the other kind. The row at the head of this file refuses a machine that
+  # cannot be worked on at all; this one proves the install above it produced what it promised — an
+  # install can succeed and leave the command behind it missing, which is the failure this exists
+  # for. So it cannot answer before that row has run, and in the two modes that change nothing it
+  # says what it would check instead of failing on a state nobody produced.
+  - step: require_commands
+    commands: [git, openssl, curl, jq, htpasswd]
+    provided_by: [htpasswd=apache2-utils]
+    rests_on_an_earlier_step: true
+    on_failure: exit
+
+  - step: remove_unused_packages
+    on_failure: continue
+
+  - step: clean_package_cache
+    on_failure: continue
+
+  # The key first, then the proof that sshd would accept it. Switching the password off is a
+  # separate program on purpose: this one cannot perform the login, because the private half never
+  # comes here — so the operator connects with the key before anything takes the password away.
+  - step: install_authorized_key
+    # WHICH key, named by the row. The step takes a key either from an answer or from a value a row
+    # of the same run measured — a key minted while a run is going cannot be answered by anybody —
+    # and it refuses a row that says neither. This is the answering half: the operator types their
+    # own public key when this program is started.
+    public_key_answer: operator_public_key
+    on_failure: exit
+
+  - step: require_key_login_possible
+    public_key_answer: operator_public_key
+    on_failure: exit
+
+  # --- the tree everything else acts on ---------------------------------------------------------
+  #
+  # LAST HERE AND FIRST OF EVERYTHING, and that is not a contradiction: it is the last thing that
+  # makes this machine workable, and the first thing every later program needs. Each of them names
+  # /srv/hostyour-cloud on its `repository:` rows — that tree is the MATERIAL they act on — and
+  # until this row existed, nothing in this repository created it. A shell script inside the
+  # Manager did, and this replaces it.
+  #
+  # THE ORIGIN COMES FROM AN ANSWER AND NOT FROM A FILE, which is the one shape of git_clone that
+  # exists for exactly this row. Every other checkout reads which repository it is from out of a
+  # settings file this installation wrote earlier; this one is made BEFORE any such file, because
+  # the programs that write them live in a checkout that is not there yet. The answer is where an
+  # installation's own facts stand, and the program file still carries only a name.
+  #
+  # AND WITH NO CREDENTIAL, because the platform repository is served to anybody. Handing one over
+  # would put it on the network for a server that never asked. A private one would need the three
+  # credential arguments, read out of files — never a word of a command.
+  #
+  # THE BRANCH IS ANSWERED for the same reason it cannot be written here. A master at its birth
+  # takes `master`, because deploy-branch is what cuts its installation branch and it refuses to
+  # stamp while standing on master. A machine adopted into an installation that already has one
+  # takes that branch. Writing either into this file would move the other one's checkout every time
+  # this program ran again.
+  - step: git_clone
+    repository: /srv/hostyour-cloud
+    host: github.com
+    branch_answer: platform_branch
+    origin_answer: platform_repo
+    owner_answer: operator_user
+    on_failure: exit
+
+  # THE SECOND CHECKOUT, AND WHY IT IS MADE HERE AND NOT WHERE IT IS USED. A slave's branch is cut
+  # in a checkout of its own — /srv/hostyour-cloud-slave — because cutting it in the live tree would
+  # yank the machine's working tree off the branch its reconciler and its installer stand on
+  # (deploy-slave-branch says so in its own header). That program refuses to establish either
+  # checkout: it reads them and expects the caller to have stood them.
+  #
+  # THE CALLER IS THE MANAGER, AND IT MAY NOT CREATE THIS. It reaches a master over SSH as the
+  # OPERATOR account, and /srv belongs to root at 0755 — so `git clone` there answers
+  # "could not create work tree dir '/srv/hostyour-cloud-slave': Permission denied", which is where
+  # the first slave deploy this platform ever ran actually stopped. Nothing created it: the program
+  # says the caller has it, and the caller cannot make it.
+  #
+  # MAKING A DIRECTORY IS THIS LAYER'S JOB, and elevating the Manager instead would be the wrong
+  # answer twice over — git would then run as root and hand every file it writes back to root, which
+  # is the very state the ownership hand-over above exists to end.
+  #
+  # A SLAVE CARRIES IT TOO, and that is deliberate rather than overlooked: this program applies to
+  # both roles, no per-step role gate exists, and the only way to ask for one would be a `role`
+  # answer restating what `--role` already told the run — the same fact twice, which is what every
+  # answer in this file is written to avoid. What a slave pays is one clone it never opens.
+  #
+  # The branch it lands on does not matter and is the same answer as the live tree's: the Manager's
+  # own script stands this checkout on the product branch before the cut, every time.
+  - step: git_clone
+    repository: /srv/hostyour-cloud-slave
+    host: github.com
+    branch_answer: platform_branch
+    origin_answer: platform_repo
+    owner_answer: operator_user
+    on_failure: exit
+
+  # THE ENGINE'S OWN STATE, AND THE LAST PLACE ROOT AND THE OPERATOR MEET. Every run this machine
+  # ever performs writes its record under /var/lib/ansiwise/runs — one directory per run, holding
+  # the header and the events an operator reads when a step fails. Nothing declares that directory:
+  # the recorder creates it recursively when a run begins (ansiwise-core file_recorder.dart:41), so
+  # it belongs to whoever ran first, and the first run of every machine is `sudo ansiwise`. Both
+  # directories therefore stand at root:root 0755 on every installation this platform has made.
+  #
+  # WHO IS REFUSED BY THAT is ansiwise-rest, which serves the programs the Manager drives and runs
+  # as the operator. It accepts a run, forks it, and the child dies before its first step because it
+  # cannot make its own directory — and what the caller sees is a run that was accepted and never
+  # wrote a record, which is the least readable failure this platform has produced.
+  #
+  # THE MODE IS UNCHANGED AT 0755 and only the owner moves, so this row answers the one question it
+  # is here for and does not quietly decide a second one. Root goes on writing whatever it likes,
+  # because root does; the operator can now write too.
+  #
+  # THE PARENT FIRST, then what sits under it: the account has to be able to write in the parent
+  # before a run of its own can make anything beside the records already there.
+  - step: hand_directory_to_account
+    path: /var/lib/ansiwise
+    account_answer: operator_user
+    mode: 493
+    on_failure: exit
+
+  - step: hand_directory_to_account
+    path: /var/lib/ansiwise/runs
+    account_answer: operator_user
+    mode: 493
+    on_failure: exit
+
+# What this program has to be told about the machine it is run against.
+#
+# None of them can stand in this file: an account name written here would be the one the author's
+# provider happened to make, a key written here would be a key NOBODY HOLDS — installed, then
+# confirmed as installed, and useless to whoever ran it — and a repository written here would be
+# one installation's, shipped to every installation.
+answers:
+  - name: operator_user
+    kind: text
+    describes: >-
+      The account you will reach this machine as once the password is gone. It must already exist:
+      this program does not create it, because the machine is reached through it while it works.
+      Whoever provided the machine decided the name — on most it is "operator" or "ubuntu", and on
+      one reached as root it is "root".
+
+  - name: platform_repo
+    kind: text
+    describes: >-
+      The repository holding this platform's own tree — the charts, the values and the pins every
+      later program reads and writes — as owner/name. It is answered rather than read off this
+      machine because this is the FIRST checkout: the programs that record such things live in a
+      checkout that does not exist until this row has made it.
+
+  - name: platform_branch
+    kind: text
+    describes: >-
+      The branch that tree stands on. A machine being born as a master takes "master", because
+      deploy-branch is what cuts its installation branch afterwards and it refuses to stamp while
+      standing on master. A machine adopted into an installation that already has one takes that
+      installation's branch. There is no default: guessing either would move the other one's
+      checkout every time this program ran again.
+
+  - name: operator_public_key
+    kind: text
+    describes: >-
+      Your PUBLIC key, as one line of an authorized_keys file. It begins with "ssh-ed25519" or
+      "ssh-rsa" and usually ends with a comment naming whose key it is. The private half stays where
+      it is and never comes here, which is also why this program cannot perform the login itself: it
+      proves that sshd WOULD accept the key, and you prove the rest by connecting with it before
+      running disable-password-login.

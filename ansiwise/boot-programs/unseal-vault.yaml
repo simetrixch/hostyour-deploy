@@ -1,0 +1,75 @@
+# Feed the quorum back to the secret store, and nothing else.
+#
+# WHAT THIS IS FOR. A secret store that runs with the seal it was given a quorum for, and no key
+# service behind it, comes back SEALED from every restart — a node reboot, an eviction, the roll a
+# chart bump triggers. While it is sealed nothing on the cluster materializes a secret: every
+# workload holding one comes up Degraded at the same moment, and nothing on the machine names the
+# cause. Feeding the quorum back is what converges that state, and it is not a bring-up act that
+# happens once.
+#
+# WHO RUNS IT. hostyour-vault-unseal.service, which ansiwise/templates/vault-unseal-service.tpl
+# describes and deploy-platform-services installs, started once a minute by
+# hostyour-vault-unseal.timer beside it. The trigger is the STATE of the store and not the boot of
+# the machine: the store seals when its pod restarts, and a machine that stayed up runs nothing on
+# that. A person can run it by hand too, and that is the point of it being a program rather than a
+# shell line inside a unit: the same thing runs on the machine and from a keyboard, and only one of
+# them has to be right.
+#
+# WHY IT CARRIES ONE ROW. The step that feeds the keys back already exists, is already tested and is
+# already the one every deployment uses. A second unsealer — a script that reads the credential file
+# and posts the keys — would be the same act written twice, and the two disagree the first time
+# either is corrected.
+#
+# WHY IT IS NOT A PHASE OF deploy-platform-services. That program brings a whole platform up and
+# takes tens of minutes; this one runs every minute, unattended, and finishes or fails in seconds.
+# Nothing else of that program may run because a pod restarted.
+#
+# WHICH CONFIGURATION IT RUNS UNDER: ansiwise-boot.yaml at the root of this catalogue, and not
+# ansiwise.yaml beside it. Nothing here raises a command to root, and ansiwise.yaml says the password
+# that would is handed over by whoever starts the run — which nobody does when the machine starts
+# itself.
+#
+# WHY IT STANDS IN A DIRECTORY OF ITS OWN INSTEAD OF BESIDE THE OTHER PROGRAMS, and it is measured
+# rather than a preference: a run resolves EVERY program in the directory it is given, and is refused
+# where any of them names a step the configuration has not turned on. A directory holding the other
+# programs would therefore force that configuration to turn on every plugin they use and to carry
+# every condition they name — ansiwise.yaml written a second time, where the copy nobody updates is
+# the one that fails at a restart. One program in one directory is what lets it name the one plugin
+# this needs.
+name: unseal-vault
+roles: [master]
+# Where this installation's profile and credential file stand, and under which keys the profile
+# carries its values. The same names deploy-platform-services states, because they describe the same
+# checkout — a second spelling of any of them is a file this program reads and that one writes.
+defaults:
+  profile_path: clusters/active/<fqdn>.yaml
+  domain_answer: fqdn
+  vault_url_key: global.endpoints.vault.url
+  cluster_name_key: global.clusterName
+  kubernetes_auth_path_key: global.vaultKubernetesAuthPath
+  credentials_path: secrets/vault-<stage>.txt
+  # Which answer the "<stage>" above stands for. Neither the secret store nor a machine has such an
+  # axis of its own, so the word is stated here rather than known by the package.
+  run_answer: stage
+steps:
+  # NOT rests_on_an_earlier_step. Nothing in this program puts the profile or the credential file
+  # there, so a machine missing either is a machine this cannot run on, and the refusal has to
+  # count: it is what makes the dry run of an attempt made too early fail, which is what turns that
+  # attempt into a retry instead of into a real run that goes ahead on a store it cannot reach.
+  - step: vault_unsealed
+    repository: /srv/hostyour-cloud
+    on_failure: exit
+
+answers:
+  - name: fqdn
+    kind: text
+    describes: >-
+      The domain THIS cluster answers under, as it is reached from outside. It names the profile
+      this installation records the address of its secret store in.
+
+  - name: stage
+    kind: text
+    allowed: [dev, test, prod]
+    describes: >-
+      Which of the product's three stages this installation runs. It names the credential file the
+      quorum and the root token stand in.

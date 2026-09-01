@@ -1,0 +1,42 @@
+# What is pinned, and what upstream has now.
+#
+# This REPORTS. It never fails on a new upstream release: a version appearing somewhere on the
+# internet must not turn a tree red, or red stops meaning "the tree is sound" and starts meaning
+# "nothing was published today". Run it before a release, read it, decide — the stamping is
+# sync-versions, and the choice between the two columns is a person's.
+#
+# The list comes out of clusters/platform/versions.yaml in the platform checkout, not from a second list
+# kept here. A component added there shows up in this report without anyone editing this file — a
+# report that has to be extended by hand goes stale exactly when it matters. sync-versions stamps
+# from the SAME entries, so what is stamped and what is reported cannot drift apart; for a chart
+# dependency the report even reads the repository to ask out of the very Chart.yaml the stamp
+# writes, because the repositories differ per chart and are easy to guess wrong.
+#
+# A pin the report cannot resolve prints as "?" with the reason. That is a finding about the
+# report, not about the pin, and it says so rather than staying quiet. What CAN end this run is its
+# own ground — a checkout that is not where its answer says, a declaration that does not parse —
+# which is why the one row still states a policy.
+#
+# WHERE THIS RUNS: on the workstation that holds the platform checkout, with the network. Every
+# request is a read, so the report runs whole under --mode dry too:
+#
+#   ansiwise --program report-versions --mode dry ...
+name: report-versions
+roles: [workstation]
+
+answers:
+  - name: platform_checkout
+    kind: text
+    describes: >-
+      The path of the platform checkout (hostyour-cloud) — the tree that carries
+      clusters/platform/versions.yaml, the declaration this report reads, and the Chart.yaml files the
+      chart repositories are read out of.
+
+steps:
+  - step: report_version_pins_against_upstream
+    declaration_tree: platform
+    declaration_path: clusters/platform/versions.yaml
+    trees:
+      platform: {answer: platform_checkout}
+    timeout_seconds: 25
+    on_failure: exit

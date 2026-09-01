@@ -1,0 +1,185 @@
+# The master-side inverse of register-slave: taking one slave's management plane away again.
+#
+# WHAT THIS REMOVES AND WHAT IT DELIBERATELY DOES NOT. Removed: the slave's private-network
+# membership at the coordinator, the three consumable entries in the slaves tier, the auth mount
+# kubernetes-<slave_cluster_name> with every role on it, the three policies named after the slave,
+# its namespace
+# in the master's own secret-reader role, and its reconciler project. NOT removed: the slave's
+# install branch and its cluster map — the map on the books branch is the GIT-side inverse, and
+# dropping its slave part is what tears the per-slave instance down; the caller does that, and does
+# it BEFORE this run so the generated Application is already gone when its project goes.
+#
+# THE NETWORK GOES FIRST, AND THE ORDER IS THE REPAIR STORY. Destroying the coordinator user takes
+# the slave's pre-auth keys and its registered node with it — cutting the reach before dismantling
+# the surface that authorized it. And a coordinator that is not answering fails HERE, with nothing
+# yet destroyed, so running the removal again once it answers completes it instead of resuming into
+# a half-torn-down slave.
+#
+# EVERY DESTRUCTIVE ROW IS ARMED. The entry removal is the metadata delete — every version at once,
+# which is what lets the same name onboard clean later — and each of the three steps behind it
+# proves absence rather than assuming it: an answer nobody can read blocks the row instead of
+# passing for "already gone". The two refusals that keep working things working are carried from
+# the shell this replaces: the master's role list is never written empty (that would refuse every
+# platform secret reader at once), and the reconciler project is deleted ONLY where it carries the
+# hostyour.cloud/slave label — a platform project or a unit's own that merely shares the name is
+# refused, and the run carries on past both refusals because neither is this slave's removal
+# failing.
+name: remove-slave
+roles: [master]
+defaults:
+  # The vault family's facts of THIS product's checkout, plus the two axes the rows below spell
+  # their slots along — the same block register-slave states, minus the hand-filled input no
+  # removal reads.
+  # THE MAP OF THIS CLUSTER, which is where an installation's answers are written — one file,
+  # read as parameters by the reconciler's generators and as values by Helm. The slot is filled
+  # from the answer named below, because a file that carries one installation's answers is named
+  # for that installation and cannot be written into a tree every installation is cut from.
+  profile_path: clusters/active/<master_fqdn>.yaml
+  domain_answer: master_fqdn
+  vault_url_key: global.endpoints.vault.url
+  cluster_name_key: global.clusterName
+  kubernetes_auth_path_key: global.vaultKubernetesAuthPath
+  credentials_path: secrets/vault-<stage>.txt
+  run_answer: stage
+  cluster_answer: slave_cluster_name
+  # How the cluster client is invoked on this platform's machines, and that it answers root alone.
+  kubectl: [microk8s, kubectl]
+  kubectl_needs_root: true
+steps:
+  # THE TOOL FIRST, AND THIS ONLY MEASURES. The coordinator is reached through the cluster client's
+  # exec, and the project rows below use the same client.
+  - step: require_commands
+    commands: [microk8s]
+    on_failure: exit
+
+  # The slave's membership at the coordinator: its registered nodes, then its user — which carries
+  # its pre-auth keys away with it. A coordinator that cannot be asked BLOCKS with nothing yet
+  # destroyed; running the removal again once it answers is the whole repair.
+  - step: remove_tailnet_user
+    headscale:
+      - microk8s
+      - kubectl
+      - exec
+      - -n
+      - headscale
+      - deploy/headscale-<stage>-app
+      - --
+      - headscale
+    headscale_needs_root: true
+    user_answer: slave_cluster_name
+    run_answer: stage
+    on_failure: exit
+
+  # The three consumables register-slave wrote for the per-slave instance — the registration and
+  # the two repo credentials. The metadata delete and not the soft one: every version goes, so a
+  # slave of the same name onboards clean later instead of finding its slots occupied.
+  - step: remove_vault_kv_entry
+    repository: /srv/hostyour-cloud
+    mount: secret
+    path: <stage>/slaves/<slave_cluster_name>/cluster
+    on_failure: exit
+
+  - step: remove_vault_kv_entry
+    repository: /srv/hostyour-cloud
+    mount: secret
+    path: <stage>/slaves/<slave_cluster_name>/repo-pat
+    on_failure: exit
+
+  - step: remove_vault_kv_entry
+    repository: /srv/hostyour-cloud
+    mount: secret
+    path: <stage>/slaves/<slave_cluster_name>/deploy-repo-pat
+    on_failure: exit
+
+  # The mount, its accessor and every role on it. Guarded on the type: a mount of any other kind at
+  # this path is a name collision this program never created, refused rather than disabled.
+  - step: remove_vault_auth_method
+    repository: /srv/hostyour-cloud
+    path: kubernetes-<slave_cluster_name>
+    type: kubernetes
+    on_failure: exit
+
+  # The three policies named after the slave — a policy left behind outlives the mount it scoped
+  # and reads as live. After the mount, as the shell this replaces ordered it: the policies are the
+  # last thing a still-working login could have resolved.
+  - step: remove_vault_policy
+    repository: /srv/hostyour-cloud
+    name: <slave_cluster_name>-eso
+    on_failure: exit
+
+  - step: remove_vault_policy
+    repository: /srv/hostyour-cloud
+    name: <slave_cluster_name>-consumer-read
+    on_failure: exit
+
+  - step: remove_vault_policy
+    repository: /srv/hostyour-cloud
+    name: <slave_cluster_name>-tenant-read
+    on_failure: exit
+
+  # The slave's namespace out of the master's own secret-reader role — the widening register-slave
+  # made, shrunk again with everything else the live role binds carried forward verbatim. The one
+  # refusal is deliberate and the run continues past it: a list this member is the LAST of is never
+  # written empty, because an empty binding list refuses every platform secret reader at once — the
+  # repair is a deliberate role rewrite, not a removal's side effect.
+  - step: remove_vault_role_member
+    repository: /srv/hostyour-cloud
+    mount: <kubernetes-mount>
+    role: external-secrets
+    list: bound_service_account_namespaces
+    member: <slave_cluster_name>
+    on_failure: continue
+
+  # The reconciler project, deleted ONLY under the ownership label. The same rendered manifest the
+  # register run applied names what goes; a project of this name WITHOUT hostyour.cloud/slave is a
+  # platform project or a unit's own, refused rather than deleted — and the run carries on, because
+  # a collision it refused to touch is not this removal failing.
+  - step: write_file_from_template
+    template: ansiwise/templates/slave-appproject.tpl
+    path: /tmp/ansiwise-slave-appproject.yaml
+    file_mode: 420
+    values:
+      slave-cluster-name: { answer: slave_cluster_name }
+    on_failure: exit
+
+  - step: remove_kubernetes_object
+    rests_on_an_earlier_step: true
+    repository: /tmp
+    manifest: ansiwise-slave-appproject.yaml
+    owner_label: hostyour.cloud/slave
+    owner_label_value: 'true'
+    on_failure: continue
+
+answers:
+  - name: master_fqdn
+    kind: text
+    describes: >-
+      The FQDN of the installation this slave joins, which is the master's own. It names the cluster
+      map the vault rows below read their endpoint, cluster name and auth path out of — and that is
+      the MASTER's map, because the Vault they write into is the installation's and stands on the
+      master. The slave's own FQDN is a different fact and stands under slave_fqdn.
+  - name: stage
+    kind: text
+    allowed: [dev, test, prod]
+    describes: >-
+      Which of the product's three stages this installation runs. It names the credential file the
+      root token stands in, the coordinator deployment the membership removal reaches into, and
+      every per-stage path below.
+
+  - name: slave_fqdn
+    kind: text
+    shape: hostname
+    denied: [example.invalid]
+    describes: >-
+      The domain of the slave being removed — the same domain it was registered under.
+
+  # The slave's short name, worked out rather than asked, exactly as the register side works it
+  # out: every resource this program removes is named after it, and a mismatched pair would remove
+  # a slave nobody registered while the registered one keeps everything.
+  - name: slave_cluster_name
+    kind: text
+    derived: first_dns_label_of
+    from: slave_fqdn
+    describes: >-
+      The slave's name on this master — the first label of its domain, the name every resource of
+      its management plane carries.

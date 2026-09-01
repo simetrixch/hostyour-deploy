@@ -1,0 +1,333 @@
+# The master-side management plane of one slave: what the master's own Vault has to hold before
+# the slaves generator can stand a per-slave reconciler instance up, and before a single workload
+# on the slave can read a secret.
+#
+# WHERE THIS RUNS AND WHAT IT TAKES. On the MASTER — the one machine whose checkout carries the
+# Vault root token — after emit-cluster-credentials ran on the slave. The caller reads that
+# program's credentials file and hands the four values in as this run's answers: the address as
+# api_server_url, the authority as ca_data, and the two tokens as the secret answers argocd_token
+# and reviewer_token. The two programs take the SAME address answer on purpose: the map, the mount
+# and the registration must dial one address, and one stated spelling is what makes drift
+# impossible rather than merely unlikely.
+#
+# THE SURFACE, in dependency order. The auth mount kubernetes-<slave_cluster_name> comes first
+# because every role and every templated policy is written against it — it validates the slave's
+# logins by REMOTE token review, which is the #2 risk of this whole build: address, authority and
+# reviewing credential must agree exactly, and a mismatch has no error until the first secret
+# reader dies hours later. That is what the login probe near the end exists for: a real login,
+# expected to be refused BY THE ROLE'S BOUNDS alone, which only a validated token can be — any
+# transport, certificate or credential fault surfaces here, loudly, instead of as a silent store
+# failure.
+#
+# WHAT IS DELIBERATELY NARROWER THAN THE MASTER'S OWN SURFACE. The slave's read policy covers the
+# application tier alone — the slaves tier is read by the per-slave instance ON THE MASTER through
+# the master's own role, and nothing on the slave cluster reads it. No build policy and no manager
+# role either: a slave never carries the build plane and never hosts the manager.
+#
+# THE GIT SIDE IS NOT HERE. The slave's cluster map on the books branch is what the slaves
+# generator reads, and the caller writes it — this program owns the Vault-and-reconciler surface
+# and nothing about the books.
+name: register-slave
+roles: [master]
+defaults:
+  # The vault family's facts of THIS product's checkout — the same block deploy-platform-services
+  # states, plus the two axes every row below spells its slots along: the stage, and the slave
+  # being registered.
+  # THE MAP OF THIS CLUSTER, which is where an installation's answers are written — one file,
+  # read as parameters by the reconciler's generators and as values by Helm. The slot is filled
+  # from the answer named below, because a file that carries one installation's answers is named
+  # for that installation and cannot be written into a tree every installation is cut from.
+  profile_path: clusters/active/<master_fqdn>.yaml
+  domain_answer: master_fqdn
+  vault_url_key: global.endpoints.vault.url
+  cluster_name_key: global.clusterName
+  kubernetes_auth_path_key: global.vaultKubernetesAuthPath
+  credentials_path: secrets/vault-<stage>.txt
+  secrets_path: secrets/secrets.<stage>
+  run_answer: stage
+  cluster_answer: slave_cluster_name
+  # How the cluster client is invoked on this platform's machines, and that it answers root alone.
+  kubectl: [microk8s, kubectl]
+  kubectl_needs_root: true
+steps:
+  # THE TOOL FIRST, AND THIS ONLY MEASURES. Only the reconciler-project rows below need the cluster
+  # client; the store is reached over its HTTP API and needs no command at all.
+  - step: require_commands
+    commands: [microk8s]
+    on_failure: exit
+
+  # --- the mount the slave's workloads log in through -------------------------------------------
+  #
+  # The remote token review: the master's Vault validates tokens minted ON THE SLAVE by calling the
+  # slave's own review API at the stated address, with the slave's authority and the reviewing
+  # credential the emit program minted. Vault never returns the reviewing credential on a read, so
+  # that one key is written and not compared — comparing it would rewrite the mount on every run
+  # and never call it finished. The annotation switch is the same one every cluster's mount
+  # carries: it is what lifts an account's alias-metadata annotations into the login, which the
+  # tenant policy below templates on.
+  - step: vault_auth_method
+    repository: /srv/hostyour-cloud
+    type: kubernetes
+    path: kubernetes-<slave_cluster_name>
+    configuration: '{"use_annotations_as_alias_metadata":true}'
+    configuration_from_answers:
+      - kubernetes_host=api_server_url
+      - kubernetes_ca_cert=ca_data
+      - token_reviewer_jwt=reviewer_token
+    configuration_decoded: [kubernetes_ca_cert]
+    configuration_write_only: [token_reviewer_jwt]
+    on_failure: exit
+
+  # --- the slave's policies, named after it -----------------------------------------------------
+  #
+  # Read-only on the application tier and NOTHING else — narrower than the master's own policy on
+  # purpose: the slaves tier is read by the per-slave instance on the master through the master's
+  # role, and nothing on the slave cluster reads it. The application tier is the SAME tree the
+  # master's workloads read, which is what keeps app values byte-identical between the clusters:
+  # one mount, one tree, two auth mounts in front of it.
+  - step: vault_policy
+    repository: /srv/hostyour-cloud
+    name: <slave_cluster_name>-eso
+    rules: |
+      path "secret/data/<stage>/app/*" { capabilities = ["read"] }
+      path "secret/metadata/<stage>/app/*" { capabilities = ["read", "list"] }
+      # THE ONE ENTRY OF THE IDENTITY TIER ANY CLUSTER READS, the master's own policy word for word:
+      # the client secret a person signs in to this cluster's reconciler with. Named as the single
+      # path and not as `idp/*` — everything else under that tier is the provider's own.
+      path "secret/data/<stage>/idp/bootstrap" { capabilities = ["read"] }
+      path "secret/metadata/<stage>/idp/bootstrap" { capabilities = ["read", "list"] }
+    on_failure: exit
+
+  # One templated policy covers every consumer the slave will ever host — the path interpolates the
+  # calling account's own namespace, so onboarding a consumer needs no write to the store at all.
+  # Byte-identical to the master's own consumer policy but templated on THIS mount's accessor,
+  # because an accessor belongs to one mount and the slave's logins arrive through the mount
+  # kubernetes-<slave_cluster_name>.
+  - step: vault_policy
+    rests_on_an_earlier_step: true
+    repository: /srv/hostyour-cloud
+    auth_mount: kubernetes-<slave_cluster_name>
+    name: <slave_cluster_name>-consumer-read
+    rules: |
+      path "secret/data/<stage>/consumer/{{identity.entity.aliases.<accessor>.metadata.service_account_namespace}}/*" { capabilities = ["read"] }
+      path "secret/metadata/<stage>/consumer/{{identity.entity.aliases.<accessor>.metadata.service_account_namespace}}/*" { capabilities = ["read", "list"] }
+    on_failure: exit
+
+  # Templated on the tenant the calling account is annotated with, exactly as on the master: one
+  # tenant owns several namespaces and every one has to reach the same entry. The registry leaf is
+  # the one literal: every tenant workload pulls this platform's images.
+  - step: vault_policy
+    rests_on_an_earlier_step: true
+    repository: /srv/hostyour-cloud
+    auth_mount: kubernetes-<slave_cluster_name>
+    name: <slave_cluster_name>-tenant-read
+    rules: |
+      path "secret/data/<stage>/tenants/{{identity.entity.aliases.<accessor>.metadata.tenant}}" { capabilities = ["read"] }
+      path "secret/metadata/<stage>/tenants/{{identity.entity.aliases.<accessor>.metadata.tenant}}" { capabilities = ["read", "list"] }
+      path "secret/data/<stage>/tenants/{{identity.entity.aliases.<accessor>.metadata.tenant}}/*" { capabilities = ["read"] }
+      path "secret/metadata/<stage>/tenants/{{identity.entity.aliases.<accessor>.metadata.tenant}}/*" { capabilities = ["read", "list"] }
+      path "secret/data/<stage>/app/registry" { capabilities = ["read"] }
+    on_failure: exit
+
+  # --- the slave's roles on its own mount --------------------------------------------------------
+  #
+  # WHAT A NAMESPACE LEFT OUT COSTS, which is why this is a label and not a list. dbgate, mongodb,
+  # redis, observability and the provisioner run on a slave and read credentials; redis reads
+  # <stage>/app/redis for the `default` user's password — the value its server boots with as
+  # `--requirepass`, which the chart materializes into the redis-credentials Secret and the container
+  # reads through a secretKeyRef. So a namespace the role does not admit leaves that pod in
+  # CreateContainerConfigError rather than merely unauthenticated.
+  - step: vault_auth_role
+    rests_on_an_earlier_step: true
+    repository: /srv/hostyour-cloud
+    mount: kubernetes-<slave_cluster_name>
+    role: external-secrets
+    # BOUND BY THE LABEL EVERY WORKLOAD NAMESPACE OF THIS PLATFORM CARRIES, not by a list of them.
+    # A list has to be remembered: a namespace left out of it is refused at LOGIN, before any policy
+    # is consulted, so the seed reports success and the entry is simply unreadable — which is what
+    # clusters/inventories/redis/Chart.yaml warns about in its own words. The reconciler's namespace
+    # was the one it was missing.
+    #
+    # The label is `hostyour.cloud/workload`, which the platform's own ApplicationSet puts on every
+    # namespace it manages (clusters/argocd/apps/platform-apps-appset.yaml, managedNamespaceMetadata).
+    # So the set a namespace joins by being deployed is the set the store admits, and neither side
+    # has to be edited when an application is added.
+    body: >-
+      {"bound_service_account_names":["external-secrets-sa"],
+      "bound_service_account_namespace_selector":"{\"matchLabels\":{\"hostyour.cloud/workload\":\"true\"}}",
+      "token_policies":["<slave_cluster_name>-eso"],"ttl":"24h"}
+    on_failure: exit
+
+  # The label-bound twin pair of the master's own consumer and tenant roles, spelled the charts'
+  # way — the labels are the fan-out's, and a role selecting on any other key matches no namespace
+  # ever (the twice-measured failure the master's rows document).
+  - step: vault_auth_role
+    rests_on_an_earlier_step: true
+    repository: /srv/hostyour-cloud
+    mount: kubernetes-<slave_cluster_name>
+    role: consumer-eso
+    body: >-
+      {"bound_service_account_names":["external-secrets-sa","postgres-eso","mongodb-eso"],
+      "bound_service_account_namespace_selector":"{\"matchLabels\":{\"hostyour.cloud/consumer\":\"true\"}}",
+      "token_policies":["<slave_cluster_name>-consumer-read"],"ttl":"24h"}
+    on_failure: exit
+
+  - step: vault_auth_role
+    rests_on_an_earlier_step: true
+    repository: /srv/hostyour-cloud
+    mount: kubernetes-<slave_cluster_name>
+    role: tenant-eso-<stage>
+    body: >-
+      {"bound_service_account_names":["external-secrets-sa"],
+      "bound_service_account_namespace_selector":"{\"matchLabels\":{\"platform/tenant-managed\":\"true\"}}",
+      "token_policies":["<slave_cluster_name>-tenant-read"],"ttl":"24h"}
+    on_failure: exit
+
+  # --- the proof, before anything consumes the wiring -------------------------------------------
+  #
+  # A real login on the new mount with the reviewing credential, whose account the role above
+  # deliberately does not bind: "not authorized" is an answer only a VALIDATED token can get, so it
+  # proves address, authority and credential in one act. The one failure with its own repair — the
+  # review reached the slave and could not READ there — is told apart and named, because as a
+  # secret reader's failure it says nothing about its cause.
+  - step: require_vault_login
+    repository: /srv/hostyour-cloud
+    mount: kubernetes-<slave_cluster_name>
+    role: external-secrets
+    jwt_answer: reviewer_token
+    on_failure: exit
+
+  # --- the consumables of the per-slave instance on the master ----------------------------------
+  #
+  # Three entries in the slaves tier, each the exact contract of one ExternalSecret of the
+  # apps/slave chart. The registration: bearerToken + caData at slaves/<slave_cluster_name>/cluster
+  # (externalsecret-cluster-slave.yaml) — written from this run's answers, so a re-registration
+  # with a fresh emit rotates it in place. The two repo credentials: the READ-ONLY platform token
+  # and the catalog's read token, each copied from the hand-filled input rather than from the
+  # system tier, because the input is the one place both already stand and the write token must
+  # never reach a tier every slave instance reads.
+  - step: vault_kv_entry
+    repository: /srv/hostyour-cloud
+    mount: secret
+    path: <stage>/slaves/<slave_cluster_name>/cluster
+    fields: []
+    fields_from_answers:
+      - bearerToken=argocd_token
+      - caData=ca_data
+    on_failure: exit
+
+  - step: vault_kv_entry
+    repository: /srv/hostyour-cloud
+    mount: secret
+    path: <stage>/slaves/<slave_cluster_name>/repo-pat
+    fields: ['pat=GITOPS_REPO_READ_PAT']
+    on_failure: exit
+
+  - step: vault_kv_entry
+    repository: /srv/hostyour-cloud
+    mount: secret
+    path: <stage>/slaves/<slave_cluster_name>/deploy-repo-pat
+    fields: ['pat=CATALOG_REPO_READ_PAT']
+    on_failure: exit
+
+  # --- the master's own role is NOT touched here -------------------------------------------------
+  #
+  # The per-slave instance's own secret reader runs in namespace <slave_cluster_name> ON THE MASTER
+  # and logs in through the master's default mount, so that role has to admit it. It does, without a
+  # word from this program: deploy-platform-services binds the role by a namespace SELECTOR on the
+  # label hostyour.cloud/workload, and the slaves ApplicationSet stamps that label onto the namespace
+  # it creates — the same way every platform namespace gets it.
+  #
+  # A row here that wrote that role would be a SECOND WRITER of one object. A role write replaces the
+  # role whole, so the two would have to agree on its shape exactly — a selector and a namespace list
+  # do not — and whichever ran last would blind the other side: the master's own namespaces refused
+  # at login with "namespace not authorized", or the slave's.
+
+  # --- the slave's reconciler project ------------------------------------------------------------
+  #
+  # Rendered from the template beside this file (its header says why it cannot be GitOps-managed)
+  # and applied under the ownership label: an EXISTING project of this name without
+  # hostyour.cloud/slave is a platform project or a unit's own — the apply refuses the name
+  # collision rather than clobbering it, which is the register side of the same guard the removal
+  # deletes under.
+  - step: write_file_from_template
+    template: ansiwise/templates/slave-appproject.tpl
+    path: /tmp/ansiwise-slave-appproject.yaml
+    file_mode: 420
+    values:
+      slave-cluster-name: { answer: slave_cluster_name }
+    on_failure: exit
+
+  - step: kubernetes_object_reversible
+    rests_on_an_earlier_step: true
+    repository: /tmp
+    manifest: ansiwise-slave-appproject.yaml
+    owner_label: hostyour.cloud/slave
+    owner_label_value: 'true'
+    on_failure: exit
+
+answers:
+  - name: master_fqdn
+    kind: text
+    describes: >-
+      The FQDN of the installation this slave joins, which is the master's own. It names the cluster
+      map the vault rows below read their endpoint, cluster name and auth path out of — and that is
+      the MASTER's map, because the Vault they write into is the installation's and stands on the
+      master. The slave's own FQDN is a different fact and stands under slave_fqdn.
+  - name: stage
+    kind: text
+    allowed: [dev, test, prod]
+    describes: >-
+      Which of the product's three stages this installation runs. It names the credential file the
+      root token stands in, the hand-filled input the repo tokens are read out of, and it stands in
+      every per-stage path and role name below.
+
+  - name: slave_fqdn
+    kind: text
+    shape: hostname
+    denied: [example.invalid]
+    describes: >-
+      The domain of the slave being registered, as its cluster is reached from outside — the same
+      domain its install branch and its cluster map are named for.
+
+  # The slave's short name, worked out rather than asked: asking for both invites a pair that does
+  # not match, and every resource this program makes is named after it — the auth mount, the three
+  # policies, the consumable entries, the reconciler project.
+  - name: slave_cluster_name
+    kind: text
+    derived: first_dns_label_of
+    from: slave_fqdn
+    describes: >-
+      The slave's name on this master — the first label of its domain, the same name the platform
+      files the slave's cluster under everywhere else.
+
+  - name: api_server_url
+    kind: text
+    describes: >-
+      The address the master's in-cluster components dial the slave's API server on, scheme and
+      port included — THE SAME spelling emit-cluster-credentials was given and the cluster map
+      carries, because the mount written here and the registration the map feeds must dial one
+      address. The credentials file the slave emitted carries it back under "server".
+
+  - name: ca_data
+    kind: text
+    describes: >-
+      The slave cluster's certificate authority, base64-encoded as one line — the "caData" value of
+      the credentials file emit-cluster-credentials wrote on the slave. It becomes what the mount
+      trusts for the remote token review AND what the registration entry hands the reconciler.
+
+  - name: argocd_token
+    kind: text
+    secret: true
+    describes: >-
+      The registration credential — the "argocdToken" value of the slave's credentials file. It is
+      cluster-admin on the slave, so it rides this run as a secret answer, reaches Vault in a
+      request body, and stands nowhere else.
+
+  - name: reviewer_token
+    kind: text
+    secret: true
+    describes: >-
+      The reviewing credential — the "reviewerToken" value of the slave's credentials file. The
+      mount presents it to the slave's own token review on every login, and the probe presents it
+      once to prove the wiring.

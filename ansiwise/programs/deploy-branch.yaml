@@ -1,0 +1,997 @@
+# Turning the product source branch into one installation's branch.
+#
+# The source branch is generic on purpose: it names no domain, it carries every stage, and it holds the books
+# of no cluster. This program cuts a branch and makes it one installation — one domain, one stage,
+# one role.
+#
+# The order is the safety property. Nothing about the source branch may change, so the branch is cut before
+# the first byte is stamped and every stamping step refuses while the source branch is checked out. And
+# nothing is stamped that could not be published: the remote is asked, with a push that changes
+# nothing, whether it would accept one — before any of the work exists, because a branch that was
+# generated and cannot be pushed is worse than a run that never started.
+#
+# ONE THING STANDS AHEAD OF THAT GATE, and without it the sentence above is a sentence short: the
+# credential the gate asks with. A gate cannot ask a remote about a push with nothing to present,
+# and nothing else on a machine this platform prepares puts one there — the checkout was cloned
+# with no credential in its remote address, deliberately. The row that writes it is reversible, and
+# it writes is one owner-only file inside the checkout's git directory rather than in its working
+# tree, so it is neither stamped, nor tracked, nor sent anywhere.
+#
+# write_cluster_map sits where it does for two reasons at once. It comes after the domain stamp
+# because the map is this branch's own file and travels with the branch. It comes before the role
+# because the role is applied by reading that map.
+#
+# The three values that describe an installation — its stage, its domain, its role — are written out
+# here and never derived from one another. A stage guessed from a domain puts the word "prod" into a
+# public name, and a role guessed from anything deletes the books of the installation that guessed
+# wrong.
+#
+# WHAT IS AN ANSWER AND WHAT IS AN ARGUMENT, because the line between them is the whole point of the
+# declaration below. An ARGUMENT is written in this file and is therefore the same on every
+# installation: where the checkout stands on the machine, what the product branch is called, which
+# stages the product carries. An ANSWER is what nobody can write in a file that ships to every
+# installation: this cluster's domain, the mailbox its alerts go to, the credential its repository
+# is cloned with. Those used to stand here as step arguments with an illustration for a value, which
+# meant every installation shipped with somebody else's example baked into it.
+#
+# An answer is never substituted into this file. A step that needs one declares it in the registry
+# and reads it by name, and the resolver refuses a step that reads an answer this program does not
+# declare. Substitution would make this file compute, and a file that computes is what gets debugged
+# instead of the code.
+name: deploy-branch
+roles: [master, slave]
+
+# What SEVERAL rows below need the same value for, written once.
+#
+# A default here is not a value a step decided — the steps carry none, on purpose, so that a package
+# knowing a tool cannot decide anything about the tree it is pointed at. It is this program stating
+# a fact about the tree it generates, in one place, so two rows of the same step cannot come to
+# describe two different trees.
+defaults:
+  # The name of the answer a stamp below reads the value it writes out of, unless the row names
+  # another one. Never the value: the domain of one installation cannot stand in a file that ships
+  # to all of them.
+  value_answer: fqdn
+  # The trailing comment that exempts a line from every stamp. What is marked is product every
+  # installation shares — the member charts of the tenant catalog — and retargeting those would
+  # point them at a branch that does not carry them.
+  keep_marker: set-domain:keep
+  # Which directories of this tree hold product material rather than installation state. A segment
+  # and not a prefix, so a chart's templates/ several levels down is excluded like one at the top.
+  excluded_segments: [docs, templates]
+  excluded_names: []
+  # The suffixes of the scripts that carry no first line to recognise them by. A script is never
+  # stamped whatever it is called: the placeholder inside one is a guard, a fixture or a comment,
+  # and rewriting it made a script refuse the very domain it was being installed for.
+  script_suffixes: [.sh, .ps1]
+
+answers:
+  # ── what this installation is ───────────────────────────────────────────────
+  - name: fqdn
+    kind: text
+    # A name, and never the stand-in the product tree carries in its place. Both are the answer's
+    # own business rather than a row's: they are checked when the answers are read, before the
+    # first step and before any machine is asked anything, and the refusal names this answer rather
+    # than a row somewhere down the file.
+    shape: hostname
+    denied: [example.invalid]
+    describes: >-
+      The domain name this cluster answers on, for example m1.example.com. It becomes the name of
+      the git branch this installation is generated on, the name of its cluster map, and the domain
+      written into every manifest it deploys. It must be a real name you control the DNS for.
+
+  - name: stage
+    kind: text
+    allowed: [dev, test, prod]
+    describes: >-
+      Which of the product's three stages this installation runs: dev, test or prod. Say it
+      outright — nothing guesses it from the domain, because a guess puts the word "prod" into a
+      public name. Everything belonging to the other two stages is removed from this branch.
+
+  - name: role
+    kind: text
+    allowed: [master, slave, master+slave]
+    describes: >-
+      Every part this cluster carries: "master" where it holds the master part, "slave" where it
+      belongs to another one, and "master+slave" where one machine does both jobs. The master part
+      keeps the books — the cluster maps and the consumer registrations — and a pure slave keeps
+      none of them, because a second copy of the books goes stale the moment anything writes to
+      the master's branch.
+
+  - name: books_fqdn
+    kind: text
+    # HELD TO A SHAPE, the same one `fqdn` above is held to. Every one of these lands in
+    # clusters/active/<fqdn>.yaml, and a value that is not a name makes that file state
+    # something no chart can read — checked when the answers are read, before the first step
+    # and before any machine is asked anything, so the refusal names this answer rather than a
+    # chart render three programs later.
+    shape: hostname
+    required: false
+    # LEFT EMPTY MEANS THIS CLUSTER. The value then falls back to this cluster's own domain, so
+    # nobody types the same domain into two fields and no pair can disagree. It is NOT called
+    # `master`: in this system that word is the product branch — agnostic, belonging to nobody,
+    # where fixes land before they are merged into an installation's branch. An installation's own
+    # domain standing in something called `master` would read as the opposite of what it is.
+    default_from: fqdn
+    describes: >-
+      The domain of the cluster that keeps the books — the cluster maps and the registrations this
+      installation knows about itself. Leave it empty where this cluster keeps them itself; write
+      the other cluster's domain where it does not, for example m1.example.com.
+
+  # THE SHORT NAME OF THIS CLUSTER, which is what it is called among its siblings. Worked out and
+  # never asked: it is the first label of the domain, so asking for it as well would be the same
+  # fact twice and the two could disagree.
+  - name: cluster_name
+    kind: text
+    required: false
+    derived: first_dns_label_of
+    from: fqdn
+    describes: >-
+      The first label of this cluster's domain, which is the name its auth mount and its selectors
+      are built from.
+
+  # WHETHER THIS CLUSTER KEEPS ITS OWN BOOKS. Not asked, and not read off the role word either: it
+  # is the relation between the domain of the books-keeping cluster and this cluster's own. Read
+  # that way it cannot disagree with the answer it follows from.
+  - name: holds_books
+    kind: text
+    required: false
+    derived: same_as
+    from: books_fqdn
+    and: fqdn
+    describes: >-
+      Whether the cluster keeping the books is this one, as the word true or the word false, for the
+      charts that decide between an in-cluster service and a public name.
+
+  # THE SHORT NAME OF THE CLUSTER THAT KEEPS THE BOOKS. Worked out from the answer naming it, which
+  # itself falls back to this cluster's own domain — so on a cluster keeping its own books this is
+  # the same short name as `cluster_name`, and on one reading another's it is that other's.
+  - name: books_name
+    kind: text
+    required: false
+    derived: first_dns_label_of
+    from: books_fqdn
+    describes: >-
+      The first label of the books-keeping cluster's domain, which is what a dashboard and a
+      kubeconfig context are named after.
+
+  # WHETHER THIS CLUSTER CARRIES THE BUILD PLANE. The same shape and the same grammar as
+  # `holds_books` above: one cluster's domain held against this cluster's own, so the two cannot
+  # disagree with the answers they follow from. That the registry then answers in-cluster is a
+  # consequence of this and not the fact itself.
+  - name: holds_build_plane
+    kind: text
+    required: false
+    derived: same_as
+    from: build_plane_fqdn
+    and: fqdn
+    describes: >-
+      Whether the cluster carrying the build plane is this one, as the word true or the word false.
+
+  - name: build_plane_fqdn
+    kind: text
+    # HELD TO A SHAPE, the same one `fqdn` above is held to. Every one of these lands in
+    # clusters/active/<fqdn>.yaml, and a value that is not a name makes that file state
+    # something no chart can read — checked when the answers are read, before the first step
+    # and before any machine is asked anything, so the refusal names this answer rather than a
+    # chart render three programs later.
+    shape: hostname
+    describes: >-
+      The domain of the cluster whose image registry and builders this installation pulls from.
+      Write this cluster's own domain unless another machine carries the build plane, in which case
+      write that machine's. Nothing derives it: a cluster that silently made itself the build plane
+      would start building images nobody asked it to build.
+
+  - name: unit_apex
+    kind: text
+    # HELD TO A SHAPE, the same one `fqdn` above is held to. Every one of these lands in
+    # clusters/active/<fqdn>.yaml, and a value that is not a name makes that file state
+    # something no chart can read — checked when the answers are read, before the first step
+    # and before any machine is asked anything, so the refusal names this answer rather than a
+    # chart render three programs later.
+    shape: hostname
+    describes: >-
+      The public apex the consumers and tenants of this installation are reached below, as
+      <name>.<apex> — for example example.com, giving shop.example.com. Two clusters in one zone
+      share an apex, which is what lets a unit keep its address when it moves between them. It is
+      usually this cluster's domain without its first label.
+
+  - name: platform_domain
+    kind: text
+    # HELD TO A SHAPE, the same one `fqdn` above is held to. Every one of these lands in
+    # clusters/active/<fqdn>.yaml, and a value that is not a name makes that file state
+    # something no chart can read — checked when the answers are read, before the first step
+    # and before any machine is asked anything, so the refusal names this answer rather than a
+    # chart render three programs later.
+    shape: hostname
+    describes: >-
+      The business domain of this installation. It is the sender identity its mail is derived from
+      (no-reply@<platform-domain>) and the sender allowlist of its mail relay. Usually the same as
+      the unit apex.
+
+  - name: alert_recipients
+    kind: text_list
+    # HELD TO A SHAPE. This answer's own description already says "at least one real address",
+    # and nothing enforced it: an alert route that resolves to nobody stops the render of the
+    # whole observability app, and that failure names the route rather than the answer. Checked
+    # when the answers are read now, before the first step.
+    shape: mailbox
+    describes: >-
+      The mailboxes this installation's platform alerts are sent to. At least one real address:
+      an alert route that resolves to nobody stops the render of the whole observability app, and
+      nothing composes a mailbox out of a domain.
+
+  - name: catalog_repo
+    kind: text
+    describes: >-
+      The GitHub repository holding this installation's tenant charts and their per-stage pins,
+      written as owner/name — for example acme/acme-catalog. It is your own repository, not this
+      platform's, and no rule composes its name out of anything else here.
+
+  - name: mail_url
+    kind: text
+    required: false
+    describes: >-
+      The address of this installation's own mail service, if it runs one. Leave empty when it has
+      none: an empty value would satisfy a chart that requires the key with something nothing can be
+      reached at, which is worse than the key being absent.
+
+  # ── the machine this installation's Manager runs on ──────────────────────
+  #
+  # The Manager is the one application of this platform that is told about the MACHINE under it
+  # rather than about the installation around it, and neither of the two facts below follows from
+  # anything above: an account name is whatever whoever provided the machine called it, and an
+  # address on a private network is not derivable from a public domain.
+  - name: operator_user
+    kind: text
+    describes: >-
+      The account that operates this machine. The Manager reaches this machine as it, over SSH to
+      its own host, and naming it is what turns on the Manager's registration of this cluster and
+      the repository credential its consumer onboarding needs. It is the same account deploy-host was
+      given under this name, and a different one answered here points the Manager at an account
+      the machine may not have.
+
+  - name: lan_host
+    kind: text
+    describes: >-
+      The address this machine answers on inside the network it shares with the clusters of this
+      installation, as an IPv4 address, for example 10.1.1.5. The Manager serves on the node's own
+      network, so this is also the address its chart-validation gate has to prove it cannot reach
+      from inside the fence — which is why an address and not a name: a name that does not resolve in
+      there would attest a fence nothing tested.
+
+  # ── the two mailboxes the config file carries ───────────────────────────────
+  # ── who the install branch is committed as ──────────────────────────────────
+  #
+  # A history is read by people, and what they read is this. It is the INSTALLATION that commits and
+  # not a person: every commit on an install branch is made by a run, so the name that belongs here
+  # is the installation's own rather than whoever happened to start it.
+  - name: committer_name
+    kind: text
+    required: false
+    default_from: fqdn
+    describes: >-
+      The name every commit on this installation's branch is made under. Left unanswered it is the
+      installation's own domain, which is what a history is easiest to read with: the commit says
+      which machine wrote it.
+
+  - name: committer_email
+    kind: text
+    describes: >-
+      The mailbox those commits carry. A forge shows it beside every commit and some refuse a push
+      without one, so it is asked rather than invented.
+
+  - name: cluster_issuer
+    kind: text
+    allowed: [platform-acme, platform-local]
+    default: platform-local
+    describes: >-
+      Which authority this installation's certificates are issued by, named rather than asserted.
+      `platform-acme` is the public one, whose root every browser, operating system and container
+      image already carries. `platform-local` is one the cluster mints for itself: nothing outside
+      this installation trusts it and no request ever leaves the machine, which is what lets an
+      installation be built and rebuilt as often as it needs to be, against an authority that counts
+      how many certificates it has issued. It is a NAME because the certificate service watches the
+      name a certificate is issued by and never the specification behind it - so changing the name is
+      what makes it issue everything again.
+
+  - name: letsencrypt_email
+    kind: text
+    describes: >-
+      A real mailbox Let's Encrypt sends certificate expiry and policy notices to. It is not used to
+      log in anywhere.
+
+  # ASKED HERE ALTHOUGH ONLY THE CLUSTER PROGRAM USES IT, because this is the program that writes
+  # the map, and the map is where an installation's answers are written down once. A machine added
+  # to this installation later reads them there instead of being asked again for something the
+  # installation already decided — the authority is the same one for every cluster of it, and two
+  # places to state it are two places to state it differently.
+  - name: letsencrypt_server
+    kind: text
+    describes: >-
+      The certificate authority this installation registers with, written as the address of its
+      directory. Every installation of this platform answers
+      https://acme-v02.api.letsencrypt.org/directory; a provider whose authority is a different one
+      names that instead. Never a staging service: its certificates are signed by a root no machine
+      carries, so an installation that answers one cannot reach its own secret store.
+
+
+
+  # ── the credentials a third party issues ────────────────────────────────────
+  # None of these can be generated or derived. Each is obtained once, from GitHub, from Cloudflare
+  # or from Hetzner, and this run is the only way it reaches the machine.
+  - name: platform_repo_write_pat
+    kind: text
+    secret: true
+    describes: >-
+      A GitHub fine-grained access credential with Contents: Read and Write on the repository this
+      installation is generated in. This is the WRITER: the platform commits its cluster maps,
+      consumer registrations and release pins with it, and this cluster's own deployment syncs with
+      it.
+
+  - name: platform_repo_read_pat
+    kind: text
+    secret: true
+    describes: >-
+      A second GitHub credential on the same repository, with Contents: Read and no write at all.
+      This is the READER, used by every part of the installation that only syncs and never commits.
+      Two credentials rather than one, so a component that only reads cannot rewrite the books of
+      every cluster.
+
+  - name: catalog_repo_read_pat
+    kind: text
+    secret: true
+    describes: >-
+      A GitHub credential with Contents: Read and no write at all, on the tenant catalog named
+      above — the repository that also carries this installation's deployment programs. The
+      machine's resident deployment service keeps its own checkout of those programs current with
+      it. A READER on its own, like the one above, so what runs programs on a machine cannot
+      rewrite the catalog they come from.
+
+  - name: cloudflare_api_token
+    kind: text
+    secret: true
+    describes: >-
+      A Cloudflare API token with Zone:DNS:Edit and Zone:Zone:Read, scoped to your own zone only and
+      with no account-level permission. This installation writes its own wildcard record and one
+      record per unit with it.
+
+  - name: storage_box_host
+    kind: text
+    describes: >-
+      The hostname of the Hetzner Storage Box that backups, moves and restores are written to, in
+      the form uXXXXXX.your-storagebox.de.
+
+  - name: storage_box_user
+    kind: text
+    describes: >-
+      A SUB-account of that storage box (uXXXXXX-subN), with SSH/SFTP enabled and its own directory.
+      Never the main account, whose password also unlocks the Hetzner Robot.
+
+  - name: storage_box_password
+    kind: text
+    secret: true
+    describes: >-
+      The password of that storage box sub-account. Never the main account's, which also unlocks the
+      Hetzner Robot and so can delete the machine this installation runs on.
+
+  # ── only on the cluster that carries the build plane ────────────────────────
+  # Every other cluster reads its images through that one and never looks at these.
+  #
+  # STATED WHEN THIS CLUSTER IS THE BUILD PLANE, which is exactly what "build_plane_fqdn names this
+  # cluster" means and is now said in the declaration rather than left to a step to discover. Plain
+  # "optional" was wrong in both directions: on a build plane the two credentials below are not
+  # optional at all — the row that seeds them says so in as many words — and on any other cluster an
+  # answer given for them is an answer nothing will ever read. Written this way a run without them
+  # is refused at the answers, before a single tool is looked for, instead of thirty-five steps into
+  # an installation that has already changed the machine.
+  - name: registry_dockerhub_user
+    kind: text
+    required: false
+    describes: >-
+      Build plane only: a Docker Hub username. The registry pulls upstream base images through
+      Docker Hub, and without a login it pulls against this machine's public-IP rate limit and is
+      blocked for about an hour once that is hit.
+
+  - name: registry_dockerhub_token
+    kind: text
+    required: false
+    secret: true
+    describes: >-
+      Build plane only: a READ-only Docker Hub access token, from Account settings, Personal access
+      tokens.
+
+  # THE NAMES THE PLATFORM AUTHENTICATES TO ITS OWN REGISTRY AS. Not secrets, and answers all the
+  # same, because two readers need the SAME name and neither can derive it: the credential the secret
+  # store hands out carries it, and the registry's access policy grants by it. One answer feeds both.
+  - name: registry_pull_user
+    kind: text
+    required: true
+    default: platform-pull
+    describes: >-
+      The account every workload of this installation pulls images as. It is granted read on every
+      repository of the registry and nothing else, and it is the name the pull credential carries.
+
+  - name: registry_push_user
+    kind: text
+    required: true
+    default: platform-push
+    describes: >-
+      The account the release pipeline pushes images as, granted read, create, update and delete. A
+      separate account from the one above on purpose: what pulls an image cannot replace it.
+
+  - name: build_platform_repo_write_pat
+    kind: text
+    stated_when: {predicate: build_plane_here_in_answers}
+    secret: true
+    describes: >-
+      Build plane only: a GitHub credential with Contents: Read and Write on the repository this
+      installation is generated in. The release bump pushes with it.
+
+  - name: build_manager_repo_write_pat
+    kind: text
+    stated_when: {predicate: build_plane_here_in_answers}
+    secret: true
+    describes: >-
+      Build plane only: the same, on the repository the platform's own Manager is built from. It
+      is a unit like any other, and its build reads the credential at the path every unit's build
+      reads — which the Manager writes when it onboards a unit, this one included:
+      ansiwise/programs/onboard-manager.yaml asks for the same answer under this same name.
+
+  - name: build_catalog_repo_write_pat
+    kind: text
+    stated_when: {predicate: build_plane_here_in_answers}
+    secret: true
+    describes: >-
+      Build plane only: the same, on the tenant catalog named above. One organisation credential can
+      back both; they are two answers so that they can be rotated apart.
+
+steps:
+  # THE SECOND REFUSAL THAT ASKS NO MACHINE ANYTHING, AND IT STANDS AHEAD OF THE FIRST TOOL. The
+  # domain answered here becomes the branch name, the name of the cluster map, and the host in every
+  # manifest — so a value that is no domain is refused before git is even looked for. It is the one
+  # question about this run that only this product can answer: git would take "m1_test.example.com"
+  # as a branch name and no resolver will ever answer for it.
+
+  # THE ONE TOOL THIS PROGRAM IS, ASKED FOR BEFORE ANYTHING USES IT. Every step below is git — the
+  # identity, the remote, the branch, the six stamps and the push. deploy-host installs it, and
+  # that this program usually runs after that one is a fact of the usual ORDER rather than of this
+  # program. Run on a machine deploy-host never touched, it would otherwise fail at the identity
+  # check with a message about configuration where the truth is a missing command.
+  #
+  # It measures and installs nothing: a program that quietly installed something would be a program
+  # whose dry run lied, having shown a plan without the installation it was about to perform.
+  - step: require_commands
+    commands: [git]
+    on_failure: exit
+
+  # SET RATHER THAN DEMANDED. This used to refuse a checkout with no committer identity and tell an
+  # operator to type two git config lines — one more thing a person does to a machine by hand, and a
+  # machine prepared by hand is one whose preparation nobody can repeat. Everything an installation
+  # needs comes from an answer or from a step.
+  #
+  # Local to this checkout, never global: a machine may hold several and only one of them is this
+  # installation's.
+  - step: git_identity
+    repository: /srv/hostyour-cloud
+    name_answer: committer_name
+    email_answer: committer_email
+    on_failure: exit
+
+  # WHAT A PUSH IS MADE WITH, set for the same reason the identity above it is set rather than
+  # demanded: a machine prepared by hand is a machine whose preparation nobody can repeat. The
+  # checkout was cloned with no credential in its remote address, deliberately — one written there
+  # is at rest for as long as the checkout stands, and `git remote -v` prints it to anybody who can
+  # read the tree — and the push at the foot of this program says the credential is not its
+  # business. This row is what stands between the two.
+  #
+  # IT READS THE ANSWER AND NOT THE FILE, and that is a fact about WHERE IT STANDS. The file this
+  # installation keeps its credentials in is written thirty rows down; at this point in the run it
+  # does not exist, and the writer credential exists only as the answer this run was given. A
+  # regeneration is the other way round, and its own row says so where it stands.
+  - step: git_push_credential
+    repository: /srv/hostyour-cloud
+    remote: origin
+    credential_answer: platform_repo_write_pat
+    # The account name the credential is presented under, which is the host's own convention and
+    # not something this platform decides — the same word deploy-platform-services presents its read
+    # credential under.
+    credential_user: x-access-token
+    on_failure: exit
+
+  # The name of the remote is stated rather than known: git gives a clone's remote the name "origin"
+  # and a checkout made another way carries whatever name was chosen, so the step is told which one
+  # this checkout holds.
+  #
+  # AND IT NO LONGER ANSWERS ON ITS OWN, which is what the line below says. Before the row above
+  # existed this gate could be asked of the machine as found; now the credential it presents is
+  # written by that row, and a dry run writes nothing — so in a dry run the gate cannot be reached
+  # at all and the record stamps it declared rather than proven. In a real run it is enforced
+  # exactly as before, and a real run is admitted only where a dry one came back green.
+  - step: require_pushable_remote
+    rests_on_an_earlier_step: true
+    repository: /srv/hostyour-cloud
+    remote: origin
+    branch: master
+    on_failure: exit
+
+  # The branch is named for this run's domain, and the row says WHICH answer holds that name. The
+  # value is never substituted into this file: git_branch reads the answer called "fqdn" out of the
+  # run, which is the same answer every stamp below reads.
+  - step: git_branch
+    repository: /srv/hostyour-cloud
+    base: master
+    name_answer: fqdn
+    on_failure: exit
+
+  # The generators name the branch they read from, and on the source branch that name IS the source branch. Only the
+  # value of these two keys changes: the same word also stands in prose on those lines.
+  #
+  # What the rows of this step share — the marker that exempts a line and the three exclusion lists —
+  # stands in the defaults block at the head of this file, and so does the answer the first two of
+  # them read. What is HERE is what tells one row from another.
+  - step: stamp_placeholder_in_tracked_files
+    repository: /srv/hostyour-cloud
+    refuse_on_branch: master
+    placeholder: master
+    tree: clusters/argocd
+    keys: [revision, targetRevision]
+    on_failure: exit
+
+  # The domain the source branch carries in place of an installation's own, anywhere in the checkout. It
+  # names no tree and no key, and both are left OUT rather than written as empty: the whole checkout
+  # and "the literal is itself the value" are the off states of those two, not values of them.
+  - step: stamp_placeholder_in_tracked_files
+    repository: /srv/hostyour-cloud
+    refuse_on_branch: master
+    placeholder: example.invalid
+    on_failure: exit
+
+  # The repository this installation's tenant charts and their per-stage pins are read from. The
+  # source branch carries a marker where the tenant generators name it, because that repository is the
+  # operator's own and nothing here composes its name.
+  #
+  # The tree writes the forge and the suffix AROUND the marker, so what this row puts in its place is
+  # exactly what the answer holds — an owner and a name, which is the shape the cluster map's own
+  # grammar accepts. A row that had to build a URL out of that value would be this program
+  # computing, and what a generator needs is one value in one place.
+  #
+  # It names no keys: the marker is a literal nothing else in the tree carries, so wherever it stands
+  # it IS the value. The tree narrows the search to the generators, which is the only part of the
+  # checkout that names the catalog.
+  - step: stamp_placeholder_in_tracked_files
+    repository: /srv/hostyour-cloud
+    refuse_on_branch: master
+    placeholder: __CATALOG_REPO__
+    # NOT the domain the defaults block names. This row writes the catalog, and the branch's own name
+    # here would point every tenant generator at this repository instead of the one holding the
+    # member charts.
+    value_answer: catalog_repo
+    tree: clusters/argocd
+    on_failure: exit
+
+  # WHAT THIS CLUSTER IS, in the one file everything that has to tell one installation from another
+  # reads. Rewritten on every run, because it states what THIS run answered: an answer that changed
+  # has to reach it, and a hand edit in it is a difference to correct rather than work to keep.
+  #
+  # `release` is the exception and the template says so with `<release!?>`. Nothing here holds it —
+  # a cluster release puts it there afterwards — so the slot takes whatever stands in the file and
+  # hands it back untouched, and its line is simply absent the first time the file is made, when
+  # nothing has been released yet.
+  #
+  # `mail-url` is absent rather than empty where this installation has no mail service. An empty
+  # value satisfies a chart that requires the key with something nothing can be reached at, which is
+  # worse than the missing key a gate reports by name.
+  #
+  # The stage list the old step carried is gone: it fed one refusal, and the same fact already
+  # stands as `allowed:` on the `stage` answer, where it is checked before the first step instead of
+  # in the middle of the run.
+  # WHERE THIS MACHINE CAN BE REACHED, for the boundary the gate sandbox is drawn with. Measured and
+  # never answered: it is a fact about the machine this run is standing on, and one mistyped octet is
+  # a boundary that reports itself closed while standing open.
+  #
+  # THE INTERFACES NAMED HERE ARE NOT THE MACHINE'S. Each is one a container network makes on a node
+  # and renumbers on its own schedule, so an address on one of them is a pod-network address the
+  # fence already denies by range, and writing it into the map would make this cluster's stated
+  # addresses churn on facts that are not about the machine. They are named HERE and not in the step
+  # because which of them exist depends on what the machine runs, and the step runs on machines that
+  # run none of it. Matched as beginnings: every one of these families numbers or hashes its own.
+  - step: measure_host_addresses
+    ignoring_interfaces:
+      - cali
+      - vxlan.calico
+      - tunl
+      - flannel
+      - cni
+      - docker
+      - br-
+      - veth
+      - kube-ipvs
+    on_failure: exit
+
+  - step: write_file_from_template
+    template: ansiwise/templates/cluster-map.tpl
+    path: /srv/hostyour-cloud/clusters/active/<fqdn>.yaml
+    run_answer: fqdn
+    # 420 — everything that reads a cluster map reads this file.
+    file_mode: 420
+    values:
+      fqdn: { answer: fqdn }
+      stage: { answer: stage }
+      role: { answer: role }
+      # ALWAYS WRITTEN, and it says this cluster's own domain where this cluster keeps its own
+      # books. The answer falls back to the domain, so there is no state in which it is unanswered
+      # and none in which the map is silent about which cluster the books stand on.
+      books-cluster: { answer: books_fqdn }
+      build-plane: { answer: build_plane_fqdn }
+      unit-apex: { answer: unit_apex }
+      platform-domain: { answer: platform_domain }
+      letsencrypt-email: { answer: letsencrypt_email }
+      letsencrypt-server: { answer: letsencrypt_server }
+      # Several mailboxes on one line, because that is the shape this file has always had.
+      # SEPARATED THE WAY THE TEMPLATE WRITES A LIST, and that is not the same as a comma.
+      # The slot stands inside `['...']`, so a plain ", " puts BOTH mailboxes inside one pair
+      # of quotes: measured, two answers render as ['a@x.ch, b@x.ch'] — one entry carrying a
+      # comma, which the alert route reads as a single malformed mailbox. It is invisible today
+      # only because exactly one recipient is answered.
+      alert-recipients: { answer: alert_recipients, join: "', '" }
+      catalog-repo: { answer: catalog_repo }
+      mail-url: { answer: mail_url }
+      # The short name, its two registry accounts and the two placement facts. Every one of them
+      # is a slot of the template and none of them was here: the map gained them and the row that
+      # fills it did not, so the run refused with the names it could not fill.
+      cluster-name: { answer: cluster_name }
+      registry-pull-user: { answer: registry_pull_user }
+      registry-push-user: { answer: registry_push_user }
+      # Read off the machine by the row above, never answered.
+      node-cidrs: { measured: host_addresses }
+      holds-build-plane: { answer: holds_build_plane }
+      holds-books: { answer: holds_books }
+    on_failure: exit
+
+  # The two files the answers become. They come after the map because both are named for the stage
+  # and both stand in a branch that has to exist, and before the role because reducing the branch is
+  # the last thing this program does to it.
+  # What the rest of this installation reads about itself. The template stands on the product branch
+  # with every value empty and each key under the paragraph explaining it; this fills the keys it is
+  # given and copies every other byte through. A key already carrying a value is never rewritten, so
+  # an edit made by hand survives every later run.
+  - step: fill_key_value_file
+    template_path: /srv/hostyour-cloud/configs/config.example
+    path: /srv/hostyour-cloud/configs/config.<stage>
+    # The file is named for the stage, and the stage is a suffix and never a folder. Naming
+    # the answer here is what fills the slot; written out, the row would be right on one
+    # installation and silently wrong on the next.
+    run_answer: stage
+    file_mode: 420
+    subject: configuration
+    values:
+      DEPLOY_ENV: { answer: stage }
+      # THE WHOLE DOMAIN OF THIS CLUSTER, under one key. It is not the SHORT name the reconciler's
+      # selectors match on: that one is `clusterName` in the cluster map, a different value in a
+      # different file for a different reader, and the two are never the same string.
+      CLUSTER_FQDN: { answer: fqdn }
+      LETSENCRYPT_EMAIL: { answer: letsencrypt_email }
+      CLUSTER_ISSUER: { answer: cluster_issuer }
+      # Several mailboxes on one line, because that is the shape this file has always had and what
+      # reads it splits on the comma.
+      ALERT_RECIPIENTS: { answer: alert_recipients, join: "," }
+      UNIT_APEX: { answer: unit_apex }
+      PLATFORM_DOMAIN: { answer: platform_domain }
+      # THE CLUSTER THAT KEEPS THE BOOKS, from the SAME answer the map's own `books-cluster` is
+      # written from, so the two files cannot come to say it apart. It reaches a slave by being
+      # copied whole with the rest of this file, which is what makes it a slave's statement that
+      # the books are elsewhere.
+      BOOKS_CLUSTER: { answer: books_fqdn }
+      BUILD_PLANE_FQDN: { answer: build_plane_fqdn }
+      CATALOG_REPO: { answer: catalog_repo }
+    on_failure: exit
+
+  # The credentials a third party issued for this installation, put into the file that seeds its
+  # secret store. None of them can be generated and none derived: they are obtained from a code
+  # host, from a DNS provider and from a storage vendor, and these rows are how an answer this run
+  # was given reaches that file.
+  #
+  # A KEY THAT ALREADY CARRIES A VALUE IS LEFT AS IT STANDS, which is the property this step has and
+  # a plain write does not. The file is hand-filled input: an operator opens it and types into it,
+  # each key under the paragraph of the template that says what to obtain and where. Writing every
+  # key from this run's answers would put back a credential somebody rotated by hand.
+  #
+  # WHAT THAT COSTS, said here rather than left to be found: an answer given to a LATER run does not
+  # reach a key that already holds something. Changing a credential of a running installation is an
+  # edit to this file, not a different answer to a re-run.
+  #
+  # WHAT THIS FILE DOES NOT HOLD. The secret store's own root token and unseal keys are written by
+  # the step that initializes it, into the credential file that step is given — they exist nowhere
+  # else, and this is not that place. An operator keeping this as their disaster copy would be
+  # keeping the wrong one.
+  - step: fill_key_value_file
+    template_path: /srv/hostyour-cloud/secrets/secrets.example
+    path: /srv/hostyour-cloud/secrets/secrets.<stage>
+    # The file is named for the stage, and the stage is a suffix and never a folder. Naming
+    # the answer here is what fills the slot; written out, the row would be right on one
+    # installation and silently wrong on the next.
+    run_answer: stage
+    # 384 — only the owner may read it. Every value below is a credential.
+    file_mode: 384
+    subject: credentials
+    holds_credentials: true
+    values:
+      GITOPS_REPO_PAT: { answer: platform_repo_write_pat }
+      GITOPS_REPO_READ_PAT: { answer: platform_repo_read_pat }
+      CATALOG_REPO_READ_PAT: { answer: catalog_repo_read_pat }
+      CLOUDFLARE_API_TOKEN: { answer: cloudflare_api_token }
+      STORAGE_BOX_HOST: { answer: storage_box_host }
+      STORAGE_BOX_USER: { answer: storage_box_user }
+      STORAGE_BOX_PASSWORD: { answer: storage_box_password }
+    on_failure: exit
+
+  # THE FOUR ONLY THE CLUSTER CARRYING THE BUILD PLANE EVER READS. Every other cluster reads its
+  # images through that one and never looks at them, so writing them there would put a credential on
+  # a machine nothing on it uses — and asking for one nobody needs is how an installation ends up
+  # holding a secret it cannot account for.
+  #
+  # A SECOND ROW AND NOT A CONDITION, and the difference was measured on a machine rather than
+  # reasoned about. A condition is answered ONCE, before the first step, and the only file that
+  # could say whether this cluster carries the build plane is the one the row above WRITES — so a
+  # condition here asks a question four rows before anything answers it, and the run ends before it
+  # starts.
+  #
+  # Nothing is lost by dropping it. All four answers below are optional, and an answer nobody gave
+  # is left out rather than written empty, so a cluster that carries no build plane simply is not
+  # asked for them and the four keys keep what the template ships.
+  - step: fill_key_value_file
+    template_path: /srv/hostyour-cloud/secrets/secrets.example
+    path: /srv/hostyour-cloud/secrets/secrets.<stage>
+    # The file is named for the stage, and the stage is a suffix and never a folder. Naming
+    # the answer here is what fills the slot; written out, the row would be right on one
+    # installation and silently wrong on the next.
+    run_answer: stage
+    file_mode: 384
+    subject: build plane credentials
+    holds_credentials: true
+    values:
+      REGISTRY_PULL_USER: { answer: registry_pull_user }
+      REGISTRY_PUSH_USER: { answer: registry_push_user }
+      REGISTRY_DOCKERHUB_USER: { answer: registry_dockerhub_user }
+      REGISTRY_DOCKERHUB_TOKEN: { answer: registry_dockerhub_token }
+      BUILD_HOSTYOUR_CLOUD_REPO_PAT: { answer: build_platform_repo_write_pat }
+      BUILD_HOSTYOUR_MANAGER_REPO_PAT: { answer: build_manager_repo_write_pat }
+      BUILD_CATALOG_REPO_PAT: { answer: build_catalog_repo_write_pat }
+    on_failure: exit
+
+  # THE PARTS OF THIS CLUSTER'S ROLE, one marker per slot of the ApplicationSet's In list. The
+  # framework's first_part_of / last_part_of rules split the role the way a combined role is
+  # written ("master+slave"), so a machine carrying both parts admits both parts' workloads, and a
+  # single-part role fills the two slots with the same word — a duplicate an In match reads as one
+  # value.
+  - step: stamp_placeholder_in_tracked_files
+    repository: /srv/hostyour-cloud
+    refuse_on_branch: master
+    placeholder: __CLUSTER_ROLE_FIRST_PART__
+    value_answer: role
+    value_rule: first_part_of
+    tree: clusters/argocd
+    on_failure: exit
+
+  - step: stamp_placeholder_in_tracked_files
+    repository: /srv/hostyour-cloud
+    refuse_on_branch: master
+    placeholder: __CLUSTER_ROLE_LAST_PART__
+    value_answer: role
+    value_rule: last_part_of
+    tree: clusters/argocd
+    on_failure: exit
+
+  # THE TWO MARKERS THAT HAD NO WRITER — __CLUSTER_NAME__ and __BOOKS_NAME__. Each of them needed a
+  # value no answer carried: the first label of a domain. The trunk still says of them "NOTHING
+  # fills this — the short name is not an answer of the branch program", and that stopped being true
+  # when the framework learned to work an answer out from another. `cluster_name` and `books_name`
+  # are derived, before the first step and inside the fingerprint, so nobody types a short name that
+  # its own domain contradicts.
+  #
+  # ONE LITERAL FOR ONE VALUE, STAMPED ONCE PER TREE. The short name of this cluster gets exactly
+  # one marker across both trees: two spellings of which one is a substring of the other let
+  # whichever is stamped first eat the other halfway through, leaving a name nothing wrote.
+  - step: stamp_placeholder_in_tracked_files
+    repository: /srv/hostyour-cloud
+    refuse_on_branch: master
+    placeholder: __CLUSTER_NAME__
+    value_answer: cluster_name
+    tree: clusters/argocd
+    on_failure: exit
+
+  - step: stamp_placeholder_in_tracked_files
+    repository: /srv/hostyour-cloud
+    refuse_on_branch: master
+    placeholder: __CLUSTER_NAME__
+    value_answer: cluster_name
+    tree: clusters/bootstrap
+    on_failure: exit
+
+  # The branch of the cluster that keeps the books — the WHOLE domain and not its short name,
+  # because a branch is named after the installation it belongs to. On a cluster keeping its own
+  # books this is this branch; on one reading another's it is a different branch of the same
+  # repository, which is the whole point of the value.
+  - step: stamp_placeholder_in_tracked_files
+    repository: /srv/hostyour-cloud
+    refuse_on_branch: master
+    placeholder: __BOOKS_FQDN__
+    value_answer: books_fqdn
+    tree: clusters/argocd
+    on_failure: exit
+  # THIS BRANCH'S OWN DOMAIN, which is also its own name. The map of this cluster is the file
+  # named for it, and a file that carries an installation's answers cannot be named in a tree
+  # every installation is cut from — so the name is stamped rather than written.
+  - step: stamp_placeholder_in_tracked_files
+    repository: /srv/hostyour-cloud
+    refuse_on_branch: master
+    placeholder: __FQDN__
+    value_answer: fqdn
+    tree: clusters/argocd
+    on_failure: exit
+
+
+  - step: stamp_placeholder_in_tracked_files
+    repository: /srv/hostyour-cloud
+    refuse_on_branch: master
+    placeholder: __BOOKS_NAME__
+    value_answer: books_name
+    tree: clusters/bootstrap
+    on_failure: exit
+
+  - step: stamp_placeholder_in_tracked_files
+    repository: /srv/hostyour-cloud
+    refuse_on_branch: master
+    placeholder: __STAGE__
+    value_answer: stage
+    tree: clusters/argocd
+    on_failure: exit
+
+  # WHICH AUTHORITY EVERY CERTIFICATE OF THIS INSTALLATION IS ISSUED BY, written into the values
+  # chain every chart reads it from — on EVERY run, and that is the whole point.
+  #
+  # A STAMP WOULD NOT DO, and that is measured rather than argued. A stamp replaces a placeholder,
+  # so it fills this once at a branch's birth and finds nothing to replace ever after. An
+  # installation that later named a different authority kept the old name here, the certificate
+  # service — which watches the name a certificate is issued BY and nothing else — re-issued nothing,
+  # and the cluster served certificates whose root its own trust bundle no longer carried. Measured
+  # on apps5 on 2026-09-01. A writer puts the answer there whatever stands there now, so the file
+  # cannot fall behind the installation.
+  - step: write_value_in_branch_file
+    repository: /srv/hostyour-cloud
+    path: clusters/platform/values-common.yaml
+    # THE PATH AND NOT THE BARE NAME. The key stands under `global:`, and a bare name is looked for
+    # at the head of a line — where this one is not. Written bare, the writer found nothing and
+    # appended a SECOND clusterIssuer at the top of the file: measured on apps5 on 2026-09-01, with
+    # every chart still reading the nested one and the run reporting itself green.
+    key: global.clusterIssuer
+    value_answer: cluster_issuer
+    # 420 — the values chain is read by the reconciler and by every chart rendered from it.
+    file_mode: 420
+    on_failure: exit
+
+  # AND THE BASE LAYER'S OWN CERTIFICATE, which used to be the one certificate on this cluster whose
+  # authority was typed into a tracked file by hand while every other one read it from the values
+  # chain above. That exception is what the switch broke on, so it is gone: the file is generated
+  # from the catalogue's template on every run, and its issuer is this run's answer.
+  - step: write_file_from_template
+    template: ansiwise/templates/base-certificate.tpl
+    path: /srv/hostyour-cloud/clusters/bootstrap/vault/certificate.yaml
+    # 420 — a manifest the reconciler and the installer both read, and nobody writes but this row.
+    file_mode: 420
+    values:
+      cluster-issuer: { answer: cluster_issuer }
+      fqdn: { answer: fqdn }
+    on_failure: exit
+
+  # WHAT THIS INSTALLATION MAY SEND MAIL AS, in the one file class that is allowed to know.
+  #
+  # The reconciler reads installation/values/<app>.yaml for every application, and for the mail relay that
+  # file is not optional: the relay refuses to start without being told its sending domains, and it
+  # refuses rather than defaulting — a mail service that accepted any sender would relay for anybody
+  # who reached it. The chart that ships to every installation says the value belongs here and leaves
+  # it out, because a shipped file naming one installation's domains is wrong on every other.
+  #
+  # Nothing wrote it. Measured on an installation from nothing: every step green, the reconciler in
+  # charge, and the mail relay in a restart loop saying "You need to specify ALLOWED_SENDER_DOMAINS".
+  - step: write_file_from_template
+    template: ansiwise/templates/postfix-values.tpl
+    path: /srv/hostyour-cloud/installation/values/postfix.yaml
+    # 420 — the reconciler's render reads this file.
+    file_mode: 420
+    values:
+      platform-domain: { answer: platform_domain }
+      unit-apex: { answer: unit_apex }
+    on_failure: exit
+
+  # WHAT THIS INSTALLATION'S OWN MANAGER IS TOLD ABOUT THE MACHINE IT RUNS ON, in the same file
+  # class and for the same reason: the four settings name this machine, so the chart that ships to
+  # every installation states where they belong and leaves them out.
+  #
+  # WITHOUT IT THE MANAGER CANNOT ONBOARD ANYTHING, this platform's own unit included. It
+  # registers the consumer onboarding family only where its deployment carries both the gate address
+  # and the platform repository credential, and the chart renders the credential only where
+  # master.sshUser is set — so with this file absent every mutating consumer route answers 501, and
+  # onboard-manager stops on its second row against an answer that is correct and that no answer of
+  # THAT program can change. The two facts written here are the ones nothing else in this run holds:
+  # the account that operates the machine and its address on the cluster network.
+  #
+  # THE FILE IS WRITTEN WHATEVER ROLE THIS BRANCH TAKES, and on a slave nothing reads it: the
+  # Manager is a provider-only application, its app.yaml says runsOn: master, and a slave branch's
+  # generator admits every-cluster plus its own role. Writing it there costs one inert file and keeps
+  # this row from deciding a question the placement already decides.
+  - step: write_file_from_template
+    template: ansiwise/templates/manager-values.tpl
+    path: /srv/hostyour-cloud/installation/values/manager.yaml
+    # 420 — the reconciler's render reads this file.
+    file_mode: 420
+    values:
+      operator-user: { answer: operator_user }
+      lan-host: { answer: lan_host }
+    on_failure: exit
+
+  # WHAT THIS RUN WROTE, RECORDED. Without it the program ends exit 0 having produced files that
+  # exist in one working tree on one machine — every step right about itself, and the installation
+  # branch not existing. Measured exactly that way before this row was added.
+  #
+  # THE PATHS ARE NAMED, and `secrets` is deliberately not among them. That tree is ignored by the
+  # repository on purpose — "NOTHING SECRET, EVER, ANYWHERE IN THIS TREE" — and naming it here would
+  # ask git to record what its own rules refuse. What the run wrote into it stays on the machine,
+  # which is where a credential belongs.
+  # THE INPUT THIS INSTALLATION'S OWN UNIT IS HANDED, recorded with everything else the branch
+  # states about itself. It carries the installation's domain and its stage and nothing else, so
+  # there is nothing here that may not stand in a repository.
+  #
+  # IT IS WRITTEN HERE AND NOT WHERE THE UNIT IS INSTALLED. deploy-platform-services wrote it, and
+  # that program has no git row at all - it reads this branch, it does not write it. What that
+  # produced was a file the commit below never carried: untracked in the checkout for ever, and a
+  # regeneration refuses to merge over a working tree that is not clean, so no later fix could
+  # reach the machine at all. Measured on apps5 on 2026-08-31.
+  #
+  # NO CONDITION ON IT. The two gates it stood under guard the UNIT - a cluster with no secret store
+  # installs none. The file is two values either way, and a machine that never starts the unit is
+  # not harmed by a file it does not read.
+  - step: write_file_from_template
+    template: ansiwise/templates/vault-unseal-answers.tpl
+    path: /srv/hostyour-cloud/configs/unseal-vault-answers.json
+    file_mode: 384
+    values:
+      fqdn: { answer: fqdn }
+      stage: { answer: stage }
+    on_failure: exit
+
+  - step: git_commit
+    repository: /srv/hostyour-cloud
+    # EVERY DIRECTORY THIS PROGRAM WRITES INTO, and adding a writer above means adding its
+    # directory here. Named rather than blanket, so that whatever else stands in the tree is not
+    # recorded as part of this installation — and the cost of that choice is exactly this line: a
+    # row that writes a file into a directory nobody named produces a file the commit does not
+    # carry, the push does not send, and the reconciler never sees, while every step reports
+    # success. Measured that way with registrations/, which was written, committed nothing, and
+    # left the build fan-out generating no pipeline for a registration that existed only on one
+    # machine.
+    #
+    # AND THE COST HAS A SECOND HALF, which is what this line was found by: a directory that IS
+    # named and is then RENAMED under the row. `cluster/` became `installation/` — the tree renamed
+    # it and the two writers above followed it, and this list did not, so the row went on naming a
+    # path the checkout no longer holds. git add refuses a pathspec that matches nothing — measured
+    # against the tree, `git add -- cluster` answers `fatal: pathspec 'cluster' did not match any
+    # files` and exits 128 — so what that produced was not a quiet omission but a run that stages
+    # `clusters`, stages `configs`, dies on the third name and stops there: profile.yaml and
+    # values/postfix.yaml written under installation/, nothing recorded, nothing pushed.
+    paths: [clusters, configs, installation]
+    message: "Generate this installation from the answers the run was given"
+    on_failure: exit
+
+  # AND SENT, because until it lands the work is on one machine. The step reads the postcondition
+  # from the remote rather than from git's exit code: a push with nothing to send answers 0 exactly
+  # like one that delivered.
+  #
+  # It is the last row on purpose. Everything above it is repeatable on a machine that failed
+  # halfway; this one makes a branch other things can fetch, and that is the point after which a
+  # failed run has left something behind for somebody else to see.
+  - step: git_push
+    repository: /srv/hostyour-cloud
+    remote: origin
+    on_failure: exit
