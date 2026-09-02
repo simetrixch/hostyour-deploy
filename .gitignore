@@ -1,0 +1,7 @@
+# Agent instructions. Loaded from disk by whichever tool opens this repository, and never tracked:
+# they are ours, and every machine that runs an installation clones this tree.
+CLAUDE.md
+AGENTS.md
+
+# The agent's own state directory. Tooling state, never a program.
+.claude/
