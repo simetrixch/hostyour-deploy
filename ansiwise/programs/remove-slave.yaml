@@ -117,18 +117,11 @@ steps:
     name: <slave_cluster_name>-tenant-read
     on_failure: exit
 
-  # The slave's namespace out of the master's own secret-reader role — the widening register-slave
-  # made, shrunk again with everything else the live role binds carried forward verbatim. The one
-  # refusal is deliberate and the run continues past it: a list this member is the LAST of is never
-  # written empty, because an empty binding list refuses every platform secret reader at once — the
-  # repair is a deliberate role rewrite, not a removal's side effect.
-  - step: remove_vault_role_member
-    repository: /srv/hostyour-cloud
-    mount: <kubernetes-mount>
-    role: external-secrets
-    list: bound_service_account_namespaces
-    member: <slave_cluster_name>
-    on_failure: continue
+  # NOTHING SHRINKS THE MASTER'S SECRET-READER ROLE HERE, because nothing widens it. That role binds
+  # by the label every workload namespace carries, and a slave's namespace on the master carries it
+  # like any other — stamped by the ApplicationSet that creates the namespace, and gone with the
+  # namespace. A row taking a member out of a list the owner declares EMPTY would be the second
+  # writer that role's owner states it has not got.
 
   # The reconciler project, deleted ONLY under the ownership label. The same rendered manifest the
   # register run applied names what goes; a project of this name WITHOUT hostyour.cloud/slave is a

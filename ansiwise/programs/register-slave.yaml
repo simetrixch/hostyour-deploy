@@ -154,6 +154,7 @@ steps:
     # has to be edited when an application is added.
     body: >-
       {"bound_service_account_names":["external-secrets-sa"],
+      "bound_service_account_namespaces":[],
       "bound_service_account_namespace_selector":"{\"matchLabels\":{\"hostyour.cloud/workload\":\"true\"}}",
       "token_policies":["<slave_cluster_name>-eso"],"ttl":"24h"}
     on_failure: exit
@@ -168,6 +169,7 @@ steps:
     role: consumer-eso
     body: >-
       {"bound_service_account_names":["external-secrets-sa","postgres-eso","mongodb-eso"],
+      "bound_service_account_namespaces":[],
       "bound_service_account_namespace_selector":"{\"matchLabels\":{\"hostyour.cloud/consumer\":\"true\"}}",
       "token_policies":["<slave_cluster_name>-consumer-read"],"ttl":"24h"}
     on_failure: exit
@@ -179,6 +181,7 @@ steps:
     role: tenant-eso-<stage>
     body: >-
       {"bound_service_account_names":["external-secrets-sa"],
+      "bound_service_account_namespaces":[],
       "bound_service_account_namespace_selector":"{\"matchLabels\":{\"platform/tenant-managed\":\"true\"}}",
       "token_policies":["<slave_cluster_name>-tenant-read"],"ttl":"24h"}
     on_failure: exit

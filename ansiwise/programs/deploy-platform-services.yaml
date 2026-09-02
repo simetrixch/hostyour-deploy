@@ -872,8 +872,15 @@ steps:
   # policy is consulted — so a seed reports success, the entry sits in the store written and correct,
   # and every credential of that application is simply unreadable.
   #
-  # THIS ROLE HAS ONE WRITER, and it is this program. A role write replaces the role whole, so a
-  # second writer spelling it differently would blind whichever side it did not name.
+  # THIS ROLE HAS ONE WRITER, and it is this program. That is why the rows below name
+  # `bound_service_account_namespaces` and name it EMPTY.
+  #
+  # A role write does NOT replace the role whole. Vault assigns only the fields the request names,
+  # so a field left out keeps whatever the role already holds - and a list some other writer once
+  # put there admits its members for ever, however often the owner writes. Naming the field with an
+  # empty value is what says the owner binds by the label alone; naming it is what makes Vault write
+  # it. The selector is the one field Vault assigns whether or not the request names it, so a write
+  # that omits it empties it.
   - step: vault_auth_role
     rests_on_an_earlier_step: true
     repository: /srv/hostyour-cloud
@@ -887,6 +894,7 @@ steps:
     # so the set a namespace joins by being deployed is the set the store admits.
     body: >-
       {"bound_service_account_names":["external-secrets-sa"],
+      "bound_service_account_namespaces":[],
       "bound_service_account_namespace_selector":"{\"matchLabels\":{\"hostyour.cloud/workload\":\"true\"}}",
       "token_policies":["<cluster>-eso","<cluster>-deploy-pat-read"],"ttl":"24h"}
     when: [secret_store_enabled, build_plane_here_in_config, books_here_in_config]
@@ -900,6 +908,7 @@ steps:
     # Its twin above, bound the same way and for the same reason.
     body: >-
       {"bound_service_account_names":["external-secrets-sa"],
+      "bound_service_account_namespaces":[],
       "bound_service_account_namespace_selector":"{\"matchLabels\":{\"hostyour.cloud/workload\":\"true\"}}",
       "token_policies":["<cluster>-eso","<cluster>-deploy-pat-read"],"ttl":"24h"}
     when: [secret_store_enabled, build_plane_elsewhere_in_config, books_here_in_config]
@@ -925,6 +934,7 @@ steps:
     role: consumer-eso
     body: >-
       {"bound_service_account_names":["external-secrets-sa","postgres-eso","mongodb-eso"],
+      "bound_service_account_namespaces":[],
       "bound_service_account_namespace_selector":"{\"matchLabels\":{\"hostyour.cloud/consumer\":\"true\"}}",
       "token_policies":["<cluster>-consumer-read"],"ttl":"24h"}
     when: [secret_store_enabled, books_here_in_config]
@@ -937,6 +947,7 @@ steps:
     role: tenant-eso-<stage>
     body: >-
       {"bound_service_account_names":["external-secrets-sa"],
+      "bound_service_account_namespaces":[],
       "bound_service_account_namespace_selector":"{\"matchLabels\":{\"platform/tenant-managed\":\"true\"}}",
       "token_policies":["<cluster>-tenant-read"],"ttl":"24h"}
     when: [secret_store_enabled, books_here_in_config]
@@ -960,6 +971,7 @@ steps:
     role: build-eso
     body: >-
       {"bound_service_account_names":["external-secrets-sa"],
+      "bound_service_account_namespaces":[],
       "bound_service_account_namespace_selector":"{\"matchLabels\":{\"hostyour.cloud/build\":\"true\"}}",
       "token_policies":["<cluster>-build-read"],"ttl":"24h"}
     when: [secret_store_enabled, build_plane_here_in_config, books_here_in_config]
@@ -987,6 +999,7 @@ steps:
     role: build-bump
     body: >-
       {"bound_service_account_names":["pipeline-sa"],
+      "bound_service_account_namespaces":[],
       "bound_service_account_namespace_selector":"{\"matchLabels\":{\"hostyour.cloud/build\":\"true\"}}",
       "token_policies":["<cluster>-bump-read"],"ttl":"1h"}
     when: [secret_store_enabled, build_plane_here_in_config, books_here_in_config]
