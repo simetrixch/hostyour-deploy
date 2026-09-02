@@ -1,12 +1,12 @@
 # THE PLATFORM'S OWN MANAGER, ONBOARDED AS A CONSUMER — by the Manager, over the route every
 # other consumer takes, so that nothing about this one unit is a mechanism of its own.
 #
-# WHAT IT REPLACED. A first installation used to RENDER the Manager's registration from a
-# template — written by deploy-branch and again by regenerate-branch, a SECOND writer of
+# WHY IT IS NOT RENDERED FROM A TEMPLATE. Rendering the Manager's registration at install time —
+# out of deploy-branch and again out of regenerate-branch — makes a SECOND writer of
 # registrations/** over a tree whose only writer is the Manager itself: two hands on one file
 # with nothing arbitrating, and the installer's hand rewriting the Manager's on every re-run.
-# Both rows and the template are gone, and neither branch program names registrations/ any more,
-# down to the directory list its commit row carries. This run is what puts
+# Neither branch program names registrations/, down to the directory list its commit row
+# carries. This run is what puts
 # registrations/hostyour-manager/build.yaml there, and its builds[] — manager, gate-runner, dbtools —
 # come out of the unit's own deploy/platform.yaml, which is the same list the release pipeline holds
 # the registration against.
@@ -250,9 +250,9 @@ steps:
   #
   # THE WINDOW IS WHAT THE CREDENTIAL COVERS, AND NOT WHAT THE WORK MIGHT TAKE. What is being waited
   # for is a whole release cycle — the pipeline is triggered inside the run, and the run does not
-  # settle until the images are built — and this row used to name an hour for it. An hour is longer
-  # than the session in front of it lives, so the back half of that hour was spent asking with a
-  # value the Manager had already stopped accepting. 1770 is the idle window the Manager gives
+  # settle until the images are built. An hour named here would be longer than the session in front
+  # of it lives, so the back half of that hour goes on asking with a value the Manager has already
+  # stopped accepting. 1770 is the idle window the Manager gives
   # a session (SESSION_IDLE_SECONDS, 1800s where the deployment names no other) less the longest the
   # mint above it may take (an exchange's own bound on one request, 30s), so the last ask this row
   # makes still carries a session inside that window.
@@ -318,10 +318,9 @@ answers:
     # answers this differently, which is what the answer stays free text for; a branch that moves it
     # and does not answer gets a connect refusal naming a path the chart no longer writes.
     #
-    # IT USED TO HAVE NO DEFAULT, and the reason is gone rather than forgotten: the socket stood
-    # under the Manager's data directory, which is a bound claim whose directory the storage
-    # provisioner composes with a generated uid, so no path could be right on two installations. The
-    # chart decides the path now and it is the same on all of them.
+    # WHY IT CAN HAVE A DEFAULT AT ALL. A socket under the Manager's data directory — a bound claim
+    # whose directory the storage provisioner composes with a generated uid — has no path that is
+    # right on two installations. The chart decides the path, and it is the same on all of them.
     default: /var/lib/hostyour-manager/admin.sock
     describes: >-
       The socket file the session is minted through, as an absolute path on this machine. The default

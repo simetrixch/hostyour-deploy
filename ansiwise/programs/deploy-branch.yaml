@@ -31,8 +31,8 @@
 # installation: where the checkout stands on the machine, what the product branch is called, which
 # stages the product carries. An ANSWER is what nobody can write in a file that ships to every
 # installation: this cluster's domain, the mailbox its alerts go to, the credential its repository
-# is cloned with. Those used to stand here as step arguments with an illustration for a value, which
-# meant every installation shipped with somebody else's example baked into it.
+# is cloned with. Standing here as step arguments with an illustration for a value, they would ship
+# every installation with somebody else's example baked into it.
 #
 # An answer is never substituted into this file. A step that needs one declares it in the registry
 # and reads it by name, and the resolver refuses a step that reads an answer this program does not
@@ -226,7 +226,23 @@ answers:
     describes: >-
       The GitHub repository holding this installation's tenant charts and their per-stage pins,
       written as owner/name — for example acme/acme-catalog. It is your own repository, not this
-      platform's, and no rule composes its name out of anything else here.
+      platform's, and no rule composes its name out of anything else here. It is NOT the
+      repository the deployment programs are read from — that one is deploy_repo, below.
+
+  # THE REPOSITORY THE PROGRAMS THEMSELVES COME FROM, which is the platform's and not this
+  # installation's. It is public, so no credential stands beside it, and a machine clones it
+  # without one; that is the whole difference from catalog_repo above, which holds an
+  # installation's own charts and is reached with a read credential.
+  #
+  # It is asked rather than composed because a machine cannot read it off itself: the checkout it
+  # would be read from is the one this answer establishes.
+  - name: deploy_repo
+    kind: text
+    default: simetrixch/hostyour-deploy
+    describes: >-
+      The GitHub repository the deployment programs are read from, written as owner/name. It is
+      the platform's own and public, so the default is the right answer unless this installation
+      runs programs of its own.
 
   - name: mail_url
     kind: text
@@ -465,10 +481,10 @@ steps:
     commands: [git]
     on_failure: exit
 
-  # SET RATHER THAN DEMANDED. This used to refuse a checkout with no committer identity and tell an
-  # operator to type two git config lines — one more thing a person does to a machine by hand, and a
-  # machine prepared by hand is one whose preparation nobody can repeat. Everything an installation
-  # needs comes from an answer or from a step.
+  # SET RATHER THAN DEMANDED. Refusing a checkout with no committer identity and telling an operator
+  # to type two git config lines is one more thing a person does to a machine by hand, and a machine
+  # prepared by hand is one whose preparation nobody can repeat. Everything an installation needs
+  # comes from an answer or from a step.
   #
   # Local to this checkout, never global: a machine may hold several and only one of them is this
   # installation's.
@@ -503,11 +519,10 @@ steps:
   # and a checkout made another way carries whatever name was chosen, so the step is told which one
   # this checkout holds.
   #
-  # AND IT NO LONGER ANSWERS ON ITS OWN, which is what the line below says. Before the row above
-  # existed this gate could be asked of the machine as found; now the credential it presents is
-  # written by that row, and a dry run writes nothing — so in a dry run the gate cannot be reached
-  # at all and the record stamps it declared rather than proven. In a real run it is enforced
-  # exactly as before, and a real run is admitted only where a dry one came back green.
+  # AND IT DOES NOT ANSWER ON ITS OWN, which is what the line below says. The credential it presents
+  # is written by the row above, and a dry run writes nothing — so in a dry run the gate cannot be
+  # reached at all and the record stamps it declared rather than proven. In a real run it is
+  # enforced in full, and a real run is admitted only where a dry one came back green.
   - step: require_pushable_remote
     rests_on_an_earlier_step: true
     repository: /srv/hostyour-cloud
@@ -582,10 +597,7 @@ steps:
   # `mail-url` is absent rather than empty where this installation has no mail service. An empty
   # value satisfies a chart that requires the key with something nothing can be reached at, which is
   # worse than the missing key a gate reports by name.
-  #
-  # The stage list the old step carried is gone: it fed one refusal, and the same fact already
-  # stands as `allowed:` on the `stage` answer, where it is checked before the first step instead of
-  # in the middle of the run.
+
   # WHERE THIS MACHINE CAN BE REACHED, for the boundary the gate sandbox is drawn with. Measured and
   # never answered: it is a fact about the machine this run is standing on, and one mistyped octet is
   # a boundary that reports itself closed while standing open.
@@ -685,6 +697,11 @@ steps:
       BOOKS_CLUSTER: { answer: books_fqdn }
       BUILD_PLANE_FQDN: { answer: build_plane_fqdn }
       CATALOG_REPO: { answer: catalog_repo }
+      # THE PROGRAMS' OWN REPOSITORY, which the row that clones the catalogue reads out of this
+      # file. It is written beside catalog_repo and not merged with it: one names an
+      # installation's charts and is private, the other names the platform's programs and is
+      # public, and a single key for both would clone one where the other is meant.
+      DEPLOY_REPO: { answer: deploy_repo }
     on_failure: exit
 
   # The credentials a third party issued for this installation, put into the file that seeds its
@@ -731,8 +748,8 @@ steps:
   # a machine nothing on it uses — and asking for one nobody needs is how an installation ends up
   # holding a secret it cannot account for.
   #
-  # A SECOND ROW AND NOT A CONDITION, and the difference was measured on a machine rather than
-  # reasoned about. A condition is answered ONCE, before the first step, and the only file that
+  # A SECOND ROW AND NOT A CONDITION. A condition is answered ONCE, before the first step, and the
+  # only file that
   # could say whether this cluster carries the build plane is the one the row above WRITES — so a
   # condition here asks a question four rows before anything answers it, and the run ends before it
   # starts.
@@ -853,28 +870,27 @@ steps:
   #
   # A STAMP WOULD NOT DO, and that is measured rather than argued. A stamp replaces a placeholder,
   # so it fills this once at a branch's birth and finds nothing to replace ever after. An
-  # installation that later named a different authority kept the old name here, the certificate
-  # service — which watches the name a certificate is issued BY and nothing else — re-issued nothing,
-  # and the cluster served certificates whose root its own trust bundle no longer carried. Measured
-  # on apps5 on 2026-09-01. A writer puts the answer there whatever stands there now, so the file
-  # cannot fall behind the installation.
+  # installation that later names a different authority keeps the old name here, the certificate
+  # service — which watches the name a certificate is issued BY and nothing else — re-issues nothing,
+  # and the cluster serves certificates whose root its own trust bundle does not carry. A writer puts
+  # the answer there whatever stands there now, so the file cannot fall behind the installation.
   - step: write_value_in_branch_file
     repository: /srv/hostyour-cloud
     path: clusters/platform/values-common.yaml
     # THE PATH AND NOT THE BARE NAME. The key stands under `global:`, and a bare name is looked for
-    # at the head of a line — where this one is not. Written bare, the writer found nothing and
-    # appended a SECOND clusterIssuer at the top of the file: measured on apps5 on 2026-09-01, with
-    # every chart still reading the nested one and the run reporting itself green.
+    # at the head of a line — where this one is not. Written bare, the writer finds nothing and
+    # appends a SECOND clusterIssuer at the top of the file, with every chart still reading the
+    # nested one and the run reporting itself green.
     key: global.clusterIssuer
     value_answer: cluster_issuer
     # 420 — the values chain is read by the reconciler and by every chart rendered from it.
     file_mode: 420
     on_failure: exit
 
-  # AND THE BASE LAYER'S OWN CERTIFICATE, which used to be the one certificate on this cluster whose
-  # authority was typed into a tracked file by hand while every other one read it from the values
-  # chain above. That exception is what the switch broke on, so it is gone: the file is generated
-  # from the catalogue's template on every run, and its issuer is this run's answer.
+  # AND THE BASE LAYER'S OWN CERTIFICATE, whose authority no hand types into a tracked file: the
+  # file is generated from the catalogue's template on every run, and its issuer is this run's
+  # answer. One certificate carrying a hand-typed authority while every other one reads it from the
+  # values chain above is the exception a switch of authority breaks on.
   - step: write_file_from_template
     template: ansiwise/templates/base-certificate.tpl
     path: /srv/hostyour-cloud/clusters/bootstrap/vault/certificate.yaml
@@ -893,8 +909,9 @@ steps:
   # who reached it. The chart that ships to every installation says the value belongs here and leaves
   # it out, because a shipped file naming one installation's domains is wrong on every other.
   #
-  # Nothing wrote it. Measured on an installation from nothing: every step green, the reconciler in
-  # charge, and the mail relay in a restart loop saying "You need to specify ALLOWED_SENDER_DOMAINS".
+  # Nothing else writes it. Without this row an installation from nothing has every step green, the
+  # reconciler in charge, and the mail relay in a restart loop saying "You need to specify
+  # ALLOWED_SENDER_DOMAINS".
   - step: write_file_from_template
     template: ansiwise/templates/postfix-values.tpl
     path: /srv/hostyour-cloud/installation/values/postfix.yaml
@@ -933,7 +950,7 @@ steps:
 
   # WHAT THIS RUN WROTE, RECORDED. Without it the program ends exit 0 having produced files that
   # exist in one working tree on one machine — every step right about itself, and the installation
-  # branch not existing. Measured exactly that way before this row was added.
+  # branch not existing.
   #
   # THE PATHS ARE NAMED, and `secrets` is deliberately not among them. That tree is ignored by the
   # repository on purpose — "NOTHING SECRET, EVER, ANYWHERE IN THIS TREE" — and naming it here would
@@ -943,15 +960,14 @@ steps:
   # states about itself. It carries the installation's domain and its stage and nothing else, so
   # there is nothing here that may not stand in a repository.
   #
-  # IT IS WRITTEN HERE AND NOT WHERE THE UNIT IS INSTALLED. deploy-platform-services wrote it, and
-  # that program has no git row at all - it reads this branch, it does not write it. What that
-  # produced was a file the commit below never carried: untracked in the checkout for ever, and a
-  # regeneration refuses to merge over a working tree that is not clean, so no later fix could
-  # reach the machine at all. Measured on apps5 on 2026-08-31.
+  # IT IS WRITTEN HERE AND NOT WHERE THE UNIT IS INSTALLED. deploy-platform-services has no git row
+  # at all - it reads this branch, it does not write it - so a file written there is one the commit
+  # below never carries: untracked in the checkout for ever, and a regeneration refuses to merge over
+  # a working tree that is not clean, so no later fix reaches the machine at all.
   #
-  # NO CONDITION ON IT. The two gates it stood under guard the UNIT - a cluster with no secret store
-  # installs none. The file is two values either way, and a machine that never starts the unit is
-  # not harmed by a file it does not read.
+  # NO CONDITION ON IT. The two gates that would fit here guard the UNIT - a cluster with no secret
+  # store installs none. The file is two values either way, and a machine that never starts the unit
+  # is not harmed by a file it does not read.
   - step: write_file_from_template
     template: ansiwise/templates/vault-unseal-answers.tpl
     path: /srv/hostyour-cloud/configs/unseal-vault-answers.json
@@ -968,18 +984,14 @@ steps:
     # recorded as part of this installation — and the cost of that choice is exactly this line: a
     # row that writes a file into a directory nobody named produces a file the commit does not
     # carry, the push does not send, and the reconciler never sees, while every step reports
-    # success. Measured that way with registrations/, which was written, committed nothing, and
-    # left the build fan-out generating no pipeline for a registration that existed only on one
-    # machine.
+    # success.
     #
-    # AND THE COST HAS A SECOND HALF, which is what this line was found by: a directory that IS
-    # named and is then RENAMED under the row. `cluster/` became `installation/` — the tree renamed
-    # it and the two writers above followed it, and this list did not, so the row went on naming a
-    # path the checkout no longer holds. git add refuses a pathspec that matches nothing — measured
-    # against the tree, `git add -- cluster` answers `fatal: pathspec 'cluster' did not match any
-    # files` and exits 128 — so what that produced was not a quiet omission but a run that stages
-    # `clusters`, stages `configs`, dies on the third name and stops there: profile.yaml and
-    # values/postfix.yaml written under installation/, nothing recorded, nothing pushed.
+    # AND THE COST HAS A SECOND HALF: a directory that IS named here and is then RENAMED in the
+    # tree. The writers above follow the rename and this list does not, so the row goes on naming a
+    # path the checkout does not hold. git add refuses a pathspec that matches nothing — `git add --
+    # cluster` answers `fatal: pathspec 'cluster' did not match any files` and exits 128 — so what
+    # that produces is not a quiet omission but a run that stages the names before the stale one,
+    # dies on it and stops there: files written, nothing recorded, nothing pushed.
     paths: [clusters, configs, installation]
     message: "Generate this installation from the answers the run was given"
     on_failure: exit

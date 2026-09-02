@@ -8,9 +8,9 @@ Description=Feed the quorum back to the secret store whenever it is sealed
 # WHAT STARTS IT, AND WHY IT IS NOT THE BOOT. hostyour-vault-unseal.timer, once a minute, and
 # nothing else. The store seals when its POD restarts — an eviction, a node drain, the roll a chart
 # bump triggers — and on a machine that never rebooted a unit wanted by the boot target runs on none
-# of those. Measured on 2026-08-28: the store's pod restarted at 19:43:21 on a machine that stayed
-# up, this unit stood at active (exited) from the morning, and eight applications were Degraded
-# until somebody restarted it by hand at 19:59:01. Nothing on the machine writes a file when the
+# of those. On a machine that stays up, a unit wanted by the boot target stands at active (exited)
+# from its one run, so nothing fires when the pod restarts and every application holding a secret is
+# Degraded until somebody restarts it by hand. Nothing on the machine writes a file when the
 # store seals, so the state is followed by ASKING the store, which is what the step this runs does.
 #
 # WHAT IT RUNS, AND WHY IT IS NOT A SCRIPT. ansiwise against the one-row program unseal-vault.yaml.
@@ -36,9 +36,9 @@ StartLimitIntervalSec=0
 
 [Service]
 Type=oneshot
-# NO RemainAfterExit, AND EVERY FIRING DEPENDS ON THAT. The line used to stand here so the row that
-# installed this unit could tell a run that finished from one that never happened; that row now
-# reads the timer instead. Left here, this service would stand as `active (exited)` for ever, and a
+# NO RemainAfterExit, AND EVERY FIRING DEPENDS ON THAT. The row that installs this unit reads the
+# TIMER back, so nothing here needs the line to tell a run that finished from one that never
+# happened. Written here, this service would stand as `active (exited)` for ever, and a
 # start of an already-active unit is a no-op — so the timer would fire every minute and nothing at
 # all would run. It is also what makes `systemctl start hostyour-vault-unseal` unseal by hand
 # again, which is what the platform's own VaultSealed alert tells the operator to type.
@@ -58,12 +58,12 @@ TimeoutStartSec=45s
 # configuration are stated in full because the service manager resolves nothing for them, and the
 # catalogue is where the run stands so the commit it records is the catalogue's own.
 #
-# A PATH THAT IS WRONG IS NO LONGER A RED ROW AT INSTALL TIME. The row that installs this unit
+# A PATH THAT IS WRONG IS NOT A RED ROW AT INSTALL TIME. The row that installs this unit
 # enables the timer and reads back the timer, and a timer is armed whether or not the service it
 # starts can run. What is left is the journal: the timer fires this service one second after it is
 # started, so a wrong path is written there while the operator's own deployment is still going.
-# Measured on apps3, 2026-08-26: a machine whose catalogue stood somewhere else failed with
-# status=200/CHDIR, naming the working directory below.
+# A machine whose catalogue stands somewhere else fails with status=200/CHDIR, naming the working
+# directory below.
 #
 # THE ENGINE AT ITS LASTING PLACE, not the copy the first contact left in a home directory.
 # A machine that has none receives one in the operating account's own home, because
@@ -71,8 +71,8 @@ TimeoutStartSec=45s
 # (hostyour-manager server/domains/runs/defs/place-ansiwise.ts:36). What stands under
 # /usr/local/bin afterwards is what install_pinned_tool keeps at the pin, and it is the one
 # require_cli_tool_versions asks about. This unit runs every minute, long after both, so it
-# names the lasting one. Measured on an installation that was already standing: the home copy
-# was not there and the unit failed at EXEC with "Unable to locate executable".
+# names the lasting one. On an installation that is already standing the home copy is not there,
+# and a unit naming it fails at EXEC with "Unable to locate executable".
 WorkingDirectory=/srv/ansiwise-catalog
 ExecStart=/usr/local/bin/ansiwise unseal-vault --mode dry --programs /srv/ansiwise-catalog/ansiwise/boot-programs --config /srv/ansiwise-catalog/ansiwise-boot.yaml --answers /srv/hostyour-cloud/configs/unseal-vault-answers.json
 ExecStart=/usr/local/bin/ansiwise unseal-vault --mode run --programs /srv/ansiwise-catalog/ansiwise/boot-programs --config /srv/ansiwise-catalog/ansiwise-boot.yaml --answers /srv/hostyour-cloud/configs/unseal-vault-answers.json

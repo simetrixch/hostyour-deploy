@@ -57,8 +57,8 @@ steps:
     marker: '#MOREIPS'
     resign: [microk8s, refresh-certs, --cert, server.crt]
     # WHAT THE NEXT CALLER WILL USE, and not a neighbouring readiness. The re-sign restarts the API
-    # server, and `status --wait-ready` answers about the NODE — it succeeded on apps6 on 2026-09-01
-    # while the API was still refusing, and the next program died twenty-five seconds later on
+    # server, and `status --wait-ready` answers about the NODE — it succeeds while the API is still
+    # refusing, and the next program dies seconds later on
     # "the connection to the server 127.0.0.1:16443 was refused". Asking the API itself is the only
     # question whose answer means what this row needs it to mean. The step asks it over and over
     # until it answers, within the window below.

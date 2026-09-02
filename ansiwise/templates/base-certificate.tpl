@@ -1,12 +1,12 @@
 # GENERATED ON EVERY RUN, and that is the point of this file existing as a template at all.
 #
-# This was the ONE certificate on the cluster whose authority was typed into a tracked file by hand,
-# while every other one reads it out of the values chain. That exception is what made the certificate
-# switch unturnable: a stamp fills a placeholder ONCE, at a branch's birth, so an installation that
-# later named a different authority kept the old name in this file and the certificate service — which
-# watches the name a certificate is issued BY and nothing else — re-issued nothing. Measured on apps5
-# on 2026-09-01: the config said platform-acme, this file said platform-local, and the cluster went on
-# serving certificates whose root its own trust bundle no longer carried.
+# The authority of this one certificate is never typed into a tracked file by hand, the way every
+# other one reads it out of the values chain. Such an exception is what makes the certificate switch
+# unturnable: a stamp fills a placeholder ONCE, at a branch's birth, so an installation that later
+# names a different authority keeps the old name in this file and the certificate service — which
+# watches the name a certificate is issued BY and nothing else — re-issues nothing. The config then
+# says platform-acme while this file says platform-local, and the cluster goes on serving
+# certificates whose root its own trust bundle does not carry.
 #
 # Written from this template by deploy-branch on every run, the authority comes from the run's own
 # answer each time. There is no state in which the file disagrees with the installation.
@@ -17,9 +17,9 @@
 # WHY ONE AND NOT FOUR. Four single-name certificates spend four issuances per installation, and the
 # authority's tightest limit is FIVE for one exact set of names in a rolling week — a limit on the
 # NAMES A CERTIFICATE CARRIES, not on a hostname. Four names in one certificate are a different set
-# from any of them alone, with a counter of their own. Measured on apps1, 2026-08-24: the fifth
-# rebuild of this installation was refused with `429 too many certificates (5) already issued for
-# this exact set of identifiers`, and the next attempt was twenty-three hours away. One certificate
+# from any of them alone, with a counter of their own. The fifth rebuild of one installation is
+# refused with `429 too many certificates (5) already issued for this exact set of identifiers`, and
+# the next attempt waits for the oldest of the five to age out of the week. One certificate
 # is one issuance, so the same weekly budget covers five REBUILDS instead of five per hostname.
 #
 # WHY IT STANDS IN THIS NAMESPACE AND NOT THE ROUTER'S. Vault is the one component that serves TLS

@@ -131,10 +131,10 @@ steps:
   #
   # It MEASURES and installs nothing. A program that quietly installed something would be a program
   # whose dry run lied, having shown a plan without the installation it was about to perform.
-  # `helm` is NOT among them, and that is the correction this row carries. Helm ships inside the
-  # cluster distribution on this platform's machines, so the only command to demand is the one that
-  # holds it — demanding `helm` refused nothing and passed everything, because the cluster program
-  # writes that name as a shell alias and a gate that asks a machine cannot see an alias.
+  # `helm` is NOT among them. Helm ships inside the cluster distribution on this platform's
+  # machines, so the only command to demand is the one that holds it — demanding `helm` refuses
+  # nothing and passes everything, because the cluster program writes that name as a shell alias
+  # and a gate that asks a machine cannot see an alias.
   - step: require_commands
     commands: [microk8s]
     on_failure: exit
@@ -196,7 +196,7 @@ steps:
   # PARENT of a file they are about to write, as a by-product of writing it, and none of them takes an
   # owner. create_storage_directory is the only one whose purpose IS a directory, and it makes exactly
   # one — the answer `storage_subdirectory` names — with a mode and no owner either. Until a step
-  # exists that takes all four (simetrixch/ansiwise-plugins#159), the directory is declared the way
+  # exists that takes all four (ansiwise-plugins#159), the directory is declared the way
   # this catalogue already declares work a machine has to do by itself: a unit file written from a
   # template, handed to the service manager by the row below it.
   #
@@ -261,15 +261,15 @@ steps:
   # at rest, so while this is down or sealed no workload materializes a secret. That is why its
   # steps end the run rather than let it carry on.
   # ---------------------------------------------------------------------------------------------
-  # THE OTHER HALF OF TLS, and until this stood here nothing on the cluster did it.
+  # THE OTHER HALF OF TLS, which nothing else on the cluster does.
   #
   # Issuing — proving "I am vault.<domain>" — is the certificate service's job and this platform has
-  # always had it. TRUSTING — the list of authorities a client believes — was left to whatever each
-  # container image happened to ship with. That was invisible while every certificate came from a
-  # public authority, because every image carries those roots. It stopped being invisible the moment
-  # an installation issued from one it minted itself: measured on apps5 on 2026-08-31, the store
-  # answered `400 error checking oidc discovery URL` — Vault fetching the identity provider's
-  # discovery document from inside its own container, against a root that container had never met.
+  # always had it. TRUSTING — the list of authorities a client believes — is otherwise left to
+  # whatever each container image happens to ship with. That is invisible while every certificate
+  # comes from a public authority, because every image carries those roots. It stops being invisible
+  # the moment an installation issues from one it mints itself: the store answers `400 error checking
+  # oidc discovery URL` — Vault fetching the identity provider's discovery document from inside its
+  # own container, against a root that container has never met.
   #
   # WHY IT STANDS BEFORE THE STORE. Every row below this one is a workload that either speaks to one
   # of this installation's own addresses or is spoken to over one, and the first of them mounts the
@@ -452,13 +452,12 @@ steps:
   # The transport Traefik reaches the store over — it serves TLS itself, so the route in front of it
   # has to be told to speak TLS to the backend — and the route itself.
   #
-  # BOTH STAND BEFORE THE INIT, and that is a correction. The store is reached at the address its
-  # own profile writes down, `global.endpoints.vault.url`, which is `vault.<master>` and public: without the
-  # route there is nothing at that address, and the init below fails on a store that is running
-  # perfectly. The order used to be the other way round, on the reasoning that a route to a sealed
-  # store answers every request with a seal error and reads as broken to somebody browsing it. That
-  # is true and it is the lesser cost — a seal error is a message about the truth, while a run that
-  # cannot reach its own store at all is not.
+  # BOTH STAND BEFORE THE INIT. The store is reached at the address its own profile writes down,
+  # `global.endpoints.vault.url`, which is `vault.<master>` and public: without the route there is
+  # nothing at that address, and the init below fails on a store that is running perfectly. The other
+  # order spares somebody browsing a sealed store the seal error every request answers with, which
+  # reads as broken. That is true and it is the lesser cost — a seal error is a message about the
+  # truth, while a run that cannot reach its own store at all is not.
   - step: kubernetes_object_reversible
     rests_on_an_earlier_step: true
     repository: /srv/hostyour-cloud
@@ -549,15 +548,15 @@ steps:
   # THE ROW ABOVE IS THE ONLY THING ON THIS PLATFORM THAT UNSEALS, and it runs when a person starts
   # this program. A store with no key service behind it comes back SEALED from every restart — a
   # node reboot, an eviction, the roll a chart bump triggers — and while it is sealed nothing on the
-  # cluster materializes a secret. Measured on one machine: the store's container exited after about
-  # ten hours, came back sealed, and every workload holding a credential went Degraded until
-  # somebody typed the keys in by hand. The four rows below put a service on the machine that does
-  # what that person did, and a timer that starts it whenever the store is sealed.
+  # cluster materializes a secret. The store's container exits on a schedule nobody chose, comes back
+  # sealed, and every workload holding a credential goes Degraded until somebody types the keys in by
+  # hand. The four rows below put a service on the machine that does what that person does, and a
+  # timer that starts it whenever the store is sealed.
   #
-  # WHY A TIMER AND NOT A BOOT SERVICE, measured on 2026-08-28. The store's pod restarted at
-  # 19:43:21 on a machine that never went down. A service wanted by the boot target had already run
-  # that morning and stood at active (exited), so nothing ran on the pod's restart and eight
-  # applications were Degraded until somebody restarted the unit by hand at 19:59:01. A pod restarts
+  # WHY A TIMER AND NOT A BOOT SERVICE. The store's pod restarts on a machine that never goes down. A
+  # service wanted by the boot target has already run and stands at active (exited), so nothing runs
+  # on the pod's restart and every application holding a credential stays Degraded until somebody
+  # restarts the unit by hand. A pod restarts
   # for reasons a machine knows nothing about — an eviction, a node drain, a chart bump — and
   # nothing on the machine is written when the store seals, so the state is followed by ASKING the
   # store once a minute. That question is the same step the row above runs: it reads the seal state
@@ -586,10 +585,10 @@ steps:
   # readable by its owner alone anyway, because an envelope is where a credential would go if one
   # were ever added to it.
 
-  # The service itself, which is the act. Rewritten rather than created, so an installation whose
-  # unit was written by an earlier release ends up with the one this release means instead of
-  # keeping the old text for ever. It names no answer: it used to carry the operating account,
-  # because the engine was read out of that account's home, and it is read from /usr/local/bin now.
+  # The service itself, which is the act. Rewritten rather than created, so an installation carrying
+  # a unit from an earlier release ends up with the one this release means instead of keeping that
+  # text for ever. It names no answer: the engine is read from /usr/local/bin, not out of the
+  # operating account's home.
   - step: write_file_from_template
     template: ansiwise/templates/vault-unseal-service.tpl
     path: /etc/systemd/system/hostyour-vault-unseal.service
@@ -618,10 +617,10 @@ steps:
   #
   # THE TIMER AND NOT THE SERVICE, and it costs something to say plainly. This step is satisfied by
   # a unit that stays active, which a one-shot only does with RemainAfterExit — and a unit standing
-  # at active (exited) is one a timer's start does nothing to, which is the defect being fixed. So
-  # the service carries no such line and is not what is read back here. What that gives up is the
-  # red row a wrong path in the service used to produce at install time; what is left of it is the
-  # journal, because the timer fires the service a second after this row arms it.
+  # at active (exited) is one a timer's start does nothing to, which is the state that leaves the
+  # store sealed with nothing watching. So the service carries no such line and is not what is read
+  # back here. What that gives up is a red row here for a wrong path in the service; what reports it
+  # instead is the journal, because the timer fires the service a second after this row arms it.
   - step: enable_service
     unit: hostyour-vault-unseal.timer
     when: [secret_store_enabled, books_here_in_config]
@@ -910,12 +909,12 @@ steps:
   # name list that admitted anything would let a consumer's own chart mint an account and read
   # through a store the platform never rendered.
   #
-  # THE LABEL IS THE CHART'S, SPELLED THE CHART'S WAY — the twin of the correction on the build role
-  # below, and it was missed when that one was made. A consumer's namespace is created by the
-  # fan-out and carries hostyour.cloud/consumer (clusters/argocd/apps/consumers-appset.yaml:122). This row
-  # selected on digitacloud.app/consumer, a key nothing anywhere writes, so the role matched no
-  # namespace ever and every consumer's secret reader was refused at login — before any policy was
-  # consulted, with a message about the role rather than about the label.
+  # THE LABEL IS THE CHART'S, SPELLED THE CHART'S WAY — the twin of the same rule on the build role
+  # below. A consumer's namespace is created by the fan-out and carries hostyour.cloud/consumer
+  # (clusters/argocd/apps/consumers-appset.yaml:122). Selecting on digitacloud.app/consumer, a key
+  # nothing anywhere writes, makes the role match no namespace at all and every consumer's secret
+  # reader is refused at login — before any policy is consulted, with a message about the role
+  # rather than about the label.
   #
   # Found by reading the ticket that named both halves rather than by meeting it on a machine: this
   # installation carries no consumer yet, so nothing had gone wrong that anybody could see.
@@ -950,10 +949,10 @@ steps:
   #
   # THE LABEL IS THE CHART'S, SPELLED THE CHART'S WAY. A build namespace is created by the fan-out
   # and carries hostyour.cloud/build — the chart says in as many words that this label "is the whole
-  # binding of the Vault role" and guards it with an admission policy. This row selected on
-  # digitacloud.app/build, a key nothing writes, so the role matched no namespace ever: every
-  # per-unit build namespace was refused at login, its secrets never materialized, and its pipeline
-  # could not pull, push or clone. Measured on the first build namespace an installation ever made.
+  # binding of the Vault role" and guards it with an admission policy. Selecting on
+  # digitacloud.app/build, a key nothing writes, makes the role match no namespace at all: every
+  # per-unit build namespace is refused at login, its secrets never materialize, and its pipeline
+  # cannot pull, push or clone.
   - step: vault_auth_role
     rests_on_an_earlier_step: true
     repository: /srv/hostyour-cloud
@@ -1257,14 +1256,14 @@ steps:
     fields:
       - 'dockerhub-user=REGISTRY_DOCKERHUB_USER'
       - 'dockerhub-token=REGISTRY_DOCKERHUB_TOKEN'
-      # THE REGISTRY'S OWN TWO ACCOUNTS, which nothing wrote until this row. One reads and one
-      # writes, and every workload of this installation holds one of them: the pull credential is in
-      # every namespace that starts an image of ours, the push one only where a release is made.
+      # THE REGISTRY'S OWN TWO ACCOUNTS, which nothing else writes. One reads and one writes, and
+      # every workload of this installation holds one of them: the pull credential is in every
+      # namespace that starts an image of ours, the push one only where a release is made.
       #
       # ATOMIC AND NEVER PRE-COMPOSED. What the charts need is an htpasswd line and a docker config
-      # document, and both used to be asked of the store as finished text nobody wrote — so the
-      # registry could not start and nothing could pull from it. A store holds values; a format
-      # belongs to whoever needs that format, and the charts assemble both from these four.
+      # document, and asking the store for either as finished text nobody wrote leaves the registry
+      # unable to start and nothing able to pull from it. A store holds values; a format belongs to
+      # whoever needs that format, and the charts assemble both from these four.
       #
       # The names are not secret and are not minted: a name that changed on every run would lock out
       # whatever holds the last one. The passwords are minted and no operator ever sees them.
@@ -1305,8 +1304,8 @@ steps:
     when: [secret_store_enabled, books_here_in_config]
     on_failure: exit
 
-  # THE TWO DATA SERVERS' OWN CREDENTIALS, which nothing wrote until these two rows — and the
-  # mongodb one had been read by a chart all along. Each is read by the ExternalSecret of the chart
+  # THE TWO DATA SERVERS' OWN CREDENTIALS, which nothing but these two rows writes — and the
+  # mongodb one a chart reads whether anything writes it or not. Each is read by the ExternalSecret of the chart
   # that runs the server, and each is a value that server is STARTED with rather than one it can be
   # handed afterwards. So a missing entry is not a workload running unauthenticated: the Secret is
   # never materialized and the pod is held on the secretKeyRef and the secret volume that name it.
@@ -1589,7 +1588,7 @@ steps:
 
   # WHERE THE IDENTITY PROVIDER ISSUES THE TOKENS THIS CLUSTER ACCEPTS, composed by the step rather
   # than by this file. A file that can build a string is a file that can compute, and what then gets
-  # debugged is the file — which is what a format string here used to be.
+  # debugged is the file.
   #
   # The three parts are this installation's: the label the provider is served under, the answer
   # holding the domain, and the slug the provider registered the application as. The PATH between
@@ -1605,9 +1604,9 @@ steps:
     rests_on_an_earlier_step: true
     waiting_for: the identity provider to serve the discovery document at its issuer address
     # THE DOCUMENT, NOT THE ADDRESS. A route whose backend is not up answers 503, and a 503 is
-    # something answering - so a wait on the address alone was over at the moment the thing it
-    # guards was not yet true. Measured on a first installation: three rows below this one failed
-    # together, and the secret store's own log named the cause, "error checking oidc discovery URL
+    # something answering - so a wait on the address alone is over at the moment the thing it
+    # guards is not yet true, and three rows below this one then fail together, with the secret
+    # store's own log naming the cause: "error checking oidc discovery URL
     # ... 503 Service Unavailable: no available server". What follows this row reads the discovery
     # document, so that is what is waited for: a 503 is not a JSON object and carries no field, and
     # the wait keeps asking.
@@ -1673,11 +1672,10 @@ steps:
 
   # --- the kubernetes dashboard (headlamp) ----------------------------------------------------
   #
-  # THE PROJECT MOVED AND THE OLD ADDRESS ANSWERS 404. It used to publish its charts under its own
-  # organisation and now publishes them under kubernetes-sigs; the pinned version is at the new
-  # address unchanged. What a run showed was two failures for one cause — the repository could not
-  # be added, and the release right after it failed with "repo headlamp not found", which reads like
-  # a second problem and is the same one.
+  # THE PROJECT PUBLISHES ITS CHARTS UNDER kubernetes-sigs, and any other address for them answers
+  # 404. That shows as two failures for one cause — the repository cannot be added, and the release
+  # right after it fails with "repo headlamp not found", which reads like a second problem and is
+  # the same one.
   - step: helm_repository
     rests_on_an_earlier_step: true
     name: headlamp
@@ -1735,9 +1733,8 @@ steps:
   # THE PROVIDER THE NEXT ROW NAMES, AND NOT ANOTHER ONE. The wait far above this one watches the
   # headlamp application, and one provider being published says nothing about a second: the
   # identity provider publishes each application's discovery document on its own, and the row below
-  # is configured against `vault`. Measured on a first installation: headlamp answered 200 at
-  # 19:07:15 and five seconds later the secret store was told `error checking oidc discovery URL`
-  # about /application/o/vault/ (apps3, 2026-08-28, run 20260828T190327Z-67109-c7fb8914).
+  # is configured against `vault`. On a first installation headlamp answers 200 while, seconds later,
+  # the secret store is told `error checking oidc discovery URL` about /application/o/vault/.
   #
   # THE ADDRESS IS COMPOSED HERE RATHER THAN MEASURED. measure_issuer_url publishes under one fixed
   # name, and a program may publish a measurement once — a second row measuring the vault
@@ -1767,9 +1764,8 @@ steps:
     path: oidc
     # ENABLING THE MOUNT IS HALF OF IT. A mount that is enabled and never told where the identity
     # provider is cannot resolve a role, and what a person sees is `Invalid role` — a message about
-    # the role, which exists, rather than about the configuration, which does not. Measured on a
-    # machine whose `auth/oidc/config` answered `No value found` while `auth/oidc/role` listed
-    # `default`.
+    # the role, which exists, rather than about the configuration, which does not. On such a machine
+    # `auth/oidc/config` answers `No value found` while `auth/oidc/role` lists `default`.
     #
     # The address keeps its trailing slash: the provider publishes its issuer with one, and the
     # store refuses a discovery document whose issuer differs from the address it was given by a
@@ -1831,11 +1827,11 @@ steps:
   # platform's group — so the first operator would be refused by every one of those services, on a
   # machine whose install just reported success.
   #
-  # It used to be closed inside the provider, by an expression that APPENDED the group name to the
-  # claim for anybody the provider considered privileged. That admits people on a value computed at
-  # token time rather than on a membership anyone can look at, and it silently lost to the
-  # provider's own mapping of the same claim: the invented name never reached a token, and every
-  # login was refused for a claim that had never been sent.
+  # Closing it inside the provider, by an expression that APPENDS the group name to the claim for
+  # anybody the provider considers privileged, admits people on a value computed at token time
+  # rather than on a membership anyone can look at, and it silently loses to the provider's own
+  # mapping of the same claim: the invented name never reaches a token, and every login is refused
+  # for a claim that was never sent.
   #
   # A declaration cannot do it either: the provider's group object states its MEMBER LIST, so
   # re-applying it removes whoever it does not name — which is why that declaration is marked
@@ -1900,22 +1896,22 @@ steps:
   # deploy-branch's stamping, which rewrites exactly the placeholder text a program file has to
   # keep.
   #
-  # Which repository and with what right are this machine's own facts: the branch program wrote
-  # the repository's name into the config file and the read credential into the hand-filled input,
-  # and the row names the file and the key of each. The credential is read-only on purpose — what
-  # runs programs on a machine must not be able to rewrite the catalog they come from.
+  # WHICH repository is this machine's own fact, and the branch program wrote it into the config
+  # file under DEPLOY_REPO; the row names the file and the key. No credential stands beside it: the
+  # programs are public, and a row that names a key it cannot find refuses rather than reading on.
+  #
+  # DEPLOY_REPO AND NOT CATALOG_REPO, which sits in the same file and names something else — this
+  # installation's own tenant charts, private and read with a credential. One key for both would
+  # clone whichever repository the last writer meant.
   - step: git_clone
     rests_on_an_earlier_step: true
     repository: /srv/ansiwise-catalog
     host: github.com
     branch: master
     origin_file: /srv/hostyour-cloud/configs/config.<stage>
-    origin_key: CATALOG_REPO
-    credential_file: /srv/hostyour-cloud/secrets/secrets.<stage>
-    credential_key: CATALOG_REPO_READ_PAT
-    credential_user: x-access-token
+    origin_key: DEPLOY_REPO
     elevated: true
-    # AND HANDED BACK, which every other clone row in this catalogue states and this one did not.
+    # AND HANDED BACK, which every clone row in this catalogue states.
     #
     # Elevation is needed for the credential and the path, never for the RESULT: git runs as root
     # here, and every file that changed since this machine cloned the catalogue is rewritten as root.
@@ -1923,10 +1919,10 @@ steps:
     # opens an installation — so a single file left under root stops every program after this one,
     # with a stack trace about a path instead of a sentence about a permission.
     #
-    # Measured on apps5 on 2026-08-31: a commit reached the catalogue's master while this program was
-    # running, this row brought it forward, and `tailnet-join-self` died before its first step on
-    # `deploy-platform-services.yaml` — one file, root:root 0640, byte-identical to the repository's,
-    # standing among siblings owned by the operator.
+    # A commit reaching the catalogue's master while this program runs is brought forward by this
+    # row, and `tailnet-join-self` then dies before its first step on `deploy-platform-services.yaml`
+    # — one file, root:root 0640, byte-identical to the repository's, standing among siblings owned
+    # by the operator.
     #
     # driver.sh states the same lesson for its own elevated clone and runs `chown -R` after it. This
     # row is the one place a machine's catalogue is written where nothing did.
@@ -1976,9 +1972,9 @@ steps:
   # by somebody who cannot see it change, and one naming an option the binary does not have starts,
   # exits with a usage error, and does it again at every boot with nothing but a journal saying so.
   #
-  # NOT A ROW IS NOT THE SAME AS A PERSON, and that is what this block used to leave to the reader.
-  # What runs install-service is what placed the binary: hostyour-manager
-  # server/domains/runs/defs/place-ansiwise.ts, whose fourth placement is the SERVICE. It composes
+  # NOT A ROW IS NOT THE SAME AS A PERSON. What runs install-service is what placed the binary:
+  # hostyour-manager server/domains/runs/defs/place-ansiwise.ts, whose fourth placement is the
+  # SERVICE. It composes
   # nothing — it invokes install-service and reads the machine afterwards for whether the unit is
   # enabled, running, and starting the version it just placed on the address it was told — and it is
   # the same mechanism that put the binary, the catalogue and the platform checkout there, so there
@@ -2025,10 +2021,9 @@ steps:
   # of the same cluster: two owners of every object, each with `selfHeal` on, each undoing what the
   # other just did.
   #
-  # These rows carried `reconciler_enabled` alone and nothing told a master from a slave, so every
-  # slave got one. Measured on apps6 on 2026-09-01: the release installed, the route was applied,
-  # and clusters/argocd/root-app.yaml was pointed at the slave's own branch — a second app-of-apps
-  # beside the master's.
+  # `reconciler_enabled` alone tells a master from a slave in nothing, so every slave gets one: the
+  # release installs, the route is applied, and clusters/argocd/root-app.yaml is pointed at the
+  # slave's own branch — a second app-of-apps beside the master's.
   #
   # WHOSE BOOKS is the discriminator the tree already has, and it is not a proxy: the master's own
   # generator selects a slave BY that fact — `booksCluster: <master>` in its selector — so a cluster
@@ -2071,13 +2066,13 @@ steps:
     interval_seconds: 5
     when: [reconciler_enabled, books_here_in_config]
     on_failure: exit
-  # THE SIGN-IN SECRET IS READ AND NO LONGER WRITTEN IN HERE. `argocd-oidc` (key clientSecret) is
-  # what clusters/bootstrap/argocd/values.yaml resolves as `$argocd-oidc:clientSecret`, and a row
-  # here could only put it there with the store's ROOT TOKEN — which exists on the cluster that
-  # keeps the books and nowhere else. A cluster keeping none could not have it at all, and the
-  # deployment that tried died at this row (apps4, 2026-08-29).
+  # THE SIGN-IN SECRET IS READ HERE AND WRITTEN NOWHERE IN THIS PROGRAM. `argocd-oidc` (key
+  # clientSecret) is what clusters/bootstrap/argocd/values.yaml resolves as
+  # `$argocd-oidc:clientSecret`, and a row here could only put it there with the store's ROOT TOKEN —
+  # which exists on the cluster that keeps the books and nowhere else. A cluster keeping none cannot
+  # have it at all, and a row that tried would die at this point.
   #
-  # It now arrives the way every other secret on every cluster does: clusters/inventories/argocd-signin
+  # It arrives the way every other secret on every cluster does: clusters/inventories/argocd-signin
   # renders a SecretStore and an ExternalSecret into the reconciler's namespace, and this cluster's
   # own ESO reads the entry at <stage>/idp/bootstrap with this cluster's own policy. One mechanism
   # instead of two, and the object is a resource of a GitOps Application — visible in the reconciler
@@ -2117,15 +2112,14 @@ steps:
   # announced instead, and the three sentences an operator reads are written here, because the tool
   # package knows how a manifest is applied and nothing about the branch it stands in.
   #
-  # ONE MANIFEST, FOR EVERY STAGE. It used to be one per stage and the row named `argocd/<stage>/`;
-  # the trees were unified into a single parameterised root and the row was not moved with them, so
-  # it pointed at a directory that no longer exists. What that produced was the worst shape a
-  # failure can have: the last step of the program failed, the row said `continue`, the run reported
-  # itself green with every step accounted for — and the reconciler was handed nothing, so not one
-  # platform application was ever created. An operator reading that record sees a finished
+  # ONE MANIFEST, FOR EVERY STAGE: a single parameterised root rather than one tree per stage, so
+  # the row names no `argocd/<stage>/`. A row here naming a directory that does not exist has the
+  # worst shape a failure can have: the last step of the program fails, the row says `continue`, the
+  # run reports itself green with every step accounted for — and the reconciler is handed nothing,
+  # so not one platform application is ever created. An operator reading that record sees a finished
   # installation and an empty ArgoCD, with nothing connecting the two.
   #
-  # SO THE ROW ENDS THE RUN NOW. Every step before this one exists to make this one possible, and a
+  # SO THE ROW ENDS THE RUN. Every step before this one exists to make this one possible, and a
   # run that did everything except hand over has not installed anything — saying so is the whole
   # difference between a report and a claim.
   - step: kubernetes_object_irreversible

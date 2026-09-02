@@ -178,9 +178,9 @@ steps:
   # push has to be accepted for is the SLAVE's own — deploy-slave-branch offers the product branch
   # because the slave's does not exist yet, and a regeneration proves the branch it is about to move.
   #
-  # IT NO LONGER ANSWERS ON ITS OWN: the credential it presents is written by the row above, and a
+  # IT DOES NOT ANSWER ON ITS OWN: the credential it presents is written by the row above, and a
   # dry run writes nothing, so in a dry run this gate cannot be reached and the record stamps it
-  # declared rather than proven. A real run enforces it exactly as before.
+  # declared rather than proven. A real run enforces it in full.
   - step: require_pushable_remote
     rests_on_an_earlier_step: true
     repository: /srv/hostyour-cloud-slave

@@ -5,10 +5,10 @@
 # and the machine that has to redeem the key is the machine that mints it. A slave's join works
 # because something stands between the two — the manager mints on the master, reads the file off it
 # and carries the value into the slave's run as an answer. Nothing stands between a master and
-# itself, so until the engine could work an answer out of a file the machine already holds, the two
-# halves could not meet inside one run and the master was left off its own network. Measured on the
-# live installation: the coordinator listed the slave and not the master, `tailscale status` answered
-# `Logged out.`, and the slave's tailnet address was unreachable from the master that has to dial it.
+# itself, so the two halves meet inside one run only because the engine works an answer out of a
+# file the machine already holds. Without that the master is left off its own network: the
+# coordinator lists the slave and not the master, `tailscale status` answers `Logged out.`, and the
+# slave's tailnet address is unreachable from the master that has to dial it.
 #
 # HOW THE HALVES MEET. The mint row names the answer holding the path it writes to, rather than
 # composing that path for itself — a path a step composes inside itself reaches no later row. The
@@ -41,8 +41,7 @@ steps:
   # line the command has to write for the wait to be over". So the probe has to WRITE that line and
   # nothing else, which rules out the readable forms: `kubectl wait` says
   # "deployment.apps/headscale-prod-app condition met", and a poll waiting for "condition met" sits
-  # out its whole window against a coordinator that has been available all along. Measured on apps5
-  # on 2026-08-31: 600 seconds, against a deployment that was 1/1 the entire time.
+  # out its whole window — all 600 seconds of it — against a deployment that is 1/1 throughout.
   #
   # It also cannot name the stage: this step fills no slots, so `<stage>` would be asked for
   # literally. Reading the condition of every deployment in the namespace answers both at once, and
@@ -74,8 +73,8 @@ steps:
   # EVERY ROW BELOW RESTS ON THE WAIT. The installer runs a program test, then dry, then run, and a
   # wait does not wait in the first two — it measures. So without this the mint asks a coordinator
   # that the row above has not yet waited for, is refused on silence exactly as it should be, and
-  # the whole installation stops in `test` before `run` is ever reached. Measured on apps5,
-  # 2026-08-31: the coordinator's deployment was seconds old when the mint asked it.
+  # the whole installation stops in `test` before `run` is ever reached: the coordinator's
+  # deployment is seconds old when the mint asks it.
   - step: tailnet_join_credential
     rests_on_an_earlier_step: true
     headscale:
@@ -107,8 +106,8 @@ steps:
     marker: '#MOREIPS'
     resign: [microk8s, refresh-certs, --cert, server.crt]
     # WHAT THE NEXT CALLER WILL USE, and not a neighbouring readiness. The re-sign restarts the API
-    # server, and `status --wait-ready` answers about the NODE — it succeeded on apps6 on 2026-09-01
-    # while the API was still refusing, and the next program died twenty-five seconds later on
+    # server, and `status --wait-ready` answers about the NODE — it succeeds while the API is still
+    # refusing, and the next program dies seconds later on
     # "the connection to the server 127.0.0.1:16443 was refused". Asking the API itself is the only
     # question whose answer means what this row needs it to mean. The step asks it over and over
     # until it answers, within the window below.

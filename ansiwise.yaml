@@ -47,13 +47,13 @@ plugins:
 # on the installed machine.
 #
 # It arrives beside the answers, in the same envelope and over the same channel, and it lives exactly
-# as long as the process does. That is what every other credential of this platform already does, and
-# until this key existed the sudo password was the one that did not: it stood in the clear in the
-# operating account's home directory for as long as the installation stood, and an operator who
-# cleared the machine of credentials — which is the right instinct — left it unable to run at all.
+# as long as the process does. That is what every other credential of this platform already does. A
+# sudo password held on the machine instead stands in the clear in the operating account's home
+# directory for as long as the installation stands, and an operator who clears the machine of
+# credentials — which is the right instinct — leaves it unable to run at all.
 #
-# THIS IS WHY THIS FILE IS NO LONGER A MACHINE'S OWN. The alternative, `password_file:`, names a path
-# that differs per machine, so a file carrying it could not be the same on two installations and had
+# THIS IS WHY THIS FILE IS NOT A MACHINE'S OWN. The alternative, `password_file:`, names a path
+# that differs per machine, so a file carrying it cannot be the same on two installations and has
 # to be edited after every copy. This form is identical everywhere, which is what lets the whole of
 # this configuration live in the repository and reach a machine unchanged.
 elevation:
@@ -117,11 +117,10 @@ conditions:
   #
   # A NAME AND NOT A SWITCH, and the difference is the whole reason this reads the way it does. The
   # certificate service watches the name a certificate is issued BY and never the specification
-  # behind it, so a boolean beside one fixed name could be turned over while every certificate went
-  # on being signed by the authority that had just been taken away. Measured on apps5 on 2026-09-01:
-  # the object was rewritten from `ca:` to `acme:`, nothing was re-issued, and the cluster served
-  # certificates whose root the same run had deleted, with every application still reporting itself
-  # healthy. The name is stamped into the values chain, so turning it over changes what a certificate
+  # behind it, so a boolean beside one fixed name can be turned over while every certificate goes on
+  # being signed by the authority that has just been taken away: the cluster then serves certificates
+  # whose root the same run deleted, with every application still reporting itself healthy. The name
+  # is stamped into the values chain, so turning it over changes what a certificate
   # references and the service issues everything again by itself.
   #
   # It is here rather than in the installer's own config because it is a property of the

@@ -44,8 +44,8 @@ defaults:
 steps:
   # SPF FIRST, AND THE ORDER IS THE SAFETY PROPERTY. This is the one row that can find the domain
   # already broken (two v=spf1 records) and refuse it. Standing first with on_failure exit, its
-  # refusal stops the run before any other record of the domain is touched — the wholesale refusal
-  # the old publisher enforced with a per-domain abort list, expressed here as order.
+  # refusal stops the run before any other record of the domain is touched — a wholesale refusal for
+  # the domain, expressed as order rather than as a per-domain abort list.
   - step: cloudflare_spf_record
     apex_answer: mail_domain
     address_answer: egress_address

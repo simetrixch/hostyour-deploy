@@ -15,7 +15,7 @@
 #                         label-bound role, and reads the account itself to lift its
 #                         alias-metadata annotations into the login. Without the reader grant every
 #                         label-bound login dies with "namespace not authorized ... failed to get
-#                         namespace" (the 2026-07 cluster-wide fallout).
+#                         namespace", cluster-wide.
 #
 # The token Secrets are the LEGACY long-lived kind on purpose: a registration and a reviewing
 # credential must not expire, and only the annotated Secret the token controller populates has that

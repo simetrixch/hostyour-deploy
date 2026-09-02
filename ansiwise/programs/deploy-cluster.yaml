@@ -53,9 +53,9 @@ defaults:
   # WHAT ANSWERING AGAIN MEANS, and it is not optional here. The service manager reports success
   # when it has ACCEPTED the restart, not when the cluster is serving — so without this the row
   # returns while the API is still coming back, and the next row asks it a question and gets a
-  # failure carrying no output at all. Measured on a real machine: a restart at 23:14:08.670 and the
-  # next row's first question at 23:14:08.904. Two hundred and thirty-four milliseconds. Every check
-  # by hand a minute later answered perfectly, which is why it went unseen.
+  # failure carrying no output at all. The gap is a couple of hundred milliseconds between the
+  # accepted restart and the next row's first question, and every check by hand a minute afterwards
+  # answers perfectly, which is why it goes unseen.
   ready_command: [microk8s, status, --wait-ready]
   # How the cluster snap is asked which addons are on, and how one is switched on or off. The verbs
   # are that snap's own; WHICH snap runs this cluster is this product's choice, so the words stand
@@ -148,10 +148,10 @@ steps:
   #
   # A staging authority signs with a root that is in no machine's trust store. Its certificates
   # ISSUE — the certificate service reports them Ready — and then every step that speaks https to
-  # this installation's own address fails on them. Measured on apps1, 2026-08-24: the certificate
-  # was issued in fifty-four seconds and deploy-platform-services died one step later at vault_init
-  # on CERTIFICATE_VERIFY_FAILED. Nothing in an installation puts that root into the machine's
-  # store, so an installation on a staging authority cannot reach its own secret store at all.
+  # this installation's own address fails on them: deploy-platform-services dies one step later at
+  # vault_init on CERTIFICATE_VERIFY_FAILED. Nothing in an installation puts that root into the
+  # machine's store, so an installation on a staging authority cannot reach its own secret store at
+  # all.
   #
   # WHY IT IS REFUSED HERE and not left to the step it breaks: this row reads an answer and touches
   # nothing, so a run that cannot end is stopped before a snap is installed, a network is converted
@@ -160,7 +160,7 @@ steps:
   #
   # WHAT THE PATTERN READS is https and the word `staging` in the host, and nothing else. An
   # authority whose root this machine does not carry, named without that word, passes this row and
-  # fails at that same step: this refuses the directory that was measured, not every root a machine
+  # fails at that same step: this refuses the staging directory by name, not every root a machine
   # is missing.
   # ---------------------------------------------------------------------------------------------
   - step: require_answer_matches
@@ -169,9 +169,9 @@ steps:
     refusal: >-
       the certificate authority's directory is answered over https and is never a staging one. A
       staging authority signs with a root that is in no machine's trust store, so every later step
-      that speaks https to this installation's own address fails on it — measured 2026-08-24:
-      vault_init on CERTIFICATE_VERIFY_FAILED, one step after the certificate had issued. Answer
-      the authority's production directory.
+      that speaks https to this installation's own address fails on it — vault_init dies on
+      CERTIFICATE_VERIFY_FAILED, one step after the certificate has issued. Answer the authority's
+      production directory.
     on_failure: exit
 
   # ---------------------------------------------------------------------------------------------
@@ -233,19 +233,18 @@ steps:
   # refused rather than an error anyone can act on. Waiting here once turns a scattering of
   # unexplained failures further down into one line that says what was not ready.
   #
-  # ASKED AS ROOT, and that is what this row was missing rather than a longer window. The snap
-  # refuses the question to an account that is not in its own group, says so on its OUTPUT, and
-  # exits zero — so the poll saw an answer that was simply not the one it waits for and sat out the
-  # whole window. Measured twice: at 300 seconds and again at 900, while the cluster had been up
-  # for most of both.
+  # ASKED AS ROOT, which is what this row needs rather than a longer window. The snap refuses the
+  # question to an account that is not in its own group, says so on its OUTPUT, and exits zero — so
+  # the poll sees an answer that is simply not the one it waits for and sits out the whole window,
+  # however long that window is.
   #
   # The account is put in that group by a row further down, which is correct: a group is read at
   # login and a process already running does not gain it. So the poll cannot wait for that row —
   # it asks as root, which needs no group at all.
   #
-  # The window is back at 300 for the same reason. It was raised on the belief that a cold start
-  # took longer than the number allowed, and the belief was wrong; leaving it high would have hidden
-  # the next question of this shape behind fifteen minutes of waiting instead of five.
+  # The window is 300 for the same reason. A cold start does not take longer than that number
+  # allows, and a higher one hides the next question of this shape behind fifteen minutes of
+  # waiting instead of five.
   - step: wait_for_command_output
     rests_on_an_earlier_step: true
     waiting_for: the node to report that it is running
@@ -412,25 +411,25 @@ steps:
   # What the addons installed, corrected. All of it after the addon loop, because none of these
   # objects exists before it.
   # ---------------------------------------------------------------------------------------------
-  # NOTHING IS DONE HERE ABOUT THE CLUSTER'S NAME SERVICE, and that is the correction this comment
-  # carries. Two rows stood here: one measured the machine's real name servers, the other wrote them
-  # literally into the cluster resolver's configuration, because the pinned Ubuntu's /etc/resolv.conf
-  # names the local stub and a pod's own loopback is not the machine's.
+  # NOTHING IS DONE HERE ABOUT THE CLUSTER'S NAME SERVICE. The pinned Ubuntu's /etc/resolv.conf names
+  # the local stub and a pod's own loopback is not the machine's, so measuring the machine's real name
+  # servers and writing them literally into the cluster resolver's configuration looks like work this
+  # program owes.
   #
   # THE DISTRIBUTION ALREADY SOLVES IT, one level below. Its dns addon works out which resolver file
   # on this machine is the real one and points the node agent at it —
   # /snap/microk8s/current/addons/core/addons/dns/enable calls find-resolv-conf.py and writes
   # --resolv-conf into the agent's arguments. The cluster resolver runs under the agent's own policy,
-  # so what it reads as /etc/resolv.conf is that file's contents and never the stub. Measured on
-  # apps1: the machine's /etc/resolv.conf says 127.0.0.53, and inside the resolver's own container it
-  # says 185.12.64.1 and 185.12.64.2.
+  # so what it reads as /etc/resolv.conf is that file's contents and never the stub: the machine's
+  # /etc/resolv.conf says 127.0.0.53, and inside the resolver's own container it says 185.12.64.1
+  # and 185.12.64.2.
   #
-  # So the two rows corrected something that was already right, and cost three things for it. The
-  # written value is a SNAPSHOT where the file it replaced is live, so a machine whose name servers
+  # Writing it here corrects something that is already right, and costs three things for it. The
+  # written value is a SNAPSHOT where the file it replaces is live, so a machine whose name servers
   # change keeps forwarding to the old ones. The platform's own chart owns that configuration after
-  # the handover and writes the file back, so every later run reported "the step ran and the machine
-  # is still not in the state it produces" — a row fighting a reconciler over a field neither needed
-  # to touch. And a reader had two places to look for one fact.
+  # the handover and writes the file back, so every later run reports "the step ran and the machine
+  # is still not in the state it produces" — a row fighting a reconciler over a field neither needs
+  # to touch. And a reader has two places to look for one fact.
   - step: measure_host_iptables_backend
     on_failure: continue
 
@@ -446,15 +445,15 @@ steps:
   #
   # Left alone the agent masquerades across the whole port space — its rule carries the fully random
   # spread and no range — and the network a machine hangs on need not carry the answer back for every
-  # port. Measured on apps2, 2026-08-24: the machine's own net.ipv4.ip_local_port_range is
-  # 32768 60999; from a pod, 11 of 20 connections to github.com:443 were answered and 10 of 20 to
-  # 1.1.1.1:443, while a hostNetwork pod on the same node scored 20 of 20 to both. Correlating the
-  # translated source port on eth0 with whether a SYN-ACK came back, over 18 attempts with no
-  # exception: every answered port was at or above 32768 and every unanswered one below it. A plain
-  # socket ON THE MACHINE, bound by hand to 5000, 9000, 15000, 20000 or 30000, timed out too, and to
-  # 33000, 40000 or 50000 did not — with nothing filtering on the machine and the reply never
-  # reaching the interface. So what discards the answer is upstream of the machine, and no rule on
-  # the machine could have been the fix. Patching the agent by hand took the same pod to 20 of 20.
+  # port. On a machine whose own net.ipv4.ip_local_port_range is 32768 60999, roughly half the
+  # connections a pod opens are answered and half are not, while a hostNetwork pod on the same node
+  # is answered every time. Correlating the translated source port on eth0 with whether a SYN-ACK
+  # comes back separates the two exactly: every answered port is at or above 32768 and every
+  # unanswered one below it. A plain socket ON THE MACHINE, bound by hand to 5000, 9000, 15000,
+  # 20000 or 30000, times out too, and to 33000, 40000 or 50000 does not — with nothing filtering on
+  # the machine and the reply never reaching the interface. So what discards the answer is upstream
+  # of the machine, and no rule on the machine can be the fix. Patching the agent takes the same pod
+  # to every connection answered.
   #
   # WHY THIS IS NOT A ROW FOR ONE HOSTING PROVIDER. Nothing here writes 32768 down. The rule is that
   # pods masquerade out of the same source ports the machine itself opens its own connections from,
@@ -463,8 +462,8 @@ steps:
   # back, ends up described correctly by the same two rows.
   #
   # No pod is replaced here, and the row above is why the difference is worth stating: the agent
-  # repaints its rules when this setting changes, and the patch alone was what took the measured pod
-  # from 11 of 20 to 20 of 20.
+  # repaints its rules when this setting changes, and the patch alone is what takes a pod from half
+  # its connections answered to all of them.
   - step: measure_host_local_port_range
     on_failure: continue
 
@@ -479,12 +478,12 @@ steps:
   # that existed when it was frozen and ends in a DROP for every other one, so it passes exactly the
   # pods that were already running and discards every pod created afterwards.
   #
-  # Measured on apps3 during a from-zero install, 2026-08-26: the older set's `cali-from-wl-dispatch`
-  # had dropped 4256 packets while every drop counter in the pinned set stood at 0; a pod started
-  # after the pin reached neither another pod, nor this machine, nor the cluster's own API address;
-  # and the older set still listed an interface of a pod that no longer existed. What an operator
-  # sees is none of that — the ingress controller simply never becomes ready, and the row below this
-  # one reports a rollout that timed out.
+  # On a from-zero install the older set's `cali-from-wl-dispatch` counts thousands of drops while
+  # every drop counter in the pinned set stands at 0; a pod started after the pin reaches neither
+  # another pod, nor this machine, nor the cluster's own API address; and the older set still lists
+  # interfaces of pods that have gone. What an operator sees is none of that — the ingress
+  # controller simply never becomes ready, and the row below this one reports a rollout that timed
+  # out.
   #
   # AFTER the two rows above and not before, because what makes the old set safe to remove is that
   # the agent has already painted the new one. It refuses on its own if the pin has not landed.
@@ -706,17 +705,15 @@ steps:
   # chain and into the base layer's certificate by deploy-branch, out of CLUSTER_ISSUER in this
   # installation's config.
   #
-  # WHY NOT ONE NAME FOR BOTH FORMS, which is what stood here. The certificate service watches the
-  # name a certificate is issued BY and never the specification behind it. With one name, turning the
-  # authority over rewrote the object and re-issued NOTHING — measured on apps5 on 2026-09-01: the
-  # object went from `ca:` to `acme:`, the cluster's own chain was deleted, and every certificate
-  # went on being served signed by that deleted root while every application reported itself healthy.
-  # Two names make the flip change what a certificate references, and the service issues them all
-  # again by itself.
+  # WHY NOT ONE NAME FOR BOTH FORMS. The certificate service watches the name a certificate is issued
+  # BY and never the specification behind it. With one name, turning the authority over rewrites the
+  # object and re-issues NOTHING: the object goes from `ca:` to `acme:`, the cluster's own chain is
+  # deleted, and every certificate goes on being served signed by that deleted root while every
+  # application reports itself healthy. Two names make the flip change what a certificate references,
+  # and the service issues them all again by itself.
   #
-  # It is also the older lesson of this very block, applied properly: a cluster once read
-  # `letsencrypt-prod` beside https://acme-staging-v02.api.letsencrypt.org/directory for a day, and
-  # the name was the half that was false. A name that says `acme` over a `ca:` spec is the same
+  # The same rule holds one level down: a name like `letsencrypt-prod` standing beside a staging
+  # directory is the half that is false. A name that says `acme` over a `ca:` spec is the same
   # mistake; a name that IS the authority cannot make it.
   # ---------------------------------------------------------------------------------------------
   - step: remove_existing_cluster_issuer
@@ -724,11 +721,10 @@ steps:
     force: false
     on_failure: continue
 
-  # AND THE PUBLIC AUTHORITY TAKEN OFF where this installation names the other one. Its counterpart —
-  # the row further down that removes the cluster's own chain where the public one is named — has
-  # stood since the switch was built; this side had nothing, because with one name there was nothing
-  # to take off. Two names need two removals, or a cluster ends up holding both and answers the
-  # question of what issues its certificates twice.
+  # AND THE PUBLIC AUTHORITY TAKEN OFF where this installation names the other one. Its counterpart is
+  # the row further down that removes the cluster's own chain where the public one is named. Two names
+  # need two removals, or a cluster ends up holding both and answers the question of what issues its
+  # certificates twice.
   #
   # `force: true`, because this is the deliberate act of changing authority rather than a rebuild
   # finding its own issuer already there. The ACME account key in the secret of the same name stays
@@ -800,9 +796,9 @@ steps:
   # AND THEN THE MACHINE HAS TO TRUST IT, or nothing else in this installation works. Every later
   # program reaches this cluster's own addresses over https with verification on — the store's
   # roughly fifty rows, the identity provider's discovery documents — and a root the machine does
-  # not have is a refusal on every one of them. Measured on apps5 on 2026-08-31 against a certificate
-  # signed by an authority present nowhere but that machine: `exit 1, 0 proven`; with the same
-  # authority in the machine's bundle and nothing else changed, `exit 0, 1 proven`.
+  # not have is a refusal on every one of them. Against a certificate signed by an authority present
+  # nowhere but this cluster the answer is `exit 1, 0 proven`; with the same authority in the
+  # machine's bundle and nothing else changed, `exit 0, 1 proven`.
   #
   # It is NOT done where the switch is on: the public authority's root is in the machine's store
   # already, and a cluster that mints nothing has nothing here to trust.
@@ -830,10 +826,10 @@ steps:
     # to this installation's own address fails on it.
     acme_server_answer: letsencrypt_server
     ingress_class: public
-    # WHICH answer holds the mailbox. The step used to know the name, which put one certificate
-    # authority's word inside a package that must serve any product — and the authority is already
-    # named on the row above, so the step was neutral everywhere except in the one word it could not
-    # help writing. The resolver refuses a row naming an answer this program does not declare.
+    # WHICH answer holds the mailbox. A step that knew the name would put one certificate authority's
+    # word inside a package that must serve any product — and the authority is already named on the
+    # row above, so such a step is neutral everywhere except in the one word it cannot help writing.
+    # The resolver refuses a row naming an answer this program does not declare.
     email_answer: letsencrypt_email
     on_failure: continue
 
@@ -849,11 +845,10 @@ steps:
   #
   # AND ONLY WHERE THIS INSTALLATION ASKS FOR CERTIFICATES AT ALL, the same condition the three
   # rows around it carry. A wait is as conditional as the act it waits for: with the switch off no
-  # issuer was written and none was applied, so this would sit out its window against an object
-  # that is absent by design and then record the absence as a fault. Measured on apps5 on
-  # 2026-08-31, run 20260831T145222Z-5011-95ce504e: rows 44, 45 and 47 were skipped, row 46 was not,
-  # and its `on_failure: continue` still ended the program at exit 2 and stopped the installation
-  # four steps from the end of a cluster that was otherwise built.
+  # issuer is written and none is applied, so an unconditional wait sits out its window against an
+  # object that is absent by design and then records the absence as a fault. Its `on_failure:
+  # continue` does not soften that — the program still ends at exit 2 and stops the installation
+  # four steps from the end of a cluster that is otherwise built.
   - step: wait_for_command_output
     rests_on_an_earlier_step: true
     when: [certificates_enabled]
@@ -890,14 +885,14 @@ steps:
 
   # AND THE AUTHORITY THIS CLUSTER MINTED FOR ITSELF, taken off once it issues from the public one.
   #
-  # AFTER the rows above and not before: while the switch was off, `platform-acme` WAS this chain,
-  # and taking the chain away first would leave the cluster with an issuer pointing at a root that
+  # AFTER the rows above and not before: with the switch off `platform-acme` IS this chain, and
+  # taking the chain away first would leave the cluster with an issuer pointing at a root that
   # is gone. The rows above have replaced that object with the public form by the time this runs, so
   # what stands here has no job left — and a cluster holding an authority nothing issues from
   # answers the question of what signs its certificates twice.
   #
   # The root itself stays in the machine's trust store, and taking it out again is not yet built:
-  # simetrixch/hostyour-cloud#153 carries that. It signs nothing after this row, so what it costs is
+  # hostyour-cloud#153 carries that. It signs nothing after this row, so what it costs is
   # a machine trusting an authority with no work rather than a wrong certificate being accepted.
   - step: remove_kubernetes_object
     rests_on_an_earlier_step: true
@@ -908,14 +903,13 @@ steps:
     owner_label_value: 'true'
     on_failure: continue
 
-  # THE NAME THIS ISSUER CARRIED BEFORE, taken off a cluster that still holds one under it.
+  # THE NAME `letsencrypt-prod`, taken off a cluster that still holds an issuer under it.
   #
-  # An installation built before the rename has a ClusterIssuer called `letsencrypt-prod`, applied
-  # by the rows above when they wrote that name. Once this run has stamped `platform-acme`
-  # into the values every later manifest reads, nothing references the old object, and a cluster
-  # left holding both answers the question of what issues its certificates twice. `force: true` is
-  # what makes this row act at all; on a cluster that never carried the old name it finds nothing
-  # and is satisfied without touching anything.
+  # Once this run has stamped `platform-acme` into the values every later manifest reads, nothing
+  # references an object under that name, and a cluster left holding both answers the question of
+  # what issues its certificates twice. `force: true` is what makes this row act at all; on a cluster
+  # that carries no issuer under that name it finds nothing and is satisfied without touching
+  # anything.
   #
   # The account key in the secret of the same name stays behind, which is this step's own rule: the
   # registration it belongs to is not recoverable once it is gone, and the new name registers an
@@ -949,10 +943,9 @@ steps:
   # THE ENGINE THIS PROGRAM IS RUNNING IN IS ASSERTED BELOW AND FETCHED NOWHERE, and the two halves
   # of that are decided by different things.
   #
-  # It is ASSERTED because it can finally be asked. The binary answers --version with its release
-  # tag now (simetrixch/ansiwise-cli#7), so a machine whose engine drifted off the pin is a fact
-  # this program can state instead of one nobody could read — which is why the entry stands in the
-  # assert row below where none could before.
+  # It is ASSERTED because it can be asked. The binary answers --version with its release tag
+  # (ansiwise-cli#7), so a machine whose engine drifted off the pin is a fact this program can
+  # state, which is why the entry stands in the assert row below.
   #
   # It is FETCHED NOWHERE because /usr/local/bin/ansiwise has ONE writer, and it is not this
   # program: one mechanism places the binary on a
@@ -1130,10 +1123,10 @@ answers:
 
       NEVER A STAGING SERVICE, and the first step of this program refuses one rather than leaving
       it to be discovered later. Its certificates are signed by a root no machine carries, so an
-      installation that answers one cannot reach its own secret store — measured on 2026-08-24: the
-      certificate issued in fifty-four seconds and the run died one step later on
-      CERTIFICATE_VERIFY_FAILED, at vault_init. An installation that cannot talk to itself proves
-      nothing, which was the whole of what a staging service was being answered for.
+      installation that answers one cannot reach its own secret store: the certificate issues, and
+      the run dies one step later on CERTIFICATE_VERIFY_FAILED, at vault_init. An installation that
+      cannot talk to itself proves nothing, which is the whole of what a staging service is answered
+      for.
 
       TWO LIMITS TO LIVE WITH, and the second is the one that bites. Fifty certificates per
       registered domain per week, and FIVE for one exact set of names. A machine reinstalled to be
