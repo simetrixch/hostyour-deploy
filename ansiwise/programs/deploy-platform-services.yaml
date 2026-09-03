@@ -301,24 +301,38 @@ steps:
     values: /srv/hostyour-cloud/clusters/bootstrap/cert-manager/trust-manager-values.yaml
     on_failure: exit
 
-  # AVAILABILITY AND NOT EXISTENCE. A bundle applied against a controller that is not serving yet is
-  # accepted and then reconciled by nobody, so the first workload to mount the ConfigMap waits for a
-  # thing that is not coming. The webhook this chart brings is what refuses a Bundle it cannot admit,
-  # and it is the last part of the release to answer.
+  # THE ADMISSION ITSELF, because nothing that stands beside it means the same thing. A Bundle applied
+  # against a controller that is not serving yet is refused by the webhook this chart brings, and that
+  # webhook is the last part of the release to answer.
+  #
+  # WAITING FOR THE DEPLOYMENT'S `Available` CONDITION WAS NOT THAT, and the gap is measurable rather
+  # than theoretical. Measured on a real installation: the container serves the webhook on 6443 and is
+  # probed for readiness on 6060, the Service maps 443 to 6443, and the condition turns True as soon
+  # as the pod is Ready - which is a statement about 6060. The API server then dialled 6443 and was
+  # answered `connection refused`, and because the webhook declares `failurePolicy: Fail` the window
+  # was not a delay but a refused object and a stopped run.
+  #
+  # SO THIS ASKS FOR THE ONE THING THE NEXT ROW NEEDS: that a Bundle is admitted. A server-side dry run
+  # writes nothing and is refused by exactly what would refuse the real apply, so this cannot pass
+  # while the webhook is unreachable - and it keeps holding when the chart moves a port, renames the
+  # Service or changes what it probes.
+  #
+  # IT PROBES WITH THE PUBLIC FORM WHATEVER THE INSTALLATION USES, because the two forms are one object
+  # under one name and both are admitted by the same webhook. The public one is the self-contained one:
+  # it names the default authorities and the `kube-root-ca.crt` every namespace already carries, so it
+  # cannot fail for a reason that has nothing to do with admission.
+  #
+  # `&& echo` and not the apply's own words: the step takes an answer that is a WHOLE LINE, and the
+  # line kubectl writes carries the object's name and the verb it chose. Both move without this row
+  # being wrong, so the row does not read them.
   - step: wait_for_command_output
     rests_on_an_earlier_step: true
-    waiting_for: the trust distributor to report itself available
-    command: microk8s
+    waiting_for: the admission webhook to admit a Bundle
+    command: sh
     command_arguments:
-      - kubectl
-      - -n
-      - cert-manager
-      - get
-      - deploy
-      - trust-manager
-      - -o
-      - 'jsonpath={.status.conditions[?(@.type=="Available")].status}'
-    answer: 'True'
+      - -c
+      - 'microk8s kubectl apply --dry-run=server -f /srv/hostyour-cloud/clusters/bootstrap/cert-manager/trust-bundle-public.yaml >/dev/null 2>&1 && echo admitted'
+    answer: 'admitted'
     elevated: true
     timeout_seconds: 300
     interval_seconds: 5
