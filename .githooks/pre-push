@@ -27,6 +27,11 @@
 # judge and no tree to test, so a push that only deletes goes through.
 
 set -uo pipefail
+# Git exports GIT_DIR, GIT_WORK_TREE and GIT_INDEX_FILE to a hook. A check that starts git itself in
+# a temporary directory - a test that runs git init and git remote add - would then act on THIS
+# repository instead of its own. Git started this hook in the tree being pushed, so every git call
+# below finds the repository by the working directory and nothing needs the variables.
+unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_PREFIX GIT_COMMON_DIR
 
 root="$(git rev-parse --show-toplevel)"
 head="$(git rev-parse HEAD)"
