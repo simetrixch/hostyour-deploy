@@ -35,6 +35,10 @@ $ErrorActionPreference = 'Stop'
 # setting has moved between PowerShell releases, so it is stated here rather than inherited.
 $PSNativeCommandUseErrorActionPreference = $false
 
+# The lines below carry an em dash, and a console left on the system code page writes it as a
+# hyphen. Both spellings of this check print the same bytes only while this stands.
+[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)
+
 $root = Split-Path -Parent $PSScriptRoot
 $suite = 'test/checks/config_validity_test.dart'
 
@@ -73,11 +77,23 @@ Write-Host "check: $($files.Count) YAML file(s) parse."
 #
 # THE CLI CHECKOUT IS FOUND BY NAME, WITHOUT CASE. A checkout is regularly cased differently from
 # the repository it came from, and an exact match reports a present one as absent.
-$cli = Get-ChildItem -LiteralPath (Split-Path -Parent $root) -Directory |
+#
+# IT STANDS BESIDE THE MAIN CHECKOUT, and this check also runs from a worktree. An issue is worked
+# in a worktree under ../.worktrees/<repo>/, whose own parent directory holds nothing but other
+# worktrees, so a search beside the working tree finds no CLI checkout there. The common git
+# directory is the main checkout's .git from either place, and it is what the neighbourhood is
+# measured from.
+$common = & git -C $root rev-parse --git-common-dir
+if ($LASTEXITCODE -ne 0) {
+  Stop-Check 'this is not a git checkout, and the CLI checkout that holds the binding suite is found beside the main one'
+}
+if (-not [System.IO.Path]::IsPathRooted($common)) { $common = Join-Path $root $common }
+$mainCheckout = (Resolve-Path -LiteralPath (Join-Path $common '..')).Path
+$cli = Get-ChildItem -LiteralPath (Split-Path -Parent $mainCheckout) -Directory |
   Where-Object { $_.Name -ieq 'ansiwise-cli' } |
   Select-Object -First 1
 if (-not $cli) {
-  Stop-Check 'no ansiwise-cli checkout beside this one, and the suite that binds these programs to the shipped registry lives there'
+  Stop-Check "no ansiwise-cli checkout beside $mainCheckout, and the suite that binds these programs to the shipped registry lives there"
 }
 if (-not (Test-Path -LiteralPath (Join-Path $cli.FullName $suite))) {
   Stop-Check "$($cli.FullName)/$suite is missing, so these programs cannot be bound to a registry"

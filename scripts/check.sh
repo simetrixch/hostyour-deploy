@@ -63,15 +63,28 @@ echo "check: $parsed YAML file(s) parse."
 #
 # THE CLI CHECKOUT IS FOUND BY NAME, WITHOUT CASE. A checkout is regularly cased differently from
 # the repository it came from, and an exact match reports a present one as absent.
+#
+# IT STANDS BESIDE THE MAIN CHECKOUT, and this check also runs from a worktree. An issue is worked
+# in a worktree under ../.worktrees/<repo>/, whose own parent directory holds nothing but other
+# worktrees, so a search beside the working tree finds no CLI checkout there. The common git
+# directory is the main checkout's .git from either place, and it is what the neighbourhood is
+# measured from.
+common="$(git -C "$ROOT" rev-parse --git-common-dir)" \
+  || fail 'this is not a git checkout, and the CLI checkout that holds the binding suite is found beside the main one'
+case "$common" in
+  /*|[A-Za-z]:*) ;;
+  *) common="$ROOT/$common" ;;
+esac
+main_checkout="$(cd "$common/.." && pwd)"
 cli=''
-for entry in "$(dirname "$ROOT")"/*; do
+for entry in "$main_checkout"/../*; do
   [ -d "$entry" ] || continue
   [ "$(printf '%s' "${entry##*/}" | tr '[:upper:]' '[:lower:]')" = 'ansiwise-cli' ] || continue
-  cli="$entry"
+  cli="$(cd "$entry" && pwd)"
   break
 done
 [ -n "$cli" ] \
-  || fail 'no ansiwise-cli checkout beside this one, and the suite that binds these programs to the shipped registry lives there'
+  || fail "no ansiwise-cli checkout beside $main_checkout, and the suite that binds these programs to the shipped registry lives there"
 [ -f "$cli/$SUITE" ] \
   || fail "$cli/$SUITE is missing, so these programs cannot be bound to a registry"
 command -v dart >/dev/null 2>&1 \

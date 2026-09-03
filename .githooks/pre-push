@@ -53,6 +53,11 @@ while read -r local_ref local_sha remote_ref remote_sha; do
   if is_zero "${remote_sha:-}"; then
     found="$(git rev-list --no-merges "$local_sha")"
   else
+    # A remote sha this checkout does not carry cannot be measured from. git rev-list would fail,
+    # `found` would be empty, and a forced push over an unfetched remote would reach the end of
+    # this hook with no commit read at all.
+    git cat-file -e "${remote_sha}^{commit}" 2>/dev/null \
+      || refuse "the commit $remote_sha that $remote_ref points at is not in this checkout, so the commits being pushed cannot be listed - run git fetch, then push again"
     found="$(git rev-list --no-merges "$remote_sha..$local_sha")"
   fi
   commits="$commits$found"$'\n'
@@ -74,13 +79,17 @@ fi
 #                          corrected
 #   a No-issue: trailer    somebody wrote down who asked and why there is no ticket. It is a
 #                          sentence a reviewer reads, not a way around the rule
+#
+# The name is read without its folders, because the rule is about the file and not about where it
+# stands: docs/LICENSE explains as much as LICENSE does. LICENSE* is one pattern, so LICENSE-MIT
+# and LICENSE.txt are both a licence.
 explains_only() {  # explains_only <sha>
   local files file
   files="$(git show --pretty=format: --name-only "$1" | grep -v '^$' || true)"
   [ -n "$files" ] || return 1
   while IFS= read -r file; do
-    case "$file" in
-      *.md|LICENSE|LICENSE.*) ;;
+    case "${file##*/}" in
+      *.md|LICENSE*) ;;
       *) return 1 ;;
     esac
   done <<< "$files"
@@ -95,7 +104,10 @@ while IFS= read -r sha; do
 
   case "$message" in *'#'[0-9]*) continue ;; esac
   case "$subject" in 'release:'*) continue ;; esac
-  case "$message" in *'No-issue:'*) continue ;; esac
+  # A REAL TRAILER WITH A REAL REASON. The words have to open a line of their own and something
+  # has to follow them: `No-issue:` alone names nobody, and the same words inside a sentence in the
+  # body are prose, not a trailer a reviewer can read.
+  if printf '%s\n' "$message" | grep -Eq '^No-issue:[[:space:]]*[^[:space:]]'; then continue; fi
   if explains_only "$sha"; then continue; fi
 
   echo "pre-push: $(git log -1 --format='%h %s' "$sha") names no issue" >&2
@@ -107,15 +119,26 @@ done <<< "$commits"
 
 # THE TOOLING CHECKOUT IS FOUND BY NAME, WITHOUT CASE. A checkout is regularly cased differently
 # from the repository it came from, and an exact match reports a present one as absent.
+#
+# IT STANDS BESIDE THE MAIN CHECKOUT, and this hook also runs from a worktree. An issue is worked in
+# a worktree under ../.worktrees/<repo>/, whose own parent directory holds nothing but other
+# worktrees, so a search beside the working tree finds no tooling there. The common git directory is
+# the main checkout's .git from either place, and it is what the neighbourhood is measured from.
+common="$(git rev-parse --git-common-dir)"
+case "$common" in
+  /*|[A-Za-z]:*) ;;
+  *) common="$root/$common" ;;
+esac
+main_checkout="$(cd "$common/.." && pwd)"
 tooling=''
-for entry in "$(dirname "$root")"/*; do
+for entry in "$main_checkout"/../*; do
   [ -d "$entry" ] || continue
   [ "$(printf '%s' "${entry##*/}" | tr '[:upper:]' '[:lower:]')" = 'simetrix-gh' ] || continue
-  tooling="$entry"
+  tooling="$(cd "$entry" && pwd)"
   break
 done
 [ -n "$tooling" ] \
-  || refuse 'no simetrix-gh checkout beside this one - the team-modes check lives there, and no work starts without the three modes'
+  || refuse "no simetrix-gh checkout beside $main_checkout - the team-modes check lives there, and no work starts without the three modes"
 
 # THE CHECK IS CALLED EVEN WHERE IT IS NOT THERE, and its path is named. A hook that stepped over a
 # missing script would go green on the machine where the tooling was never fetched, which is the
@@ -125,8 +148,9 @@ modes="$tooling/bin/team-modes-check.sh"
   || refuse "$modes is missing - it is the check that says whether the three team modes are installed, and no work starts without them"
 
 # Started through bash rather than by its own executable bit, which a clone on a filesystem that
-# does not carry one does not have.
-bash "$modes" --quiet \
+# does not carry one does not have. It runs loud: the refusal below sends the person to the lines
+# above it, and those lines are the MISSING line and the install command the check itself prints.
+bash "$modes" \
   || refuse 'the team modes are missing - the lines above say which and how to install them'
 
 bash "$root/scripts/check.sh" || exit 1
