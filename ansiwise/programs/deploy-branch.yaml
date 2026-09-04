@@ -58,7 +58,7 @@ defaults:
   keep_marker: set-domain:keep
   # Which directories of this tree hold product material rather than installation state. A segment
   # and not a prefix, so a chart's templates/ several levels down is excluded like one at the top.
-  excluded_segments: [docs, templates]
+  excluded_segments: [docs, scripts, templates]
   excluded_names: []
   # The suffixes of the scripts that carry no first line to recognise them by. A script is never
   # stamped whatever it is called: the placeholder inside one is a guard, a fixture or a comment,

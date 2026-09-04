@@ -50,7 +50,7 @@ roles: [master]
 defaults:
   value_answer: fqdn
   keep_marker: set-domain:keep
-  excluded_segments: [docs, templates]
+  excluded_segments: [docs, scripts, templates]
   excluded_names: []
   script_suffixes: [.sh, .ps1]
 

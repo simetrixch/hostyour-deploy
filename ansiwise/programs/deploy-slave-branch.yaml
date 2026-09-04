@@ -40,7 +40,7 @@ roles: [master]
 # it itself.
 defaults:
   keep_marker: set-domain:keep
-  excluded_segments: [docs, templates]
+  excluded_segments: [docs, scripts, templates]
   excluded_names: []
   script_suffixes: [.sh, .ps1]
 
