@@ -571,6 +571,7 @@ steps:
       build-plane: { answer: build_plane_fqdn }
       unit-apex: { answer: unit_apex }
       platform-domain: { answer: platform_domain }
+      cluster-issuer: { answer: cluster_issuer }
       letsencrypt-email: { answer: letsencrypt_email }
       letsencrypt-server: { answer: letsencrypt_server }
       # SEPARATED THE WAY THE TEMPLATE WRITES A LIST, and that is not the same as a comma.
