@@ -39,7 +39,13 @@
 # declare. Substitution would make this file compute, and a file that computes is what gets debugged
 # instead of the code.
 name: deploy-branch
-roles: [master, slave]
+# THE MASTER ALONE, AND THE DECLARATION IS WHAT HOLDS IT. A cluster carrying only the slave part has
+# no install branch: its map stands on the books branch beside every other map of the installation,
+# and its checkout is stood on that same branch. A run of this program on such a machine would cut a
+# branch nothing reads, then rewrite the books branch's own configs/config.<stage> with that
+# machine's fqdn and push it — so the invariant that makes one branch safe for several machines is
+# stated here, where the engine refuses the run, and not in a header.
+roles: [master]
 
 # What SEVERAL rows below need the same value for, written once.
 #
@@ -840,10 +846,11 @@ steps:
   # THAT program can change. The two facts written here are the ones nothing else in this run holds:
   # the account that operates the machine and its address on the cluster network.
   #
-  # THE FILE IS WRITTEN WHATEVER ROLE THIS BRANCH TAKES, and on a slave nothing reads it: the
-  # Manager is a provider-only application, its app.yaml says runsOn: master, and a slave branch's
-  # generator admits every-cluster plus its own role. Writing it there costs one inert file and keeps
-  # this row from deciding a question the placement already decides.
+  # THE FILE IS WRITTEN WHATEVER ROLE THIS BRANCH TAKES, and on a cluster that does not carry the
+  # master part nothing reads it: the Manager is a provider-only application, its app.yaml says
+  # runsOn: master, and the generator rendered for such a cluster admits every-cluster plus its own
+  # role. Writing it costs one inert file and keeps this row from deciding a question the placement
+  # already decides.
   - step: write_file_from_template
     template: ansiwise/templates/manager-values.tpl
     path: /srv/hostyour-cloud/installation/values/manager.yaml

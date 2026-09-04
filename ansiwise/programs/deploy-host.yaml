@@ -117,41 +117,12 @@ steps:
   # THE BRANCH IS ANSWERED for the same reason it cannot be written here. A master at its birth
   # takes `master`, because deploy-branch is what cuts its installation branch and it refuses to
   # stamp while standing on master. A machine adopted into an installation that already has one
-  # takes that branch. Writing either into this file would move the other one's checkout every time
-  # this program ran again.
+  # takes that installation's branch — which for a cluster carrying only the slave part is the
+  # BOOKS branch, the same one the master stands on: a pure slave has no branch of its own and
+  # every map of the installation stands on that one. Writing either into this file would move the
+  # other one's checkout every time this program ran again.
   - step: git_clone
     repository: /srv/hostyour-cloud
-    host: github.com
-    branch_answer: platform_branch
-    origin_answer: platform_repo
-    owner_answer: operator_user
-    on_failure: exit
-
-  # THE SECOND CHECKOUT, AND WHY IT IS MADE HERE AND NOT WHERE IT IS USED. A slave's branch is cut
-  # in a checkout of its own — /srv/hostyour-cloud-slave — because cutting it in the live tree would
-  # yank the machine's working tree off the branch its reconciler and its installer stand on
-  # (deploy-slave-branch says so in its own header). That program refuses to establish either
-  # checkout: it reads them and expects the caller to have stood them.
-  #
-  # THE CALLER IS THE MANAGER, AND IT MAY NOT CREATE THIS. It reaches a master over SSH as the
-  # OPERATOR account, and /srv belongs to root at 0755 — so `git clone` there answers
-  # "could not create work tree dir '/srv/hostyour-cloud-slave': Permission denied", which is where
-  # the first slave deploy this platform ever ran actually stopped. Nothing created it: the program
-  # says the caller has it, and the caller cannot make it.
-  #
-  # MAKING A DIRECTORY IS THIS LAYER'S JOB, and elevating the Manager instead would be the wrong
-  # answer twice over — git would then run as root and hand every file it writes back to root, which
-  # is the very state the ownership hand-over above exists to end.
-  #
-  # A SLAVE CARRIES IT TOO, and that is deliberate rather than overlooked: this program applies to
-  # both roles, no per-step role gate exists, and the only way to ask for one would be a `role`
-  # answer restating what `--role` already told the run — the same fact twice, which is what every
-  # answer in this file is written to avoid. What a slave pays is one clone it never opens.
-  #
-  # The branch it lands on does not matter and is the same answer as the live tree's: the Manager's
-  # own script stands this checkout on the product branch before the cut, every time.
-  - step: git_clone
-    repository: /srv/hostyour-cloud-slave
     host: github.com
     branch_answer: platform_branch
     origin_answer: platform_repo

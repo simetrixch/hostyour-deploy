@@ -38,11 +38,12 @@
 # through the map's own carried slot; the credential files are create-only per key, so what the
 # machine already holds is kept and the credential answers below may simply not be given.
 #
-# A CLUSTER THAT KEEPS ITS OWN BOOKS, and no other. A slave's branch carries no cluster map at all,
-# so the rows below that read and rewrite `clusters/active/<branch>.yaml` name a file nothing on
-# that branch has; a slave's map stands on the MASTER's branch under the slave's own name, which is
-# a second axis they do not reach. regenerate-slave-branch is that operation, run on the master out
-# of two checkouts, and it is why the roles line names one role and not two.
+# A CLUSTER THAT KEEPS ITS OWN BOOKS, and no other — which after the slave branch was dropped is
+# every cluster that has a branch at all. A cluster carrying only the slave part has none: its map
+# stands on the books branch under its own name, its checkout stands on that same branch, and the
+# regeneration that reaches it is the one run here, on the cluster whose books those are. That is
+# also what makes this act the whole of how a fix on the trunk reaches a machine — one branch to
+# regenerate, and every cluster of the installation follows it.
 name: regenerate-branch
 roles: [master]
 

@@ -1,6 +1,6 @@
 # hostyour-deploy
 
-The programs that put a hostyour-cloud installation on a machine. Twenty-two of them, read by
+The programs that put a hostyour-cloud installation on a machine. Eighteen of them, read by
 `ansiwise` and by nothing else: they bring up the host, the cluster, the platform services, a
 slave's management plane, the private network, and the version stamps that tie the four together.
 
@@ -29,7 +29,7 @@ own settings files, never out of this tree.
 ## Reading one
 
 ```
-ansiwise/programs/          the twenty-two, one file per program
+ansiwise/programs/          the eighteen, one file per program
 ansiwise/templates/         what a program renders and writes onto a machine
 ansiwise/boot-programs/     what runs before the platform is up — unsealing the secret store
 ansiwise.yaml               which plugins the engine loads for the programs

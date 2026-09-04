@@ -68,10 +68,18 @@ elevation:
 # the two values that point it at this product's own facts. Nothing here evaluates — each key
 # holds exactly one value and no expression, no comparison and no reference to another key.
 #
-# WHAT THE FILE IS. `configs/config.<stage>` in the checkout deploy-branch generates, filled from
-# `configs/config.example` by the `fill_key_value_file` row of that program. The template ships every
-# switch below already carrying the word `true`, and a filled file is never rewritten where a key
-# already holds a value, so an operator turns a phase off by editing that one file and nothing else.
+# WHAT THE FILE IS, WHERE ONE IS NAMED. `configs/config.<stage>` in the checkout deploy-branch
+# generates, filled from `configs/config.example` by the `fill_key_value_file` row of that program.
+# The template ships every switch below already carrying the word `true`, and a filled file is never
+# rewritten where a key already holds a value, so an operator turns a phase off by editing that one
+# file and nothing else.
+#
+# NOT EVERY CONDITION READS A FILE, AND WHICH ONES DO NOT IS DECIDED BY THE BRANCH. That file stands
+# on an install branch, and a cluster carrying only the slave part has none — its checkout stands on
+# the books branch, where the file is the books-keeping cluster's and states that cluster's own
+# facts. So a condition asking WHICH MACHINE this is reads the run's own answers instead, and only
+# the conditions asking what the INSTALLATION turned on read the file: an installation-wide switch
+# is the same word for every machine of it, which is exactly what one shared file can carry.
 #
 # THE NAME CARRIES THE STAGE, AND THE BINDING BELOW CARRIES A SLOT FOR IT. `<stage>` in the path is
 # filled from the answer `run_answer` names, so a prod installation reads `config.prod` and a dev one
@@ -85,10 +93,11 @@ elevation:
 # three stages this product ships unable to run deploy-platform-services at all.
 #
 # WHY IT MUST ALREADY BE THERE. Every condition of a program is measured once, before the first step
-# runs, so a run whose config file is missing is refused having touched nothing. That also means no
-# program may write this file and then gate a later row on it: the answer was taken before that row
-# existed. deploy-branch writes it, and deploy-platform-services — the only program whose rows
-# carry `when:` — runs afterwards.
+# runs — with the run's answers in hand (ansiwise-core engine/runner.dart `_measure`), which is what
+# lets an answer-reading condition stand behind `when:` beside a file-reading one. A run whose config
+# file is missing is refused having touched nothing. That also means no program may write this file
+# and then gate a later row on it: the answer was taken before that row existed. deploy-branch writes
+# it, and deploy-platform-services — the only program whose rows carry `when:` — runs afterwards.
 #
 # `true` AND `false` ARE THE WHOLE OF WHAT IS READ. `TRUE`, `yes`, `1` and a mistyped `ture` are each
 # refused by name before the first step, rather than read as "no" and silently switching off every
@@ -160,53 +169,38 @@ conditions:
   # everywhere. Without this the two were told apart by nothing: a slave installed a store of its
   # own that nothing dials, beside a map of its own saying it runs none.
   #
-  # Read the same way `build_plane_here_in_config` below is read, and for the same reason: nobody
-  # writes the relation down, because both of its sides are already written down and a third key
-  # carrying the answer could disagree with them.
-  books_here_in_config:
-    predicate: key_values_agree
-    file: /srv/hostyour-cloud/configs/config.<stage>
-    run_answer: stage
-    key: BOOKS_CLUSTER
-    other_key: CLUSTER_FQDN
-
-  books_elsewhere_in_config:
-    predicate: key_values_differ
-    file: /srv/hostyour-cloud/configs/config.<stage>
-    run_answer: stage
-    key: BOOKS_CLUSTER
-    other_key: CLUSTER_FQDN
+  # IT IS READ OFF THE RUN AND NOT OFF configs/config.<stage>, AND THE REASON IS THE BRANCH. A
+  # cluster carrying only the slave part has no install branch of its own: its checkout stands on
+  # the BOOKS branch, so the config file beside it is the books-keeping cluster's, and that file's
+  # CLUSTER_FQDN states the books-keeping cluster's domain. Compared there, every machine of an
+  # installation would answer "the books are here" — the master's own eighty-six rows, the bootstrap
+  # reconciler, the secret store and the identity provider among them, on a machine that keeps none
+  # of it. The run's own answers do not have that problem: `fqdn` is the machine being installed and
+  # `books_fqdn` is what the caller states about the installation, and deploy-platform-services
+  # declares both. `books_fqdn` falls back to `fqdn` where nobody states it, which is exactly right
+  # on the cluster that keeps its own books.
+  #
+  # NEITHER SIDE IS WRITTEN DOWN AS THE RELATION ITSELF, and neither should be: both are already
+  # stated, and a third key carrying the answer could disagree with them.
+  books_here_in_answers:
+    predicate: answer_values_agree
+    answer: books_fqdn
+    other_answer: fqdn
 
   # Whether the machine being installed is also the one that builds. NOBODY WRITES THIS DOWN, and
   # nobody should: it follows from whether the address of the builder and the address of this
   # machine are the same address, and both of those are written down. A key carrying the answer as
   # well would be the same fact in two places, and the two can disagree.
   #
-  # ONE RELATION, TWO MOMENTS, AND THE NAME SAYS WHICH. `_in_config` reads
-  # configs/config.<stage>, which a step of deploy-branch WRITES, so it can only be asked after that
-  # step has run and it gates rows. `_in_answers` reads the run's own answers, which is the only
-  # place the relation stands before the first step — where whether an answer had to be given at all
-  # is decided. The pair is not a duplicate; there is no moment both serve.
-  #
   # `here` and `elsewhere` are two names rather than one, because a `not:` behind `when:` would be
   # an operator, and an operator is where a program file starts being a language. Each name is one
-  # registered comparison, and a row still writes one bare word. Only three of the four are
-  # registered: nothing yet asks the answers whether the build plane is elsewhere.
-  build_plane_here_in_config:
-    predicate: key_values_agree
-    file: /srv/hostyour-cloud/configs/config.<stage>
-    run_answer: stage
-    key: BUILD_PLANE_FQDN
-    other_key: CLUSTER_FQDN
-
-  build_plane_elsewhere_in_config:
-    predicate: key_values_differ
-    file: /srv/hostyour-cloud/configs/config.<stage>
-    run_answer: stage
-    key: BUILD_PLANE_FQDN
-    other_key: CLUSTER_FQDN
-
+  # registered comparison, and a row still writes one bare word.
   build_plane_here_in_answers:
     predicate: answer_values_agree
+    answer: build_plane_fqdn
+    other_answer: fqdn
+
+  build_plane_elsewhere_in_answers:
+    predicate: answer_values_differ
     answer: build_plane_fqdn
     other_answer: fqdn

@@ -46,7 +46,7 @@
 # by the run.
 name: deploy-platform-services
 # BOTH PARTS, because a cluster that keeps no books runs this too — and the file already knew. Of the
-# rows below, 78 are gated on `books_here_in_config` and 63 on `secret_store_enabled`: gates that
+# rows below, 78 are gated on `books_here_in_answers` and 63 on `secret_store_enabled`: gates that
 # would be pointless if only the books cluster ever reached them. What a slave gets is what is left
 # when they skip. The line said `master` alone from the time before there were slaves, and no slave
 # ever tripped over it because every slave reached this program claiming to be a master — the
@@ -228,7 +228,7 @@ steps:
   #
   # WHO PROVIDES IT AND WHO ONLY GETS A SHARE. One installation has ONE store, on the cluster that
   # keeps its books, and every cluster of that installation dials it at the address its own map
-  # records. So the rows here fall into two kinds, and `books_here_in_config` is what tells them
+  # records. So the rows here fall into two kinds, and `books_here_in_answers` is what tells them
   # apart: the ones that make the store exist and FILL it — the chart, the namespace, its
   # certificate and its route, the quorum, the unsealing, the kv mount, and every entry seeded into
   # it out of the installation's hand-filled input — belong to that one cluster. The ones that give
@@ -357,12 +357,12 @@ steps:
   - step: helm_repository
     name: hashicorp
     url: https://helm.releases.hashicorp.com
-    when: [secret_store_enabled, books_here_in_config]
+    when: [secret_store_enabled, books_here_in_answers]
     on_failure: exit
 
   - step: kubernetes_namespace
     namespace: vault
-    when: [secret_store_enabled, books_here_in_config]
+    when: [secret_store_enabled, books_here_in_answers]
     on_failure: exit
 
   # THE BUNDLE HAS TO BE IN THIS NAMESPACE BEFORE THE STORE IS, for the same reason the certificate
@@ -387,7 +387,7 @@ steps:
     elevated: true
     timeout_seconds: 120
     interval_seconds: 5
-    when: [secret_store_enabled, books_here_in_config]
+    when: [secret_store_enabled, books_here_in_answers]
     on_failure: exit
 
   # THE CERTIFICATE COMES FIRST, AND THE RELEASE WAITS FOR IT. The store serves TLS itself and its
@@ -399,7 +399,7 @@ steps:
     rests_on_an_earlier_step: true
     repository: /srv/hostyour-cloud
     manifest: clusters/bootstrap/vault/certificate.yaml
-    when: [secret_store_enabled, books_here_in_config]
+    when: [secret_store_enabled, books_here_in_answers]
     on_failure: exit
 
   # Applying the certificate only asks for it. The authority answers over the public address, which
@@ -438,7 +438,7 @@ steps:
     # this Secret as a volume, and a pod whose volume names a Secret that does not exist never
     # starts. The switch decides WHICH authority issues, never whether, so this certificate is
     # issued either way and the wait belongs on every run.
-    when: [secret_store_enabled, books_here_in_config]
+    when: [secret_store_enabled, books_here_in_answers]
     on_failure: exit
 
   # NO `--wait` IS ASKED FOR HERE, and that is a decision rather than an omission. Rendered against
@@ -460,7 +460,7 @@ steps:
     chart_version: '0.34.0'
     namespace: vault
     values: /srv/hostyour-cloud/clusters/bootstrap/vault/values.yaml
-    when: [secret_store_enabled, books_here_in_config]
+    when: [secret_store_enabled, books_here_in_answers]
     on_failure: exit
 
   # The transport Traefik reaches the store over — it serves TLS itself, so the route in front of it
@@ -476,14 +476,14 @@ steps:
     rests_on_an_earlier_step: true
     repository: /srv/hostyour-cloud
     manifest: clusters/bootstrap/vault/serverstransport.yaml
-    when: [secret_store_enabled, books_here_in_config]
+    when: [secret_store_enabled, books_here_in_answers]
     on_failure: exit
 
   - step: kubernetes_object_reversible
     rests_on_an_earlier_step: true
     repository: /srv/hostyour-cloud
     manifest: clusters/bootstrap/vault/ingressroute.yaml
-    when: [secret_store_enabled, books_here_in_config]
+    when: [secret_store_enabled, books_here_in_answers]
     on_failure: exit
 
   # AND THAT THE STORE ANSWERS, which nothing above establishes. `helm upgrade --install` is
@@ -548,13 +548,13 @@ steps:
   - step: vault_init
     rests_on_an_earlier_step: true
     repository: /srv/hostyour-cloud
-    when: [secret_store_enabled, books_here_in_config]
+    when: [secret_store_enabled, books_here_in_answers]
     on_failure: exit
 
   - step: vault_unsealed
     rests_on_an_earlier_step: true
     repository: /srv/hostyour-cloud
-    when: [secret_store_enabled, books_here_in_config]
+    when: [secret_store_enabled, books_here_in_answers]
     on_failure: exit
 
   # --- what feeds the quorum back when nobody is running this program --------------------------
@@ -608,7 +608,7 @@ steps:
     path: /etc/systemd/system/hostyour-vault-unseal.service
     file_mode: 420
     elevated: true
-    when: [secret_store_enabled, books_here_in_config]
+    when: [secret_store_enabled, books_here_in_answers]
     on_failure: exit
 
   # The timer, which is WHEN. It is written after the service and never before it: starting a timer
@@ -619,7 +619,7 @@ steps:
     path: /etc/systemd/system/hostyour-vault-unseal.timer
     file_mode: 420
     elevated: true
-    when: [secret_store_enabled, books_here_in_config]
+    when: [secret_store_enabled, books_here_in_answers]
     on_failure: exit
 
   # WHAT TURNS THE TWO FILES INTO A RUNNING UNSEALER. A unit file in the manager's directory is read
@@ -637,7 +637,7 @@ steps:
   # instead is the journal, because the timer fires the service a second after this row arms it.
   - step: enable_service
     unit: hostyour-vault-unseal.timer
-    when: [secret_store_enabled, books_here_in_config]
+    when: [secret_store_enabled, books_here_in_answers]
     on_failure: exit
 
   # --- the shape every workload authenticates against -----------------------------------------
@@ -650,7 +650,7 @@ steps:
     rests_on_an_earlier_step: true
     repository: /srv/hostyour-cloud
     path: secret
-    when: [secret_store_enabled, books_here_in_config]
+    when: [secret_store_enabled, books_here_in_answers]
     on_failure: exit
 
   # ENABLING THE MOUNT IS HALF OF IT. A kubernetes mount that has not been told where its cluster's
@@ -681,7 +681,7 @@ steps:
     type: kubernetes
     path: <kubernetes-mount>
     configuration: '{"kubernetes_host":"https://kubernetes.default.svc","use_annotations_as_alias_metadata":true}'
-    when: [secret_store_enabled, books_here_in_config]
+    when: [secret_store_enabled, books_here_in_answers]
     on_failure: exit
 
   # Read-only on this cluster's application tier and nothing else. The system tier — the root token,
@@ -701,7 +701,7 @@ steps:
       path "secret/metadata/<stage>/idp/bootstrap" { capabilities = ["read", "list"] }
       path "secret/data/<stage>/slaves/*" { capabilities = ["read"] }
       path "secret/metadata/<stage>/slaves/*" { capabilities = ["read", "list"] }
-    when: [secret_store_enabled, books_here_in_config]
+    when: [secret_store_enabled, books_here_in_answers]
     on_failure: exit
 
   # One literal leaf and nothing else under the build tier. It exists only where the build plane
@@ -712,7 +712,7 @@ steps:
     name: <cluster>-deploy-pat-read
     rules: |
       path "secret/data/build/catalog/repo-pat" { capabilities = ["read"] }
-    when: [secret_store_enabled, books_here_in_config]
+    when: [secret_store_enabled, books_here_in_answers]
     on_failure: exit
 
   # One templated policy and one label-bound role cover every consumer there will ever be: the path
@@ -726,7 +726,7 @@ steps:
     rules: |
       path "secret/data/<stage>/consumer/{{identity.entity.aliases.<accessor>.metadata.service_account_namespace}}/*" { capabilities = ["read"] }
       path "secret/metadata/<stage>/consumer/{{identity.entity.aliases.<accessor>.metadata.service_account_namespace}}/*" { capabilities = ["read", "list"] }
-    when: [secret_store_enabled, books_here_in_config]
+    when: [secret_store_enabled, books_here_in_answers]
     on_failure: exit
 
   # Templated on the tenant the calling account is annotated with and not on its namespace: one
@@ -744,7 +744,7 @@ steps:
       path "secret/data/<stage>/tenants/{{identity.entity.aliases.<accessor>.metadata.tenant}}/*" { capabilities = ["read"] }
       path "secret/metadata/<stage>/tenants/{{identity.entity.aliases.<accessor>.metadata.tenant}}/*" { capabilities = ["read", "list"] }
       path "secret/data/<stage>/app/registry" { capabilities = ["read"] }
-    when: [secret_store_enabled, books_here_in_config]
+    when: [secret_store_enabled, books_here_in_answers]
     on_failure: exit
 
   # Templated on the unit, which is what stops one build namespace reading a sibling's credential —
@@ -761,7 +761,7 @@ steps:
       path "secret/data/build/hostyour-cloud/repo-pat" { capabilities = ["read"] }
       path "secret/data/build/catalog/repo-pat" { capabilities = ["read"] }
       path "secret/data/<stage>/app/registry" { capabilities = ["read"] }
-    when: [secret_store_enabled, build_plane_here_in_config, books_here_in_config]
+    when: [secret_store_enabled, build_plane_here_in_answers, books_here_in_answers]
     on_failure: exit
 
   # The release bump's own read, and the ONE grant on this host templated on nothing.
@@ -798,7 +798,7 @@ steps:
     name: <cluster>-bump-read
     rules: |
       path "secret/data/build/+/repo-pat" { capabilities = ["read"] }
-    when: [secret_store_enabled, build_plane_here_in_config, books_here_in_config]
+    when: [secret_store_enabled, build_plane_here_in_answers, books_here_in_answers]
     on_failure: exit
 
   # The cluster manager's own policy, in the two shapes a cluster can need it in. Written whole
@@ -829,7 +829,7 @@ steps:
       path "secret/metadata/<stage>/consumer/+/mongodb" { capabilities = ["delete"] }
       path "secret/data/<stage>/tenants/+" { capabilities = ["create", "update"] }
       path "secret/metadata/<stage>/tenants/+" { capabilities = ["delete"] }
-    when: [secret_store_enabled, build_plane_here_in_config, books_here_in_config]
+    when: [secret_store_enabled, build_plane_here_in_answers, books_here_in_answers]
     on_failure: exit
 
   - step: vault_policy
@@ -847,7 +847,7 @@ steps:
       path "secret/metadata/<stage>/consumer/+/mongodb" { capabilities = ["delete"] }
       path "secret/data/<stage>/tenants/+" { capabilities = ["create", "update"] }
       path "secret/metadata/<stage>/tenants/+" { capabilities = ["delete"] }
-    when: [secret_store_enabled, build_plane_elsewhere_in_config, books_here_in_config]
+    when: [secret_store_enabled, build_plane_elsewhere_in_answers, books_here_in_answers]
     on_failure: exit
 
   # The cluster manager's own tier, on a path of its own. What that tier is for is its key to this
@@ -869,7 +869,7 @@ steps:
     rules: |
       path "secret/data/<stage>/manager-host/*" { capabilities = ["read"] }
       path "secret/metadata/<stage>/manager-host/*" { capabilities = ["read", "list"] }
-    when: [secret_store_enabled, books_here_in_config]
+    when: [secret_store_enabled, books_here_in_answers]
     on_failure: exit
 
   # The role name is fixed: the chart that renders a secret store per cluster only re-points the
@@ -911,7 +911,7 @@ steps:
       "bound_service_account_namespaces":[],
       "bound_service_account_namespace_selector":"{\"matchLabels\":{\"hostyour.cloud/workload\":\"true\"}}",
       "token_policies":["<cluster>-eso","<cluster>-deploy-pat-read"],"ttl":"24h"}
-    when: [secret_store_enabled, build_plane_here_in_config, books_here_in_config]
+    when: [secret_store_enabled, build_plane_here_in_answers, books_here_in_answers]
     on_failure: exit
 
   - step: vault_auth_role
@@ -925,7 +925,7 @@ steps:
       "bound_service_account_namespaces":[],
       "bound_service_account_namespace_selector":"{\"matchLabels\":{\"hostyour.cloud/workload\":\"true\"}}",
       "token_policies":["<cluster>-eso","<cluster>-deploy-pat-read"],"ttl":"24h"}
-    when: [secret_store_enabled, build_plane_elsewhere_in_config, books_here_in_config]
+    when: [secret_store_enabled, build_plane_elsewhere_in_answers, books_here_in_answers]
     on_failure: exit
 
   # Three account names and never a wildcard: the namespace label is what bounds this role, and a
@@ -951,7 +951,7 @@ steps:
       "bound_service_account_namespaces":[],
       "bound_service_account_namespace_selector":"{\"matchLabels\":{\"hostyour.cloud/consumer\":\"true\"}}",
       "token_policies":["<cluster>-consumer-read"],"ttl":"24h"}
-    when: [secret_store_enabled, books_here_in_config]
+    when: [secret_store_enabled, books_here_in_answers]
     on_failure: exit
 
   - step: vault_auth_role
@@ -964,7 +964,7 @@ steps:
       "bound_service_account_namespaces":[],
       "bound_service_account_namespace_selector":"{\"matchLabels\":{\"platform/tenant-managed\":\"true\"}}",
       "token_policies":["<cluster>-tenant-read"],"ttl":"24h"}
-    when: [secret_store_enabled, books_here_in_config]
+    when: [secret_store_enabled, books_here_in_answers]
     on_failure: exit
 
   # The label this role binds carries its grant only because the build plane admits it nowhere else:
@@ -988,7 +988,7 @@ steps:
       "bound_service_account_namespaces":[],
       "bound_service_account_namespace_selector":"{\"matchLabels\":{\"hostyour.cloud/build\":\"true\"}}",
       "token_policies":["<cluster>-build-read"],"ttl":"24h"}
-    when: [secret_store_enabled, build_plane_here_in_config, books_here_in_config]
+    when: [secret_store_enabled, build_plane_here_in_answers, books_here_in_answers]
     on_failure: exit
 
   # The release bump's identity, beside the secret reader's and deliberately not the same one. The
@@ -1016,7 +1016,7 @@ steps:
       "bound_service_account_namespaces":[],
       "bound_service_account_namespace_selector":"{\"matchLabels\":{\"hostyour.cloud/build\":\"true\"}}",
       "token_policies":["<cluster>-bump-read"],"ttl":"1h"}
-    when: [secret_store_enabled, build_plane_here_in_config, books_here_in_config]
+    when: [secret_store_enabled, build_plane_here_in_answers, books_here_in_answers]
     on_failure: exit
 
   # THE IDENTITY AND THE TIER BOTH READ `manager`, and they are still two different things owned by
@@ -1043,7 +1043,7 @@ steps:
     body: >-
       {"bound_service_account_names":["manager"],"bound_service_account_namespaces":["manager"],
       "token_policies":["manager"],"ttl":"24h"}
-    when: [secret_store_enabled, books_here_in_config]
+    when: [secret_store_enabled, books_here_in_answers]
     on_failure: exit
 
   # A dedicated account and not the one above: this is the read side of the manager's own tier, and
@@ -1060,7 +1060,7 @@ steps:
       {"bound_service_account_names":["manager-host-eso"],
       "bound_service_account_namespaces":["manager"],
       "token_policies":["manager-host"],"ttl":"24h"}
-    when: [secret_store_enabled, books_here_in_config]
+    when: [secret_store_enabled, books_here_in_answers]
     on_failure: exit
 
   # --- the values ------------------------------------------------------------------------------
@@ -1105,7 +1105,7 @@ steps:
       - 'postgres-password=IDP_POSTGRES_PASSWORD'
       - 'postgres-admin-password=IDP_POSTGRES_ADMIN_PASSWORD'
     mint: [secret-key, postgres-password, postgres-admin-password]
-    when: [secret_store_enabled, books_here_in_config]
+    when: [secret_store_enabled, books_here_in_answers]
     on_failure: exit
 
   # THE FIVE CLIENT SECRETS EVERY LOGIN ON THIS INSTALLATION RESTS ON, and until this row existed
@@ -1143,7 +1143,7 @@ steps:
       - headlamp-client-secret
       - vault-client-secret
       - platform-api-token
-    when: [secret_store_enabled, books_here_in_config]
+    when: [secret_store_enabled, books_here_in_answers]
     on_failure: exit
 
   # The mail signing key is owned by another writer, which is why it is named here as one: an entry
@@ -1156,7 +1156,7 @@ steps:
     path: <stage>/app/postfix
     fields: ['dkim-private-key=MAIL_RELAY_DKIM_PRIVATE_KEY']
     fields_owned_elsewhere: ['dkim-private-key']
-    when: [secret_store_enabled, books_here_in_config]
+    when: [secret_store_enabled, books_here_in_answers]
     on_failure: exit
 
   # The write half of the repository credential. It can rewrite the books of every cluster, so it is
@@ -1168,7 +1168,7 @@ steps:
     mount: secret
     path: <stage>/manager-host/github
     fields: ['write-pat=GITOPS_REPO_PAT']
-    when: [secret_store_enabled, books_here_in_config]
+    when: [secret_store_enabled, books_here_in_answers]
     on_failure: exit
 
   # THE SECOND ENTRY OF THIS TIER, and no vault_kv_entry row could ever have written it. The chart
@@ -1210,7 +1210,7 @@ steps:
     # What the key says about itself in the file it ends up in, named for the cluster it belongs to
     # so an operator reading authorized_keys can see whose key it is.
     comment: ansiwise@<cluster>
-    when: [secret_store_enabled, books_here_in_config]
+    when: [secret_store_enabled, books_here_in_answers]
     on_failure: exit
 
   # THE OTHER HALF OF THE SAME ACT, and it stands directly here because either half alone is
@@ -1229,7 +1229,7 @@ steps:
     # THE SAME CONDITION AS THE MINT ABOVE, because this row reads what that one publishes: a
     # row that consumed a measurement its publisher may skip would find it missing exactly when
     # it runs. The engine refuses the program without it, by name.
-    when: [secret_store_enabled, books_here_in_config]
+    when: [secret_store_enabled, books_here_in_answers]
     on_failure: exit
 
   # The read half, on the system tier — the tier no policy of this program grants a workload. What
@@ -1241,7 +1241,7 @@ steps:
     mount: secret
     path: <stage>/system/argocd/repo-read-pat
     fields: ['pat=GITOPS_REPO_READ_PAT']
-    when: [secret_store_enabled, books_here_in_config]
+    when: [secret_store_enabled, books_here_in_answers]
     on_failure: exit
 
   # Alone on its own entry, and so is the storage box below it. Both are read by the same component
@@ -1254,7 +1254,7 @@ steps:
     mount: secret
     path: <stage>/app/cloudflare-dns
     fields: ['api-token=CLOUDFLARE_API_TOKEN']
-    when: [secret_store_enabled, books_here_in_config]
+    when: [secret_store_enabled, books_here_in_answers]
     on_failure: exit
 
   # Three fields and not three entries: a machine, an account on it and that account's password are
@@ -1269,7 +1269,7 @@ steps:
       - 'host=STORAGE_BOX_HOST'
       - 'user=STORAGE_BOX_USER'
       - 'password=STORAGE_BOX_PASSWORD'
-    when: [secret_store_enabled, books_here_in_config]
+    when: [secret_store_enabled, books_here_in_answers]
     on_failure: exit
 
   # The login the registry's pull-through cache of the public registry authenticates with, on the
@@ -1304,7 +1304,7 @@ steps:
     # and works. Refusing the whole seed for a credential nobody promised would refuse to install a
     # thing that is finished.
     optional_fields: [dockerhub-user, dockerhub-token]
-    when: [secret_store_enabled, build_plane_here_in_config, books_here_in_config]
+    when: [secret_store_enabled, build_plane_here_in_answers, books_here_in_answers]
     on_failure: exit
 
   # THE MONITORING PLANE'S OWN LOGIN, which nothing wrote until this row. Grafana mounts the two
@@ -1328,7 +1328,7 @@ steps:
       - 'push-user=OBSERVABILITY_PUSH_USER'
       - 'push-password=OBSERVABILITY_PUSH_PASSWORD'
     mint: [grafana-admin-password, push-password]
-    when: [secret_store_enabled, books_here_in_config]
+    when: [secret_store_enabled, books_here_in_answers]
     on_failure: exit
 
   # THE TWO DATA SERVERS' OWN CREDENTIALS, which nothing but these two rows writes — and the
@@ -1362,7 +1362,7 @@ steps:
       - 'mongodb-root-password=MONGODB_ROOT_PASSWORD'
       - 'mongodb-replica-set-key=MONGODB_REPLICA_SET_KEY'
     mint: [mongodb-root-password, mongodb-replica-set-key]
-    when: [secret_store_enabled, books_here_in_config]
+    when: [secret_store_enabled, books_here_in_answers]
     on_failure: exit
 
   # The `default` user's password, which redis boots with as --requirepass. One field, and it is
@@ -1376,7 +1376,7 @@ steps:
     fields:
       - 'redis-password=REDIS_PASSWORD'
     mint: [redis-password]
-    when: [secret_store_enabled, books_here_in_config]
+    when: [secret_store_enabled, books_here_in_answers]
     on_failure: exit
 
   # THE MANAGER'S OWN COPY OF ITS CLIENT SECRET, in the tier its workloads may read.
@@ -1398,7 +1398,7 @@ steps:
       - 'oidc-client-secret=MANAGER_OIDC_CLIENT_SECRET'
     copy_from:
       - 'oidc-client-secret=<stage>/idp/bootstrap:manager-client-secret'
-    when: [secret_store_enabled, idp_enabled, books_here_in_config]
+    when: [secret_store_enabled, idp_enabled, books_here_in_answers]
     on_failure: exit
 
   # The same for the monitoring plane, whose own client is registered under its own name.
@@ -1411,7 +1411,7 @@ steps:
       - 'grafana-client-secret=IDP_GRAFANA_CLIENT_SECRET'
     copy_from:
       - 'grafana-client-secret=<stage>/idp/bootstrap:grafana-client-secret'
-    when: [secret_store_enabled, idp_enabled, books_here_in_config]
+    when: [secret_store_enabled, idp_enabled, books_here_in_answers]
     on_failure: exit
 
   # The shared secret GitHub signs its calls with, which the build plane checks before it believes
@@ -1425,7 +1425,7 @@ steps:
     fields:
       - 'github-webhook-secret=IMAGE_BUILDER_GITHUB_WEBHOOK_SECRET'
     mint: [github-webhook-secret]
-    when: [secret_store_enabled, build_plane_here_in_config, books_here_in_config]
+    when: [secret_store_enabled, build_plane_here_in_answers, books_here_in_answers]
     on_failure: exit
 
   # NEITHER OF THE TWO IS A UNIT'S OWN ENTRY, which is why these are seeded and build/<unit>/repo-pat
@@ -1452,7 +1452,7 @@ steps:
     mount: secret
     path: build/hostyour-cloud/repo-pat
     fields: ['pat=BUILD_HOSTYOUR_CLOUD_REPO_PAT']
-    when: [secret_store_enabled, build_plane_here_in_config, books_here_in_config]
+    when: [secret_store_enabled, build_plane_here_in_answers, books_here_in_answers]
     on_failure: exit
 
   - step: vault_kv_entry
@@ -1461,7 +1461,7 @@ steps:
     mount: secret
     path: build/catalog/repo-pat
     fields: ['pat=BUILD_CATALOG_REPO_PAT']
-    when: [secret_store_enabled, build_plane_here_in_config, books_here_in_config]
+    when: [secret_store_enabled, build_plane_here_in_answers, books_here_in_answers]
     on_failure: exit
 
   # --- the identity provider ------------------------------------------------------------------
@@ -1473,13 +1473,13 @@ steps:
     rests_on_an_earlier_step: true
     name: authentik
     url: https://charts.goauthentik.io
-    when: [idp_enabled, books_here_in_config]
+    when: [idp_enabled, books_here_in_answers]
     on_failure: continue
 
   - step: kubernetes_namespace
     rests_on_an_earlier_step: true
     namespace: idp
-    when: [idp_enabled, books_here_in_config]
+    when: [idp_enabled, books_here_in_answers]
     on_failure: continue
 
   # The credentials the release below reads, put on the cluster out of the store where they came
@@ -1522,7 +1522,7 @@ steps:
     # installation that switched the store off cannot have an identity provider either. Gated rather
     # than assumed, so what happens is a skipped row with its reason instead of a pod that starts and
     # cannot reach its database.
-    when: [idp_enabled, secret_store_enabled, books_here_in_config]
+    when: [idp_enabled, secret_store_enabled, books_here_in_answers]
     on_failure: exit
 
   # The environment map and the secrets that bootstrap the IDP
@@ -1530,7 +1530,7 @@ steps:
     rests_on_an_earlier_step: true
     repository: /srv/hostyour-cloud
     manifest: clusters/bootstrap/idp/idp-bootstrap-env.yaml
-    when: [idp_enabled, books_here_in_config]
+    when: [idp_enabled, books_here_in_answers]
     on_failure: continue
 
   - step: kubernetes_secret_from_vault
@@ -1559,7 +1559,7 @@ steps:
     # removed again; it is staged there rather than in the checkout precisely because that
     # filesystem is memory and is gone at the next restart.
     elevated: true
-    when: [idp_enabled, secret_store_enabled, books_here_in_config]
+    when: [idp_enabled, secret_store_enabled, books_here_in_answers]
     on_failure: continue
 
   # The blueprints that declare every OIDC client of this installation. Not applied — the release
@@ -1578,7 +1578,7 @@ steps:
     # removed again; it is staged there rather than in the checkout precisely because that
     # filesystem is memory and is gone at the next restart.
     elevated: true
-    when: [idp_enabled, books_here_in_config]
+    when: [idp_enabled, books_here_in_answers]
     # An issue and not a stop, like every other row of this block. The release comes up either way;
     # what is missing without this is the declaration of its clients, so an operator meets an
     # identity provider that runs and offers a login to nothing — which is worth a named finding and
@@ -1592,7 +1592,7 @@ steps:
     chart_version: '2026.5.6'
     namespace: idp
     values: /srv/hostyour-cloud/clusters/bootstrap/idp/values.yaml
-    when: [idp_enabled, books_here_in_config]
+    when: [idp_enabled, books_here_in_answers]
     on_failure: continue
 
   # The objects the identity provider's release does not carry: its public address and the
@@ -1603,14 +1603,14 @@ steps:
     rests_on_an_earlier_step: true
     repository: /srv/hostyour-cloud
     manifest: clusters/bootstrap/idp/ingressroute.yaml
-    when: [idp_enabled, books_here_in_config]
+    when: [idp_enabled, books_here_in_answers]
     on_failure: continue
 
   - step: kubernetes_object_reversible
     rests_on_an_earlier_step: true
     repository: /srv/hostyour-cloud
     manifest: clusters/bootstrap/idp/middleware-forwardauth.yaml
-    when: [idp_enabled, books_here_in_config]
+    when: [idp_enabled, books_here_in_answers]
     on_failure: continue
 
   # WHERE THE IDENTITY PROVIDER ISSUES THE TOKENS THIS CLUSTER ACCEPTS, composed by the step rather
@@ -1624,7 +1624,7 @@ steps:
     subdomain: idp
     domain_answer: books_fqdn
     application: headlamp
-    when: [idp_enabled, books_here_in_config]
+    when: [idp_enabled, books_here_in_answers]
     on_failure: continue
 
   - step: wait_for_http_field
@@ -1649,7 +1649,7 @@ steps:
     until_present: true
     accepts_any_certificate: true
     timeout_seconds: 300
-    when: [idp_enabled, books_here_in_config]
+    when: [idp_enabled, books_here_in_answers]
     on_failure: continue
 
   - step: set_process_flag
@@ -1662,7 +1662,7 @@ steps:
     flag: --oidc-issuer-url
     file_mode: 384
     restart_command: [echo, skipping restart until all flags are written]
-    when: [idp_enabled, books_here_in_config]
+    when: [idp_enabled, books_here_in_answers]
     on_failure: continue
 
   - step: set_process_flags
@@ -1686,7 +1686,7 @@ steps:
     restart_command: [snap, restart, microk8s.daemon-kubelite]
     ready_command: [microk8s, kubectl, get, namespace]
     ready_timeout_seconds: 300
-    when: [idp_enabled, books_here_in_config]
+    when: [idp_enabled, books_here_in_answers]
     on_failure: continue
 
   - step: oidc_admins_binding
@@ -1694,7 +1694,7 @@ steps:
     name: oidc-platform-admins
     group: admins
     cluster_role: cluster-admin
-    when: [idp_enabled, books_here_in_config]
+    when: [idp_enabled, books_here_in_answers]
     on_failure: continue
 
   # --- the kubernetes dashboard (headlamp) ----------------------------------------------------
@@ -1707,13 +1707,13 @@ steps:
     rests_on_an_earlier_step: true
     name: headlamp
     url: https://kubernetes-sigs.github.io/headlamp/
-    when: [idp_enabled, books_here_in_config]
+    when: [idp_enabled, books_here_in_answers]
     on_failure: continue
 
   - step: kubernetes_namespace
     rests_on_an_earlier_step: true
     namespace: headlamp
-    when: [idp_enabled, books_here_in_config]
+    when: [idp_enabled, books_here_in_answers]
     on_failure: continue
 
   - step: kubernetes_secret_from_vault
@@ -1731,7 +1731,7 @@ steps:
     # removed again; it is staged there rather than in the checkout precisely because that
     # filesystem is memory and is gone at the next restart.
     elevated: true
-    when: [idp_enabled, secret_store_enabled, books_here_in_config]
+    when: [idp_enabled, secret_store_enabled, books_here_in_answers]
     on_failure: continue
 
   - step: helm_release
@@ -1741,14 +1741,14 @@ steps:
     chart_version: '0.42.0'
     namespace: headlamp
     values: /srv/hostyour-cloud/clusters/bootstrap/headlamp/values.yaml
-    when: [idp_enabled, books_here_in_config]
+    when: [idp_enabled, books_here_in_answers]
     on_failure: continue
 
   - step: kubernetes_object_reversible
     rests_on_an_earlier_step: true
     repository: /srv/hostyour-cloud
     manifest: clusters/bootstrap/headlamp/ingressroute.yaml
-    when: [idp_enabled, books_here_in_config]
+    when: [idp_enabled, books_here_in_answers]
     on_failure: continue
 
   # --- browser logins into the secret store ---------------------------------------------------
@@ -1781,7 +1781,7 @@ steps:
     until_present: true
     accepts_any_certificate: true
     timeout_seconds: 300
-    when: [secret_store_enabled, idp_enabled, books_here_in_config]
+    when: [secret_store_enabled, idp_enabled, books_here_in_answers]
     on_failure: continue
 
   - step: vault_auth_method
@@ -1807,7 +1807,7 @@ steps:
     # The store takes it and its config read omits it, so comparing it would find it missing on
     # every run and this step could never call itself finished.
     configuration_write_only: [oidc_client_secret]
-    when: [secret_store_enabled, idp_enabled, books_here_in_config]
+    when: [secret_store_enabled, idp_enabled, books_here_in_answers]
     on_failure: continue
 
   # Sudo-equivalent everywhere, and safe only because the role below hands it out to nobody whose
@@ -1822,7 +1822,7 @@ steps:
       path "*" {
         capabilities = ["create", "read", "update", "delete", "list", "sudo", "patch"]
       }
-    when: [secret_store_enabled, idp_enabled, books_here_in_config]
+    when: [secret_store_enabled, idp_enabled, books_here_in_answers]
     on_failure: continue
 
   # The whole role as one object, because `bound_claims` is a map and a role whose map fields arrive
@@ -1843,7 +1843,7 @@ steps:
       "oidc_scopes":["openid","profile","email","groups"],
       "allowed_redirect_uris":["<vault-url>/ui/vault/auth/oidc/oidc/callback",
       "http://localhost:8250/oidc/callback"],"token_policies":["admin"]}
-    when: [secret_store_enabled, idp_enabled, books_here_in_config]
+    when: [secret_store_enabled, idp_enabled, books_here_in_answers]
     on_failure: continue
 
   # --- the first operator, made a member rather than pretended to be one ----------------------
@@ -1879,7 +1879,7 @@ steps:
     # agree on a name neither of them fills, so the slot stays out until both can fill it.
     file_path: /srv/hostyour-cloud/secrets/idp-api-token.txt
     file_mode: 384
-    when: [secret_store_enabled, idp_enabled, books_here_in_config]
+    when: [secret_store_enabled, idp_enabled, books_here_in_answers]
     on_failure: continue
 
   # LAST OF THE IDENTITY ROWS ON PURPOSE. The group and the token are both objects the provider
@@ -1897,7 +1897,7 @@ steps:
     # binding, the reconciler's policy and the secret store's role all name it.
     group: admins
     token_path: /srv/hostyour-cloud/secrets/idp-api-token.txt
-    when: [secret_store_enabled, idp_enabled, books_here_in_config]
+    when: [secret_store_enabled, idp_enabled, books_here_in_answers]
     on_failure: continue
 
   # --- the machine's resident deployment service ------------------------------------------------
@@ -1972,7 +1972,7 @@ steps:
     path: <stage>/manager-host/ansiwise
     fields: ['service-token=ANSIWISE_SERVICE_TOKEN']
     mint: [service-token]
-    when: [secret_store_enabled, books_here_in_config]
+    when: [secret_store_enabled, books_here_in_answers]
     on_failure: exit
 
   # The machine's copy of that token: the one file the service reads it from, held by root alone.
@@ -1988,7 +1988,7 @@ steps:
     file_path: /etc/ansiwise/service-token
     file_mode: 384
     elevated: true
-    when: [secret_store_enabled, books_here_in_config]
+    when: [secret_store_enabled, books_here_in_answers]
     on_failure: exit
 
   # THE UNIT AND THE SWITCH ARE NOT ROWS, and cannot be. `ansiwise install-service` writes the unit
@@ -2048,9 +2048,9 @@ steps:
   # of the same cluster: two owners of every object, each with `selfHeal` on, each undoing what the
   # other just did.
   #
-  # `reconciler_enabled` alone tells a master from a slave in nothing, so every slave gets one: the
-  # release installs, the route is applied, and clusters/argocd/root-app.yaml is pointed at the
-  # slave's own branch — a second app-of-apps beside the master's.
+  # `reconciler_enabled` alone tells a master from a slave in nothing, so every slave would get one:
+  # the release installs, the route is applied, and clusters/argocd/root-app.yaml is applied on the
+  # slave as well — a second app-of-apps beside the master's, over the same objects.
   #
   # WHOSE BOOKS is the discriminator the tree already has, and it is not a proxy: the master's own
   # generator selects a slave BY that fact — `booksCluster: <master>` in its selector — so a cluster
@@ -2059,13 +2059,13 @@ steps:
     rests_on_an_earlier_step: true
     name: argo
     url: https://argoproj.github.io/argo-helm
-    when: [reconciler_enabled, books_here_in_config]
+    when: [reconciler_enabled, books_here_in_answers]
     on_failure: continue
 
   - step: kubernetes_namespace
     rests_on_an_earlier_step: true
     namespace: argocd
-    when: [reconciler_enabled, books_here_in_config]
+    when: [reconciler_enabled, books_here_in_answers]
     on_failure: continue
 
   # THE SAME WAIT THE STORE'S NAMESPACE GETS, and for the same reason with a milder consequence.
@@ -2091,7 +2091,7 @@ steps:
     elevated: true
     timeout_seconds: 120
     interval_seconds: 5
-    when: [reconciler_enabled, books_here_in_config]
+    when: [reconciler_enabled, books_here_in_answers]
     on_failure: exit
   # THE SIGN-IN SECRET IS READ HERE AND WRITTEN NOWHERE IN THIS PROGRAM. `argocd-oidc` (key
   # clientSecret) is what clusters/bootstrap/argocd/values.yaml resolves as
@@ -2115,7 +2115,7 @@ steps:
     chart_version: '10.2.1'
     namespace: argocd
     values: /srv/hostyour-cloud/clusters/bootstrap/argocd/values.yaml
-    when: [reconciler_enabled, books_here_in_config]
+    when: [reconciler_enabled, books_here_in_answers]
     on_failure: continue
 
   # The reconciler's own public address and its certificate.
@@ -2123,7 +2123,7 @@ steps:
     rests_on_an_earlier_step: true
     repository: /srv/hostyour-cloud
     manifest: clusters/bootstrap/argocd/ingressroute.yaml
-    when: [reconciler_enabled, books_here_in_config]
+    when: [reconciler_enabled, books_here_in_answers]
     on_failure: continue
 
   # --- the handoff -----------------------------------------------------------------------------
@@ -2160,7 +2160,7 @@ steps:
       The trunk carries exactly one of these, at clusters/argocd/root-app.yaml, and every stage uses it — so
       a branch without it is a branch that has fallen behind the trunk. Restore it with "git -C
       /srv/hostyour-cloud merge master" and re-run.
-    when: [reconciler_enabled, books_here_in_config]
+    when: [reconciler_enabled, books_here_in_answers]
     on_failure: exit
 
   # --- what the operator is left holding ---------------------------------------------------------
@@ -2192,7 +2192,7 @@ steps:
     rests_on_an_earlier_step: true
     subdomain: idp
     domain_answer: books_fqdn
-    when: [idp_enabled, books_here_in_config]
+    when: [idp_enabled, books_here_in_answers]
     # The installation is finished by the time this runs, and a report that could not be made must
     # not undo it. What a failure costs is that the run ends with a named issue instead of a clean
     # exit — which is the difference between "nobody was told" and "nobody could be told".
