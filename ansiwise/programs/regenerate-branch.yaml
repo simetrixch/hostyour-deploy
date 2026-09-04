@@ -5,10 +5,11 @@
 # until somebody regenerates it — deliberately, and at exactly the state they name.
 #
 # WHY THE BRANCH CANNOT SIMPLY BE MERGED. Part of what a branch carries is STAMPED: the files under
-# clusters/argocd and clusters/bootstrap have this installation's own domain, name, stage and role
-# written into them where the product tree carries markers. Merging the product's copy would put
-# those markers back into files a reconciler reads literally, and the workload selection would then
-# match almost nothing. So the merge is followed by every stamp the birth ran, over the same files.
+# clusters/bootstrap, and clusters/argocd/root-app.yaml, have this installation's own domain and
+# name written into them where the product tree carries markers. Merging the product's copy would
+# put those markers back into files helm and kubectl apply literally, before the reconciler that
+# could render them exists. So the merge is followed by every stamp the birth ran, over the same
+# files.
 #
 # THE STATE IS NAMED BY WHOEVER RUNS THIS. Reading it off the `release` line of the cluster's own
 # map is no use: no run writes that line, and a program whose only source of a value is a line
@@ -513,23 +514,7 @@ steps:
   - step: stamp_placeholder_in_tracked_files
     repository: /srv/hostyour-cloud
     refuse_on_branch: master
-    placeholder: master
-    tree: clusters/argocd
-    keys: [revision, targetRevision]
-    on_failure: exit
-
-  - step: stamp_placeholder_in_tracked_files
-    repository: /srv/hostyour-cloud
-    refuse_on_branch: master
     placeholder: example.invalid
-    on_failure: exit
-
-  - step: stamp_placeholder_in_tracked_files
-    repository: /srv/hostyour-cloud
-    refuse_on_branch: master
-    placeholder: __CATALOG_REPO__
-    value_answer: catalog_repo
-    tree: clusters/argocd
     on_failure: exit
 
   # The map, rewritten from this run's answers exactly as at birth — and `release` is the carried
@@ -656,37 +641,6 @@ steps:
       BUILD_CATALOG_REPO_PAT: { answer: build_catalog_repo_write_pat }
     on_failure: exit
 
-  # THE PARTS OF THIS CLUSTER'S ROLE, one marker per slot of the ApplicationSet's In list. The
-  # framework's first_part_of / last_part_of rules split the role the way a combined role is
-  # written ("master+slave"), so a machine carrying both parts admits both parts' workloads, and a
-  # single-part role fills the two slots with the same word — a duplicate an In match reads as one
-  # value.
-  - step: stamp_placeholder_in_tracked_files
-    repository: /srv/hostyour-cloud
-    refuse_on_branch: master
-    placeholder: __CLUSTER_ROLE_FIRST_PART__
-    value_answer: role
-    value_rule: first_part_of
-    tree: clusters/argocd
-    on_failure: exit
-
-  - step: stamp_placeholder_in_tracked_files
-    repository: /srv/hostyour-cloud
-    refuse_on_branch: master
-    placeholder: __CLUSTER_ROLE_LAST_PART__
-    value_answer: role
-    value_rule: last_part_of
-    tree: clusters/argocd
-    on_failure: exit
-
-  - step: stamp_placeholder_in_tracked_files
-    repository: /srv/hostyour-cloud
-    refuse_on_branch: master
-    placeholder: __CLUSTER_NAME__
-    value_answer: cluster_name
-    tree: clusters/argocd
-    on_failure: exit
-
   - step: stamp_placeholder_in_tracked_files
     repository: /srv/hostyour-cloud
     refuse_on_branch: master
@@ -694,25 +648,6 @@ steps:
     value_answer: cluster_name
     tree: clusters/bootstrap
     on_failure: exit
-
-  - step: stamp_placeholder_in_tracked_files
-    repository: /srv/hostyour-cloud
-    refuse_on_branch: master
-    placeholder: __BOOKS_FQDN__
-    value_answer: books_fqdn
-    tree: clusters/argocd
-    on_failure: exit
-  # THIS BRANCH'S OWN DOMAIN, which is also its own name. The map of this cluster is the file
-  # named for it, and a file that carries an installation's answers cannot be named in a tree
-  # every installation is cut from — so the name is stamped rather than written.
-  - step: stamp_placeholder_in_tracked_files
-    repository: /srv/hostyour-cloud
-    refuse_on_branch: master
-    placeholder: __FQDN__
-    value_answer: fqdn
-    tree: clusters/argocd
-    on_failure: exit
-
 
   - step: stamp_placeholder_in_tracked_files
     repository: /srv/hostyour-cloud
@@ -720,14 +655,6 @@ steps:
     placeholder: __BOOKS_NAME__
     value_answer: books_name
     tree: clusters/bootstrap
-    on_failure: exit
-
-  - step: stamp_placeholder_in_tracked_files
-    repository: /srv/hostyour-cloud
-    refuse_on_branch: master
-    placeholder: __STAGE__
-    value_answer: stage
-    tree: clusters/argocd
     on_failure: exit
 
   # WHICH AUTHORITY EVERY CERTIFICATE OF THIS INSTALLATION IS ISSUED BY, on a regeneration as well

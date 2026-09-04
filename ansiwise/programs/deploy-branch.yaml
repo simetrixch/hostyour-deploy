@@ -539,20 +539,10 @@ steps:
     name_answer: fqdn
     on_failure: exit
 
-  # The generators name the branch they read from, and on the source branch that name IS the source branch. Only the
-  # value of these two keys changes: the same word also stands in prose on those lines.
-  #
   # What the rows of this step share — the marker that exempts a line and the three exclusion lists —
-  # stands in the defaults block at the head of this file, and so does the answer the first two of
-  # them read. What is HERE is what tells one row from another.
-  - step: stamp_placeholder_in_tracked_files
-    repository: /srv/hostyour-cloud
-    refuse_on_branch: master
-    placeholder: master
-    tree: clusters/argocd
-    keys: [revision, targetRevision]
-    on_failure: exit
-
+  # stands in the defaults block at the head of this file, and so does the answer a row naming none
+  # of its own reads. What is HERE is what tells one row from another.
+  #
   # The domain the source branch carries in place of an installation's own, anywhere in the checkout. It
   # names no tree and no key, and both are left OUT rather than written as empty: the whole checkout
   # and "the literal is itself the value" are the off states of those two, not values of them.
@@ -560,29 +550,6 @@ steps:
     repository: /srv/hostyour-cloud
     refuse_on_branch: master
     placeholder: example.invalid
-    on_failure: exit
-
-  # The repository this installation's tenant charts and their per-stage pins are read from. The
-  # source branch carries a marker where the tenant generators name it, because that repository is the
-  # operator's own and nothing here composes its name.
-  #
-  # The tree writes the forge and the suffix AROUND the marker, so what this row puts in its place is
-  # exactly what the answer holds — an owner and a name, which is the shape the cluster map's own
-  # grammar accepts. A row that had to build a URL out of that value would be this program
-  # computing, and what a generator needs is one value in one place.
-  #
-  # It names no keys: the marker is a literal nothing else in the tree carries, so wherever it stands
-  # it IS the value. The tree narrows the search to the generators, which is the only part of the
-  # checkout that names the catalog.
-  - step: stamp_placeholder_in_tracked_files
-    repository: /srv/hostyour-cloud
-    refuse_on_branch: master
-    placeholder: __CATALOG_REPO__
-    # NOT the domain the defaults block names. This row writes the catalog, and the branch's own name
-    # here would point every tenant generator at this repository instead of the one holding the
-    # member charts.
-    value_answer: catalog_repo
-    tree: clusters/argocd
     on_failure: exit
 
   # WHAT THIS CLUSTER IS, in the one file everything that has to tell one installation from another
@@ -778,29 +745,6 @@ steps:
       BUILD_CATALOG_REPO_PAT: { answer: build_catalog_repo_write_pat }
     on_failure: exit
 
-  # THE PARTS OF THIS CLUSTER'S ROLE, one marker per slot of the ApplicationSet's In list. The
-  # framework's first_part_of / last_part_of rules split the role the way a combined role is
-  # written ("master+slave"), so a machine carrying both parts admits both parts' workloads, and a
-  # single-part role fills the two slots with the same word — a duplicate an In match reads as one
-  # value.
-  - step: stamp_placeholder_in_tracked_files
-    repository: /srv/hostyour-cloud
-    refuse_on_branch: master
-    placeholder: __CLUSTER_ROLE_FIRST_PART__
-    value_answer: role
-    value_rule: first_part_of
-    tree: clusters/argocd
-    on_failure: exit
-
-  - step: stamp_placeholder_in_tracked_files
-    repository: /srv/hostyour-cloud
-    refuse_on_branch: master
-    placeholder: __CLUSTER_ROLE_LAST_PART__
-    value_answer: role
-    value_rule: last_part_of
-    tree: clusters/argocd
-    on_failure: exit
-
   # THE TWO MARKERS THAT HAD NO WRITER — __CLUSTER_NAME__ and __BOOKS_NAME__. Each of them needed a
   # value no answer carried: the first label of a domain. The trunk still says of them "NOTHING
   # fills this — the short name is not an answer of the branch program", and that stopped being true
@@ -808,17 +752,9 @@ steps:
   # are derived, before the first step and inside the fingerprint, so nobody types a short name that
   # its own domain contradicts.
   #
-  # ONE LITERAL FOR ONE VALUE, STAMPED ONCE PER TREE. The short name of this cluster gets exactly
-  # one marker across both trees: two spellings of which one is a substring of the other let
-  # whichever is stamped first eat the other halfway through, leaving a name nothing wrote.
-  - step: stamp_placeholder_in_tracked_files
-    repository: /srv/hostyour-cloud
-    refuse_on_branch: master
-    placeholder: __CLUSTER_NAME__
-    value_answer: cluster_name
-    tree: clusters/argocd
-    on_failure: exit
-
+  # ONE LITERAL FOR ONE VALUE. The short name of this cluster gets exactly one marker in the tree
+  # this stamps: two spellings of which one is a substring of the other let whichever is stamped
+  # first eat the other halfway through, leaving a name nothing wrote.
   - step: stamp_placeholder_in_tracked_files
     repository: /srv/hostyour-cloud
     refuse_on_branch: master
@@ -826,29 +762,6 @@ steps:
     value_answer: cluster_name
     tree: clusters/bootstrap
     on_failure: exit
-
-  # The branch of the cluster that keeps the books — the WHOLE domain and not its short name,
-  # because a branch is named after the installation it belongs to. On a cluster keeping its own
-  # books this is this branch; on one reading another's it is a different branch of the same
-  # repository, which is the whole point of the value.
-  - step: stamp_placeholder_in_tracked_files
-    repository: /srv/hostyour-cloud
-    refuse_on_branch: master
-    placeholder: __BOOKS_FQDN__
-    value_answer: books_fqdn
-    tree: clusters/argocd
-    on_failure: exit
-  # THIS BRANCH'S OWN DOMAIN, which is also its own name. The map of this cluster is the file
-  # named for it, and a file that carries an installation's answers cannot be named in a tree
-  # every installation is cut from — so the name is stamped rather than written.
-  - step: stamp_placeholder_in_tracked_files
-    repository: /srv/hostyour-cloud
-    refuse_on_branch: master
-    placeholder: __FQDN__
-    value_answer: fqdn
-    tree: clusters/argocd
-    on_failure: exit
-
 
   - step: stamp_placeholder_in_tracked_files
     repository: /srv/hostyour-cloud
@@ -856,14 +769,6 @@ steps:
     placeholder: __BOOKS_NAME__
     value_answer: books_name
     tree: clusters/bootstrap
-    on_failure: exit
-
-  - step: stamp_placeholder_in_tracked_files
-    repository: /srv/hostyour-cloud
-    refuse_on_branch: master
-    placeholder: __STAGE__
-    value_answer: stage
-    tree: clusters/argocd
     on_failure: exit
 
   # WHICH AUTHORITY EVERY CERTIFICATE OF THIS INSTALLATION IS ISSUED BY, written into the values

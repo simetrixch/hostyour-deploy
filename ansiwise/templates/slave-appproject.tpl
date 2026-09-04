@@ -1,13 +1,13 @@
 # The slave's OWN reconciler project on the master, named after the slave.
 #
 # It CANNOT be GitOps-managed, and that is why it is a rendered manifest here: the trunk must stay
-# generic (no slave name may stand in clusters/argocd/apps/projects.yaml), and the per-slave chart cannot
+# generic (no slave name may stand in clusters/argocd/files/projects.yaml), and the per-slave chart cannot
 # carry it either — the Application the slaves generator makes REFERENCES the project by the
 # slave's name, and an Application whose project does not exist can never start its first sync. So
 # it belongs to the same imperative per-slave surface as the auth mount, applied by the run that
 # registers the slave.
 #
-# Shape mirrors the platform projects (clusters/argocd/apps/projects.yaml), tightened per slave: the
+# Shape mirrors the platform projects (clusters/argocd/files/projects.yaml), tightened per slave: the
 # destination is pinned to EXACTLY the slave's own namespace on the master, and Namespace is the
 # one cluster-scoped kind (CreateNamespace=true needs it — the reconciler sub-chart renders nothing
 # cluster-scoped: crds.install false, createClusterRoles false).

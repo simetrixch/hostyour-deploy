@@ -149,7 +149,7 @@ steps:
     # was the one it was missing.
     #
     # The label is `hostyour.cloud/workload`, which the platform's own ApplicationSet puts on every
-    # namespace it manages (clusters/argocd/apps/platform-apps-appset.yaml, managedNamespaceMetadata).
+    # namespace it manages (clusters/argocd/files/platform-apps-appset.yaml, managedNamespaceMetadata).
     # So the set a namespace joins by being deployed is the set the store admits, and neither side
     # has to be edited when an application is added.
     body: >-

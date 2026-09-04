@@ -18,7 +18,7 @@ Description=Make the directory the manager binds its admin socket in
 #
 # ON A CLUSTER THAT IS NOT THE MASTER THE DIRECTORY STANDS EMPTY. The manager runs on one cluster of
 # an installation: clusters/inventories/manager/app.yaml carries runsOn master, and the generator in
-# clusters/argocd/apps/platform-apps-appset.yaml selects on runsOn being either every-cluster or the
+# clusters/argocd/files/platform-apps-appset.yaml selects on runsOn being either every-cluster or the
 # role of the cluster it runs on. A slave therefore carries this unit and mounts the directory
 # nowhere.
 

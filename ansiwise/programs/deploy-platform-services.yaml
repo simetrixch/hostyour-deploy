@@ -878,7 +878,7 @@ steps:
   #
   # BOUND BY THE LABEL EVERY WORKLOAD NAMESPACE CARRIES, not by a list of names. The rows below
   # write a namespace SELECTOR on hostyour.cloud/workload, which the platform's ApplicationSet
-  # stamps onto every namespace it creates (clusters/argocd/apps/platform-apps-appset.yaml,
+  # stamps onto every namespace it creates (clusters/argocd/files/platform-apps-appset.yaml,
   # managedNamespaceMetadata) — and so does the slaves ApplicationSet, for a slave's namespace here
   # on the master. The set a namespace joins by being deployed is the set this role admits.
   #
@@ -904,7 +904,7 @@ steps:
     # A list has to be remembered, and a namespace left out of it is refused at LOGIN — before any
     # policy is consulted — so the seed reports success and the entry is simply unreadable. The
     # label is `hostyour.cloud/workload`, which this platform's own ApplicationSet puts on every
-    # namespace it manages (clusters/argocd/apps/platform-apps-appset.yaml, managedNamespaceMetadata),
+    # namespace it manages (clusters/argocd/files/platform-apps-appset.yaml, managedNamespaceMetadata),
     # so the set a namespace joins by being deployed is the set the store admits.
     body: >-
       {"bound_service_account_names":["external-secrets-sa"],
@@ -934,7 +934,7 @@ steps:
   #
   # THE LABEL IS THE CHART'S, SPELLED THE CHART'S WAY — the twin of the same rule on the build role
   # below. A consumer's namespace is created by the fan-out and carries hostyour.cloud/consumer
-  # (clusters/argocd/apps/consumers-appset.yaml:122). Selecting on digitacloud.app/consumer, a key
+  # (clusters/argocd/files/consumers-appset.yaml:122). Selecting on digitacloud.app/consumer, a key
   # nothing anywhere writes, makes the role match no namespace at all and every consumer's secret
   # reader is refused at login — before any policy is consulted, with a message about the role
   # rather than about the label.
@@ -2041,7 +2041,7 @@ steps:
   # this cluster is not driven from somewhere else.
   #
   # A SLAVE MUST NOT CARRY ONE. Its applications are driven by an instance that stands on its
-  # MASTER — clusters/argocd/apps/slaves-appset.yaml generates one Application per slave with
+  # MASTER — clusters/argocd/files/slaves-appset.yaml generates one Application per slave with
   # `server: https://kubernetes.default.svc`, so the instance runs on the master, in a namespace
   # named after the slave, and reaches the slave through the bearerToken and caData its registration
   # put in the master's store. A reconciler installed on the slave as well would be a SECOND driver

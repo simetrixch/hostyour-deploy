@@ -217,74 +217,12 @@ steps:
     on_failure: exit
 
   # ── the stamps, deploy-branch's rows pointed at the work checkout ───────────
-  # THE PER-SLAVE GENERATOR'S SELECTOR, stamped FIRST and from the map, not from this run: the
-  # `master:` key must name the cluster that keeps the books, or the generator matches no map at
-  # all. The row below this one replaces every remaining stand-in with the slave's own domain, so
-  # this key is narrowed out of its reach by being stamped before it.
-  - step: stamp_placeholder_in_tracked_files
-    repository: /srv/hostyour-cloud-slave
-    refuse_on_branch: master
-    placeholder: example.invalid
-    keys: [master]
-    value_file: /srv/hostyour-cloud-slave-map.yaml
-    value_key: booksCluster
-    tree: clusters/argocd
-    on_failure: exit
-
-  - step: stamp_placeholder_in_tracked_files
-    repository: /srv/hostyour-cloud-slave
-    refuse_on_branch: master
-    placeholder: master
-    value_answer: fqdn
-    tree: clusters/argocd
-    keys: [revision, targetRevision]
-    on_failure: exit
-
+  # The domain the source branch carries in place of an installation's own, anywhere in the checkout.
   - step: stamp_placeholder_in_tracked_files
     repository: /srv/hostyour-cloud-slave
     refuse_on_branch: master
     placeholder: example.invalid
     value_answer: fqdn
-    on_failure: exit
-
-  - step: stamp_placeholder_in_tracked_files
-    repository: /srv/hostyour-cloud-slave
-    refuse_on_branch: master
-    placeholder: __CATALOG_REPO__
-    value_file: /srv/hostyour-cloud-slave-map.yaml
-    value_key: catalogRepo
-    tree: clusters/argocd
-    on_failure: exit
-
-  # THE PARTS OF THIS CLUSTER'S ROLE, one marker per slot of the ApplicationSet's In list. The
-  # framework's first_part_of / last_part_of rules split the role the way a combined role is
-  # written ("master+slave"), so a machine carrying both parts admits both parts' workloads, and a
-  # single-part role fills the two slots with the same word — a duplicate an In match reads as one
-  # value.
-  - step: stamp_placeholder_in_tracked_files
-    repository: /srv/hostyour-cloud-slave
-    refuse_on_branch: master
-    placeholder: __CLUSTER_ROLE_FIRST_PART__
-    value_answer: role
-    value_rule: first_part_of
-    tree: clusters/argocd
-    on_failure: exit
-
-  - step: stamp_placeholder_in_tracked_files
-    repository: /srv/hostyour-cloud-slave
-    refuse_on_branch: master
-    placeholder: __CLUSTER_ROLE_LAST_PART__
-    value_answer: role
-    value_rule: last_part_of
-    tree: clusters/argocd
-    on_failure: exit
-
-  - step: stamp_placeholder_in_tracked_files
-    repository: /srv/hostyour-cloud-slave
-    refuse_on_branch: master
-    placeholder: __CLUSTER_NAME__
-    value_answer: cluster_name
-    tree: clusters/argocd
     on_failure: exit
 
   - step: stamp_placeholder_in_tracked_files
@@ -295,32 +233,9 @@ steps:
     tree: clusters/bootstrap
     on_failure: exit
 
-  # The branch of the cluster that keeps the books — for a slave that is the master's branch, and
-  # the master's map records it under books-cluster. Read from the map rather than asked, which is
-  # the difference between this file and deploy-branch in one row.
-  - step: stamp_placeholder_in_tracked_files
-    repository: /srv/hostyour-cloud-slave
-    refuse_on_branch: master
-    placeholder: __BOOKS_FQDN__
-    value_file: /srv/hostyour-cloud-slave-map.yaml
-    value_key: booksCluster
-    tree: clusters/argocd
-    on_failure: exit
-  # THIS BRANCH'S OWN DOMAIN, which is also its own name. The map of this cluster is the file
-  # named for it, and a file that carries an installation's answers cannot be named in a tree
-  # every installation is cut from — so the name is stamped rather than written.
-  - step: stamp_placeholder_in_tracked_files
-    repository: /srv/hostyour-cloud-slave
-    refuse_on_branch: master
-    placeholder: __FQDN__
-    value_answer: fqdn
-    tree: clusters/argocd
-    on_failure: exit
-
-
-  # The SHORT name of that cluster, worked out of the same recorded value by the framework's own
-  # derivation rule — recorded nowhere, because a map that also recorded its short name would be
-  # the same fact twice.
+  # The SHORT name of the cluster that keeps the books, worked out of the map's recorded
+  # booksCluster by the framework's own derivation rule — recorded nowhere, because a map that also
+  # recorded its short name would be the same fact twice.
   - step: stamp_placeholder_in_tracked_files
     repository: /srv/hostyour-cloud-slave
     refuse_on_branch: master
@@ -329,69 +244,6 @@ steps:
     value_key: booksCluster
     value_rule: first_dns_label_of
     tree: clusters/bootstrap
-    on_failure: exit
-
-  - step: stamp_placeholder_in_tracked_files
-    repository: /srv/hostyour-cloud-slave
-    refuse_on_branch: master
-    placeholder: __STAGE__
-    value_answer: stage
-    tree: clusters/argocd
-    on_failure: exit
-
-  # WHAT THE BOOKS CLUSTER'S OWN INSTANCE CARRIES, AND THIS ONE MUST NOT. A branch is the trunk plus
-  # what this program writes, so every file the trunk carries stands here too — including three that
-  # describe the books cluster's own ArgoCD and contradict a cluster that keeps none:
-  #
-  #   cluster-self.yaml   registers THIS cluster's apiserver under the cluster's name. Its own header
-  #                       says it "has to GO" on a pure slave: the slave's instance already registers
-  #                       that name with the slave's real apiserver, and a second registration
-  #                       pointing at kubernetes.default.svc — the master's apiserver, from the
-  #                       instance's point of view — sends every tenant application to the wrong
-  #                       machine. The header ends by recording that removing it "is work nobody has
-  #                       built"; remove_branch_file is that work.
-  #   slaves-appset.yaml  generates the slaves OF a cluster. A slave has none.
-  #   repo-catalog.yaml   the catalogue credential for an instance in the argocd namespace. A slave's
-  #                       instance gets its own twin from clusters/slaves/slave, in its namespace.
-  - step: remove_branch_file
-    repository: /srv/hostyour-cloud-slave
-    refuse_on_branch: master
-    path: clusters/argocd/apps/cluster-self.yaml
-    on_failure: exit
-
-  - step: remove_branch_file
-    repository: /srv/hostyour-cloud-slave
-    refuse_on_branch: master
-    path: clusters/argocd/apps/slaves-appset.yaml
-    on_failure: exit
-
-  - step: remove_branch_file
-    repository: /srv/hostyour-cloud-slave
-    refuse_on_branch: master
-    path: clusters/argocd/apps/repo-catalog.yaml
-    on_failure: exit
-
-  # WHERE THIS CLUSTER'S ARGOCD OBJECTS STAND. On the cluster that keeps the books the instance lives
-  # in the namespace `argocd`, and every object of this tree names it. A slave's instance does not:
-  # it runs on the master in a namespace of the slave's own name, and an object still naming `argocd`
-  # is outside what that instance manages — ArgoCD refuses to compare it at all
-  # ("namespace argocd for ... is not managed"), so the whole tree stands Unknown and a deployment's
-  # verification waits out its clock on it.
-  #
-  # `namespace` is the ONE key this narrows to, which is what makes a common word safe to stamp: the
-  # same rule the `master` rows above use for `revision` and `targetRevision`.
-  - step: stamp_placeholder_in_tracked_files
-    repository: /srv/hostyour-cloud-slave
-    refuse_on_branch: master
-    placeholder: argocd
-    keys: [namespace]
-    value_answer: cluster_name
-    # apps/ AND NOT THE TREE ABOVE IT. clusters/argocd/root-app.yaml is applied ON THIS MACHINE by
-    # deploy-platform-services, against the instance that runs HERE — and that one lives in `argocd`
-    # on every cluster. Only what the master's per-slave instance manages moves: the apps directory
-    # it syncs. Stamped whole, the machine's own apply asks for a namespace that exists only on the
-    # master and the deployment stops there.
-    tree: clusters/argocd/apps
     on_failure: exit
 
   # The relay's own per-branch values, from the same two recorded facts. The slave's toggles decide
