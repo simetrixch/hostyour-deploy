@@ -380,6 +380,7 @@ answers:
   - name: build_platform_repo_write_pat
     kind: text
     stated_when: {predicate: build_plane_here_in_answers}
+    required: false
     secret: true
     describes: >-
       Build plane only: a GitHub credential with Contents: Read and Write on the repository this
@@ -389,6 +390,7 @@ answers:
   - name: build_manager_repo_write_pat
     kind: text
     stated_when: {predicate: build_plane_here_in_answers}
+    required: false
     secret: true
     describes: >-
       Build plane only: the same, on the repository the platform's own Manager is built from.
@@ -396,6 +398,7 @@ answers:
   - name: build_catalog_repo_write_pat
     kind: text
     stated_when: {predicate: build_plane_here_in_answers}
+    required: false
     secret: true
     describes: >-
       Build plane only: the same, on the tenant catalog named above.
