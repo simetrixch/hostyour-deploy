@@ -23,12 +23,16 @@
 stage: <stage>
 role: <role>
 booksCluster: <books-cluster>
-# THE PIN. The release this cluster stands on, in the one release grammar. regenerate-branch reads
-# this line and merges exactly that ref, so the field and the branch state are one statement and
-# "this cluster runs platform X" is a question with an answer. `<release!?>` is a CARRIED slot: it
-# keeps whatever already stands here, because a cluster release puts it there afterwards and nothing
-# in the run that generates a branch knows it.
-release: <release!?>
+# THE PIN. The release this cluster stands on, in the one release grammar. A regeneration reads
+# this line off the map and hands it back as the ref it merges, so the field and the branch state
+# are one statement and "this cluster runs platform X" is a question with an answer.
+#
+# WRITTEN AT BIRTH AND NEVER CARRIED. Both runs that render this file are answered with the state
+# they bring the branch to — deploy-branch fetches and merges it into the branch it has just cut,
+# regenerate-branch into the branch that already stands — so the run that writes this line is the
+# run that made it true. The slot is required: a map naming no release is one the Manager cannot
+# regenerate and cannot give a slave, and the run that would leave it empty is refused instead.
+release: <release>
 
 global:
   # This cluster's own public domain name, which is also the name of its install branch.

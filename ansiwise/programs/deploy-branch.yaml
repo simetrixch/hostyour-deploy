@@ -73,6 +73,18 @@ defaults:
 
 answers:
   # ── what this installation is ───────────────────────────────────────────────
+  # REQUIRED, and the same declaration regenerate-branch carries. The cluster map's `release:` slot
+  # is filled from it, and that slot is required — a birth answered with nothing would write a map
+  # naming no state, which is the map the Manager refuses to regenerate and refuses to give a slave.
+  # There is no default: no value this file could carry would be true of any installation.
+  - name: platform_ref
+    kind: text
+    describes: >-
+      The state of the product tree this installation is born on — a release tag such as
+      0.7.9-stable-20260903202414. It is fetched and merged into the branch this run cuts, and
+      written into this cluster's map as its `release:` pin, which is what every later regeneration
+      reads the state to bring the branch to.
+
   - name: fqdn
     kind: text
     # A name, and never the stand-in the product tree carries in its place. Both are the answer's
@@ -545,6 +557,40 @@ steps:
     name_answer: fqdn
     on_failure: exit
 
+  # THE STATE THE BRANCH IS BORN ON, brought into it before the first stamp. The branch is cut from
+  # master, which is whatever the clone happened to bring; these two rows put the release this run
+  # was answered with into it, so the `release:` line the map gets thirty rows down names a state
+  # the branch actually carries. `git merge-base --is-ancestor <platform_ref> HEAD` is what says so.
+  #
+  # WHAT THIS DOES NOT PROMISE, and the pin is written as if it did: the branch may also carry what
+  # master gained after the tag was minted. git_merge_ref reports that state satisfied — it asks
+  # only whether the ref is an ancestor — so nothing here reports the difference. Closing it means
+  # cutting the branch AT the ref, which git_branch cannot do: it builds `git checkout -b <branch>`
+  # with no start point and takes no answer for one.
+  #
+  # THE FETCH IS SEPARATE AND COMES FIRST because a ref this checkout has never fetched resolves to
+  # nothing, and the merge would then refuse with a message about the name while the cause was only
+  # that the checkout was behind. Both rest on an earlier step: in test and dry the branch has not
+  # been cut and the tag has not been fetched, and without the line neither row would ever come back
+  # green in a mode that changes nothing.
+  #
+  # NO toward_ref LIST. That argument resolves a conflict toward the incoming commit under the paths
+  # a later row writes again, and at a birth there is nothing to conflict with: the branch was cut
+  # one row above and not a byte of it has been stamped yet.
+  - step: git_fetch
+    rests_on_an_earlier_step: true
+    repository: /srv/hostyour-cloud
+    remote: origin
+    tag_answer: platform_ref
+    on_failure: exit
+
+  - step: git_merge_ref
+    rests_on_an_earlier_step: true
+    repository: /srv/hostyour-cloud
+    branch_answer: fqdn
+    ref_answer: platform_ref
+    on_failure: exit
+
   # What the rows of this step share — the marker that exempts a line and the three exclusion lists —
   # stands in the defaults block at the head of this file, and so does the answer a row naming none
   # of its own reads. What is HERE is what tells one row from another.
@@ -562,10 +608,10 @@ steps:
   # reads. Rewritten on every run, because it states what THIS run answered: an answer that changed
   # has to reach it, and a hand edit in it is a difference to correct rather than work to keep.
   #
-  # `release` is the exception and the template says so with `<release!?>`. Nothing here holds it —
-  # a cluster release puts it there afterwards — so the slot takes whatever stands in the file and
-  # hands it back untouched, and its line is simply absent the first time the file is made, when
-  # nothing has been released yet.
+  # `release` is written from this run's own platform_ref, which the two rows above have already
+  # merged into the branch — so the pin and the branch state are one statement from the branch's
+  # first commit, and an installation is never born without an answer to "which release does this
+  # machine run".
   #
   # `mail-url` is absent rather than empty where this installation has no mail service. An empty
   # value satisfies a chart that requires the key with something nothing can be reached at, which is
@@ -604,6 +650,7 @@ steps:
       fqdn: { answer: fqdn }
       stage: { answer: stage }
       role: { answer: role }
+      release: { answer: platform_ref }
       # ALWAYS WRITTEN, and it says this cluster's own domain where this cluster keeps its own
       # books. The answer falls back to the domain, so there is no state in which it is unanswered
       # and none in which the map is silent about which cluster the books stand on.

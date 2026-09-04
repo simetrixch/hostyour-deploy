@@ -518,9 +518,11 @@ steps:
     placeholder: example.invalid
     on_failure: exit
 
-  # The map, rewritten from this run's answers exactly as at birth — and `release` is the carried
-  # slot `<release!?>`: whatever stands there is handed back untouched, because this run does not
-  # decide what a cluster's release is.
+  # The map, rewritten from this run's answers exactly as at birth — `release` included, from the
+  # same platform_ref the merge above brought the branch to. The pin and the branch state are
+  # written by the one run that made them agree, rather than the pin being handed back untouched
+  # while the merge moved the branch under it.
+
   # WHERE THIS MACHINE CAN BE REACHED, for the boundary the gate sandbox is drawn with. Measured and
   # never answered: it is a fact about the machine this run is standing on, and one mistyped octet is
   # a boundary that reports itself closed while standing open.
@@ -553,6 +555,7 @@ steps:
       fqdn: { answer: fqdn }
       stage: { answer: stage }
       role: { answer: role }
+      release: { answer: platform_ref }
       books-cluster: { answer: books_fqdn }
       build-plane: { answer: build_plane_fqdn }
       unit-apex: { answer: unit_apex }
