@@ -966,32 +966,10 @@ steps:
       fqdn: { answer: fqdn }
     on_failure: exit
 
-  # WHICH AUTHORITY EVERY CERTIFICATE OF THIS INSTALLATION IS ISSUED BY, written into the values
-  # chain every chart reads it from — on EVERY run, and that is the whole point.
-  #
-  # A STAMP WOULD NOT DO, and that is measured rather than argued. A stamp replaces a placeholder,
-  # so it fills this once at a branch's birth and finds nothing to replace ever after. An
-  # installation that later names a different authority keeps the old name here, the certificate
-  # service — which watches the name a certificate is issued BY and nothing else — re-issues nothing,
-  # and the cluster serves certificates whose root its own trust bundle does not carry. A writer puts
-  # the answer there whatever stands there now, so the file cannot fall behind the installation.
-  - step: write_value_in_branch_file
-    repository: /srv/hostyour-cloud
-    path: clusters/platform/values-common.yaml
-    # THE PATH AND NOT THE BARE NAME. The key stands under `global:`, and a bare name is looked for
-    # at the head of a line — where this one is not. Written bare, the writer finds nothing and
-    # appends a SECOND clusterIssuer at the top of the file, with every chart still reading the
-    # nested one and the run reporting itself green.
-    key: global.clusterIssuer
-    value_answer: cluster_issuer
-    # 420 — the values chain is read by the reconciler and by every chart rendered from it.
-    file_mode: 420
-    on_failure: exit
-
-  # AND THE BASE LAYER'S OWN CERTIFICATE, whose authority no hand types into a tracked file: the
+  # THE BASE LAYER'S OWN CERTIFICATE, whose authority no hand types into a tracked file: the
   # file is generated from the catalogue's template on every run, and its issuer is this run's
   # answer. One certificate carrying a hand-typed authority while every other one reads it from the
-  # values chain above is the exception a switch of authority breaks on.
+  # cluster map is the exception a switch of authority breaks on.
   - step: write_file_from_template
     template: ansiwise/templates/base-certificate.tpl
     path: /srv/hostyour-cloud/clusters/bootstrap/vault/certificate.yaml

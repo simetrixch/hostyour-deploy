@@ -701,9 +701,11 @@ steps:
   # name IS the choice.
   #
   # `platform-acme` is the public authority; `platform-local` is one this cluster mints for itself.
-  # Exactly one exists at a time, and which one every manifest references is stamped into the values
-  # chain and into the base layer's certificate by deploy-branch, out of CLUSTER_ISSUER in this
-  # installation's config.
+  # Exactly one exists at a time, and which one every manifest references is written by deploy-branch
+  # out of the cluster_issuer answer, into this cluster's own map and into the base layer's
+  # certificate. The map stands LAST in every values chain, so it decides for every chart;
+  # clusters/platform/values-common.yaml carries the product default at the head of the chain and no
+  # run rewrites it.
   #
   # WHY NOT ONE NAME FOR BOTH FORMS. The certificate service watches the name a certificate is issued
   # BY and never the specification behind it. With one name, turning the authority over rewrites the
