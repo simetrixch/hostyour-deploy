@@ -40,22 +40,24 @@ steps:
   # cluster distribution an hour later, with a message about a pod rather than about the machine.
   #
   # These are the MINIMUM a machine is admitted at and not what one should be given. The floor is the
-  # owner's: two processors and forty gigabytes. The memory figure is the cluster distribution's own
-  # recommendation — it states it runs in as little as 540 MB and that a system carrying workloads
-  # wants 4 GB — so it is measured rather than chosen here.
+  # owner's: two processors and forty million kibibytes free on the operating system disk, which is
+  # 40.96 GB. Both size floors below are written in kibibytes, because that is what `df -Pk` and
+  # `/proc/meminfo` write and what their steps compare in — neither converts. The memory figure is the
+  # cluster distribution's own recommendation — it states it runs in as little as 540 MB and that a
+  # system carrying workloads wants 4 GB — so it is measured rather than chosen here.
   #
-  # THE MEMORY FLOOR IS 4,000,000 kB AND NOT FOUR GIBIBYTES, and those are not one figure written in
+  # THE MEMORY FLOOR IS 4,000,000 KiB AND NOT FOUR GIBIBYTES, and those are not one figure written in
   # two units. The step compares against `MemTotal`, which is what the kernel leaves after its own
   # reservations and never the memory the machine was sold with: the one machine on record reports
-  # 63,737,472 kB where sixty-four gibibytes would be 67,108,864, three and a third million
-  # kilobytes short (hostyour-cloud lifecycle/install-transcripts/apps6.digitacloud.app-20260902-145940).
+  # 63,737,472 KiB where sixty-four gibibytes would be 67,108,864, three and a third million
+  # kibibytes short (hostyour-cloud lifecycle/install-transcripts/apps6.digitacloud.app-20260902-145940).
   # A floor written as 4,194,304 therefore refuses every machine that HAS four gibibytes — the very
   # machine the recommendation above names — and makes the minimum the next size up without saying
   # so. The step carries that finding from a real machine, and says that writing the round number
   # back is how it comes back (ansiwise-plugins ansiwise-host require_machine_size.dart).
   - step: require_machine_size
     vcpu: 2
-    memory_kilobytes: 4000000
+    memory_kibibytes: 4000000
     on_failure: exit
 
   # The OPERATING SYSTEM disk, which is what packages, snaps and the cluster distribution itself are
@@ -64,7 +66,7 @@ steps:
   # admits a machine that has none and leaves the cluster on its own default.
   - step: require_free_disk
     path: /
-    gigabytes: 40
+    free_kibibytes: 40000000
     on_failure: exit
 
   - step: install_packages
