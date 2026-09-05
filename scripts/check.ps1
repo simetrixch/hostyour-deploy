@@ -1,137 +1,45 @@
-<#
-.SYNOPSIS
-The checks this repository runs on itself, before every push.
-
-.EXAMPLE
-pwsh -NoProfile -File scripts/check.ps1
-
-.NOTES
-Two steps, in this order, stopping at the first red one and naming it:
-
-  1. every YAML file in this tree parses
-  2. every program binds to the registry the shipped ansiwise binary carries
-
-WHY THE SECOND STEP RUNS IN ANOTHER CHECKOUT. A program file names steps, predicates and
-arguments. What those names may be is declared by the plugin packages, and only the CLI checkout
-composes the whole set a shipped binary carries. The suite there reads THIS tree and judges it
-against that set. A parser run here proves the files are YAML and proves nothing about whether a
-machine can execute them.
-
-A MISSING TOOL IS NAMED AND THE CHECK IS RED. A step that did not run is not a step that passed,
-and a green line over a step that never started is how a program no binary can execute reaches a
-machine.
-
-The YAML parser is yq, the same one the shell twin uses. Two parsers can disagree about one file,
-and then the answer depends on which shell the person happened to start.
-#>
-[CmdletBinding()]
-param()
-
-$ErrorActionPreference = 'Stop'
-
-# A native command that exits non-zero must set $LASTEXITCODE and do nothing else. Where PowerShell
-# turns that exit code into a terminating error instead, every refusal below is replaced by a stack
-# trace and the run stops printing the line that says which step was red. The default of this
-# setting has moved between PowerShell releases, so it is stated here rather than inherited.
-$PSNativeCommandUseErrorActionPreference = $false
-
-# The lines below carry an em dash, and a console left on the system code page writes it as a
-# hyphen. Both spellings of this check print the same bytes only while this stands.
-[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)
-
-$root = Split-Path -Parent $PSScriptRoot
-$suite = 'test/checks/config_validity_test.dart'
-
-function Stop-Check($what) { Write-Host "check: FAIL — $what"; exit 1 }
-
-if (-not (Get-Command yq -ErrorAction SilentlyContinue)) {
-  Stop-Check 'yq is not on PATH, and it is the YAML parser both halves of this check use'
-}
-
-# STEP 1 — every YAML file parses.
+#!/usr/bin/env pwsh
+# NOT AN IMPLEMENTATION. What this repository checks is written once, in the bash file of the same
+# name beside this one, and this is the Windows entry point that starts it. There is no second
+# spelling of the checks left to drift from the first.
 #
-# The templates under ansiwise/templates are left out ON PURPOSE. Five of them are systemd units, a
-# netplan file and a shell script. They are rendered onto a machine and are never read as YAML, so
-# a parser would report them broken for being what they are.
-$files = @(
-  Get-ChildItem -LiteralPath (Join-Path $root 'ansiwise') -Recurse -File -Filter '*.yaml' |
-    Sort-Object FullName
-)
-$roots = @(Get-ChildItem -LiteralPath $root -File -Filter 'ansiwise*.yaml' | Sort-Object FullName)
-if ($roots.Count -eq 0) {
-  Stop-Check 'no ansiwise*.yaml stands at the root of this repository, and the engine reads out of it which plugins to load'
-}
-$files += $roots
-
-$broken = 0
-foreach ($file in $files) {
-  # The parsed document is thrown away and only the exit code is read. yq writes its own message,
-  # naming the file and the line it stopped at, and that message goes straight to the screen.
-  & yq e '.' $file.FullName 1> $null
-  if ($LASTEXITCODE -ne 0) { $broken++ }
-}
-if ($broken -gt 0) { Stop-Check "$broken of $($files.Count) YAML file(s) do not parse" }
-Write-Host "check: $($files.Count) YAML file(s) parse."
-
-# STEP 2 — every program binds to the registry the shipped binary carries.
+# THE FILE IT RUNS IS ITS OWN NAME with .sh instead of .ps1, so check.ps1 runs check.sh and
+# build.ps1 runs build.sh. The name IS the rule, which is why this file is byte for byte the same
+# in every repository of the organisation and why nothing here has to be edited per repository.
 #
-# THE CLI CHECKOUT IS FOUND BY NAME, WITHOUT CASE. A checkout is regularly cased differently from
-# the repository it came from, and an exact match reports a present one as absent.
-#
-# IT STANDS BESIDE THE MAIN CHECKOUT, and this check also runs from a worktree. An issue is worked
-# in a worktree under ../.worktrees/<repo>/, whose own parent directory holds nothing but other
-# worktrees, so a search beside the working tree finds no CLI checkout there. The common git
-# directory is the main checkout's .git from either place, and it is what the neighbourhood is
-# measured from.
-$common = & git -C $root rev-parse --git-common-dir
-if ($LASTEXITCODE -ne 0) {
-  Stop-Check 'this is not a git checkout, and the CLI checkout that holds the binding suite is found beside the main one'
+# BASH IS THE ONE GIT SHIPS, FOUND BESIDE git ITSELF. Every one of these repositories is a git
+# checkout, so that bash is on the machine by definition, and it is also the one git runs a hook
+# with. The name on the path is the fallback, and it is second on purpose: on a machine with the
+# Linux subsystem installed, `bash` alone is a launcher that cannot read this tree at all.
+$ErrorActionPreference = 'Continue'
+
+# The verdict line the bash twin prints carries an em dash. Left on the machine's own code page,
+# the console draws something else, and the one line a reader looks at then differs between the
+# two ways of starting the same checks.
+$OutputEncoding = [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)
+
+$name = [System.IO.Path]::GetFileNameWithoutExtension($PSCommandPath)
+
+$bash = $null
+$git = Get-Command git -ErrorAction SilentlyContinue
+if ($git) {
+  $shipped = Join-Path (Split-Path -Parent (Split-Path -Parent $git.Source)) 'bin/bash.exe'
+  if (Test-Path -LiteralPath $shipped) { $bash = $shipped }
 }
-if (-not [System.IO.Path]::IsPathRooted($common)) { $common = Join-Path $root $common }
-$mainCheckout = (Resolve-Path -LiteralPath (Join-Path $common '..')).Path
-$cli = Get-ChildItem -LiteralPath (Split-Path -Parent $mainCheckout) -Directory |
-  Where-Object { $_.Name -ieq 'ansiwise-cli' } |
-  Select-Object -First 1
-if (-not $cli) {
-  Stop-Check "no ansiwise-cli checkout beside $mainCheckout, and the suite that binds these programs to the shipped registry lives there"
-}
-if (-not (Test-Path -LiteralPath (Join-Path $cli.FullName $suite))) {
-  Stop-Check "$($cli.FullName)/$suite is missing, so these programs cannot be bound to a registry"
-}
-if (-not (Get-Command dart -ErrorAction SilentlyContinue)) {
-  Stop-Check 'dart is not on PATH, and the suite that binds these programs to the shipped registry is a Dart test'
+if (-not $bash) { $bash = (Get-Command bash -ErrorAction SilentlyContinue).Source }
+if (-not $bash) {
+  Write-Host "${name}: FAIL — no bash on this machine, and the checks are written in it. Git ships one; install git, or put a bash on PATH. Nothing was checked."
+  exit 1
 }
 
-# THE TREE UNDER TEST IS NAMED, and is not left to the search the suite runs when nothing names
-# one. That search takes the one directory near the CLI checkout that holds ansiwise/programs, and
-# it refuses where a machine carries two. Naming this checkout makes the suite read the tree this
-# check is about, on every machine.
-$env:ANSIWISE_INSTALLATION = $root
-Push-Location -LiteralPath $cli.FullName
-try {
-  # Standard output is captured so a SKIPPED suite can be told from a green one, then printed
-  # whole. Standard error is not captured and reaches the screen while the suite runs.
-  $output = & dart test $suite | Out-String
-  $status = $LASTEXITCODE
-} finally {
-  Pop-Location
-  $env:ANSIWISE_INSTALLATION = $null
-}
-Write-Host $output
-if ($status -ne 0) { Stop-Check "dart test $suite in $($cli.FullName)" }
-
-# A SKIPPED SUITE IS NOT A GREEN ONE. Where no installation tree is found, the suite skips itself
-# and dart test still exits 0. That is honest of the suite, because a clone standing alone has no
-# programs to judge. Here the suite was pointed at this tree, so a skip means these programs were
-# never bound to anything.
-#
-# `-clike` AND NOT `-match`, because the shell twin decides this with a `case` glob. PowerShell's
-# `-match` is a case-insensitive regular expression and differs from that glob twice over, so a
-# phrase spelt in another case, or a phrase that gained a regex character, makes the two spellings of
-# this check take different branches on the same input.
-if ($output -clike '*All tests skipped*' -or $output -clike '*Skip:*') {
-  Stop-Check "dart test $suite skipped its tests, so no program was bound to the shipped registry"
+# A RED RUN STILL CARRIES THE VERDICT LINE THIS ENTRY POINT PROMISES. Handed a path that is not
+# there, bash writes its own "No such file or directory" and exits 127, and a person reading for
+# `check: FAIL — <step>` finds nothing at all.
+$sh = Join-Path $PSScriptRoot "$name.sh"
+if (-not (Test-Path -LiteralPath $sh)) {
+  Write-Host "${name}: FAIL — $sh is missing, and it is where these checks are written. Nothing was checked."
+  exit 1
 }
 
-Write-Host 'check: OK — every check green'
-exit 0
+& $bash $sh @args
+exit $LASTEXITCODE
