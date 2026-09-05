@@ -1,11 +1,12 @@
 # THE PLATFORM'S OWN MANAGER, ONBOARDED AS A CONSUMER — by the Manager, over the route every
 # other consumer takes, so that nothing about this one unit is a mechanism of its own.
 #
-# WHY IT IS NOT RENDERED FROM A TEMPLATE. Rendering the Manager's registration at install time —
-# out of deploy-branch and again out of regenerate-branch — makes a SECOND writer of
+# WHY IT IS NOT RENDERED FROM A TEMPLATE. Rendering the Manager's registration out of deploy-branch
+# would make a SECOND writer of
 # registrations/** over a tree whose only writer is the Manager itself: two hands on one file
-# with nothing arbitrating, and the installer's hand rewriting the Manager's on every re-run.
-# Neither branch program names registrations/, down to the directory list its commit row
+# with nothing arbitrating, and the installer's hand rewriting the Manager's on every re-run —
+# and deploy-branch runs again on every regeneration, so "at install time" is not once.
+# That program names no registrations/ path, down to the directory list its commit row
 # carries. This run is what puts
 # registrations/hostyour-manager/build.yaml there, and its builds[] — manager, gate-runner, dbtools —
 # come out of the unit's own deploy/platform.yaml, which is the same list the release pipeline holds

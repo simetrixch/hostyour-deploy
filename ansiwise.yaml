@@ -81,6 +81,12 @@ elevation:
 # the conditions asking what the INSTALLATION turned on read the file: an installation-wide switch
 # is the same word for every machine of it, which is exactly what one shared file can carry.
 #
+# AND ONE PAIR READS NEITHER, BECAUSE WHAT IT ASKS ABOUT IS NOT ON THIS MACHINE AT ALL. Whether this
+# installation's branch has been published is a fact of the REMOTE, and a machine that has fallen
+# behind is exactly the machine whose own files cannot say. The two names at the foot of this block
+# ask git, from the checkout, and neither a file of the branch nor an answer of the run could stand
+# in for that reading.
+#
 # THE NAME CARRIES THE STAGE, AND THE BINDING BELOW CARRIES A SLOT FOR IT. `<stage>` in the path is
 # filled from the answer `run_answer` names, so a prod installation reads `config.prod` and a dev one
 # reads `config.dev` — one binding, one file per installation, and the name a person reads first says
@@ -97,7 +103,9 @@ elevation:
 # lets an answer-reading condition stand behind `when:` beside a file-reading one. A run whose config
 # file is missing is refused having touched nothing. That also means no program may write this file
 # and then gate a later row on it: the answer was taken before that row existed. deploy-branch writes
-# it, and deploy-platform-services — the only program whose rows carry `when:` — runs afterwards.
+# it, and deploy-platform-services runs afterwards. Two programs carry `when:` today, and only
+# deploy-platform-services reads that file behind it — deploy-branch's own gates ask the remote,
+# which is a question its rows do not change either.
 #
 # `true` AND `false` ARE THE WHOLE OF WHAT IS READ. `TRUE`, `yes`, `1` and a mistyped `ture` are each
 # refused by name before the first step, rather than read as "no" and silently switching off every
@@ -204,3 +212,36 @@ conditions:
     predicate: answer_values_differ
     answer: build_plane_fqdn
     other_answer: fqdn
+
+  # WHETHER THIS INSTALLATION'S BRANCH IS ALREADY ON THE REMOTE, which is what tells a birth from a
+  # regeneration. deploy-branch is one program for both acts, and the two differ in exactly one
+  # thing: at a birth the branch has to be CUT from the product branch, at a regeneration the
+  # checkout has to be STOOD on what the remote already publishes and grown from there. A branch cut
+  # fresh over one that is published shares no history with it, and the push at the foot of that run
+  # is refused as a non-fast-forward.
+  #
+  # ASKED OF THE REMOTE AND OF NOTHING ELSE, because the machine's own answer is the one that can be
+  # wrong. A checkout falls behind — a platform release writes into the install branch from
+  # somewhere else — so "does this machine hold the branch" and "does the branch exist" are two
+  # different questions, and only the second decides which spine is right.
+  #
+  # IT IS ASKED ANONYMOUSLY THE FIRST TIME, and that is the same read deploy-host's own git_clone row
+  # already needs: the platform repository is served to anybody. From the second run of the program
+  # onward the checkout carries the credential helper an earlier run wrote into its own git
+  # directory, so the read carries a credential without anything new being arranged. A remote that
+  # could not be ASKED refuses the run rather than answering "it does not publish it".
+  #
+  # TWO NAMES OVER ONE READING, the shape certificates_enabled and certificates_withheld already
+  # have: a `not:` behind `when:` would be an operator, and an operator is where a program file
+  # starts being a language.
+  install_branch_published:
+    predicate: remote_has_branch
+    repository: /srv/hostyour-cloud
+    remote: origin
+    name_answer: fqdn
+
+  install_branch_unpublished:
+    predicate: remote_lacks_branch
+    repository: /srv/hostyour-cloud
+    remote: origin
+    name_answer: fqdn

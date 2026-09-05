@@ -1,11 +1,31 @@
-# Turning the product source branch into one installation's branch.
+# Writing one installation's branch from the answers the run was given, whether that branch is
+# being born or brought to a newer state of the product.
 #
 # The source branch is generic on purpose: it names no domain, it carries every stage, and it holds the books
-# of no cluster. This program cuts a branch and makes it one installation — one domain, one stage,
+# of no cluster. This program makes one installation out of it — one domain, one stage,
 # one role.
 #
-# The order is the safety property. Nothing about the source branch may change, so the branch is cut before
-# the first byte is stamped and every stamping step refuses while the source branch is checked out. And
+# ONE PROGRAM FOR TWO ACTS, AND ONE ROW DECIDES WHICH. At a BIRTH the remote publishes no branch of
+# this installation's name, so the branch is cut from the product branch. At a REGENERATION it does,
+# usually ahead of this machine, so the checkout is stood on the published tip and grown from there:
+# a branch cut fresh over one that is published shares no history with it, and the push at the foot
+# of that run is refused as a non-fast-forward. The two spines are the two rows gated on
+# install_branch_published and install_branch_unpublished, and every other row is the same row in
+# both acts. That is why they are one file: sixteen of them were identical in two, and a fix typed
+# into one was not typed into the other.
+#
+# WHAT A REGENERATION KEEPS, AND WHY IT IS A MERGE. An install branch holds two kinds of bytes: what
+# came from the product at the last state it was brought to, and what was written onto the branch
+# afterwards — above all the books, the registrations and cluster maps only this installation has. A
+# regeneration that reset the branch to the named state would destroy them wholesale. So the named
+# state is MERGED forward: everything only the branch has is kept, everything only that state has
+# comes in, and exactly the overlaps stop the run as conflicts with their paths named. The merge
+# resolves nothing on its own, because a book, an operator's toggle, a hand edit and a trunk-tracked
+# file a row below rewrites are all the same case, and only a person can say which decision stands.
+#
+# The order is the safety property. Nothing about the source branch may change, so the checkout is put on
+# this installation's own branch before the first byte is stamped and every stamping step refuses while the
+# source branch is checked out. And
 # nothing is stamped that could not be published: the remote is asked, with a push that changes
 # nothing, whether it would accept one — before any of the work exists, because a branch that was
 # generated and cannot be pushed is worse than a run that never started.
@@ -17,9 +37,9 @@
 # it writes is one owner-only file inside the checkout's git directory rather than in its working
 # tree, so it is neither stamped, nor tracked, nor sent anywhere.
 #
-# write_cluster_map sits where it does for two reasons at once. It comes after the domain stamp
-# because the map is this branch's own file and travels with the branch. It comes before the role
-# because the role is applied by reading that map.
+# The row that writes the cluster map sits where it does because the map is this branch's own file
+# and travels with the branch, so it comes after the domain stamp that makes the branch this
+# installation's.
 #
 # The three values that describe an installation — its stage, its domain, its role — are written out
 # here and never derived from one another. A stage guessed from a domain puts the word "prod" into a
@@ -73,17 +93,17 @@ defaults:
 
 answers:
   # ── what this installation is ───────────────────────────────────────────────
-  # REQUIRED, and the same declaration regenerate-branch carries. The cluster map's `release:` slot
-  # is filled from it, and that slot is required — a birth answered with nothing would write a map
-  # naming no state, which is the map the Manager refuses to regenerate and refuses to give a slave.
+  # REQUIRED IN BOTH ACTS. The cluster map's `release:` slot is filled from it, and that slot is
+  # required — a run answered with nothing would write a map naming no state, which is the map the
+  # Manager refuses to regenerate and refuses to give a slave.
   # There is no default: no value this file could carry would be true of any installation.
   - name: platform_ref
     kind: text
     describes: >-
-      The state of the product tree this installation is born on — a release tag such as
-      0.7.9-stable-20260903202414. It is fetched and merged into the branch this run cuts, and
-      written into this cluster's map as its `release:` pin, which is what every later regeneration
-      reads the state to bring the branch to.
+      The state of the product tree this installation is put on — a release tag such as
+      0.7.9-stable-20260903202414. It is fetched and merged into this installation's branch, and
+      written into this cluster's map as its `release:` pin, which is what a later run of this
+      program reads the state to bring the branch to.
 
   - name: fqdn
     kind: text
@@ -94,9 +114,10 @@ answers:
     shape: hostname
     denied: [example.invalid]
     describes: >-
-      The domain name this cluster answers on, for example m1.example.com. It becomes the name of
-      the git branch this installation is generated on, the name of its cluster map, and the domain
-      written into every manifest it deploys. It must be a real name you control the DNS for.
+      The domain name this cluster answers on, for example m1.example.com. It is the name of
+      the git branch this installation is written on, the name of its cluster map, and the domain
+      written into every manifest it deploys. Whether that branch is cut or stood on follows from
+      whether the remote already publishes it. It must be a real name you control the DNS for.
 
   - name: stage
     kind: text
@@ -114,7 +135,10 @@ answers:
       belongs to another one, and "master+slave" where one machine does both jobs. The master part
       keeps the books — the cluster maps and the consumer registrations — and a pure slave keeps
       none of them, because a second copy of the books goes stale the moment anything writes to
-      the master's branch.
+      the master's branch. Adding the slave part to a machine that held the master part alone is
+      done by running this again with "master+slave"; a role that DROPS the master part is not,
+      because the books stand on that machine's own branch and this run has to carry them through
+      unharmed.
 
   - name: books_fqdn
     kind: text
@@ -354,8 +378,20 @@ answers:
   # ── the credentials a third party issues ────────────────────────────────────
   # None of these can be generated or derived. Each is obtained once, from GitHub, from Cloudflare
   # or from Hetzner, and this run is the only way it reaches the machine.
+  #
+  # ALL SEVEN ARE OPTIONAL, AND THAT IS ABOUT THE SECOND RUN AND NOT THE FIRST. The rows that write
+  # them fill only a key that is still empty, so on an installation that already stands the file on
+  # the machine holds what it holds — filled at birth or rotated by hand since — and an answer given
+  # here would be the operator typing a credential the machine already has. Give one only to fill a
+  # key that is still empty.
+  #
+  # WHAT THAT COSTS AT A BIRTH, said rather than left to be found: a first installation that omits
+  # one is no longer refused when its answers are read. platform_repo_write_pat is still refused
+  # inside this program, at the row that makes the checkout able to push, naming this answer. The
+  # other six are refused wherever they are first read, which is not here.
   - name: platform_repo_write_pat
     kind: text
+    required: false
     secret: true
     describes: >-
       A GitHub fine-grained access credential with Contents: Read and Write on the repository this
@@ -365,6 +401,7 @@ answers:
 
   - name: platform_repo_read_pat
     kind: text
+    required: false
     secret: true
     describes: >-
       A second GitHub credential on the same repository, with Contents: Read and no write at all.
@@ -374,6 +411,7 @@ answers:
 
   - name: catalog_repo_read_pat
     kind: text
+    required: false
     secret: true
     describes: >-
       A GitHub credential with Contents: Read and no write at all, on the tenant catalog named
@@ -384,6 +422,7 @@ answers:
 
   - name: cloudflare_api_token
     kind: text
+    required: false
     secret: true
     describes: >-
       A Cloudflare API token with Zone:DNS:Edit and Zone:Zone:Read, scoped to your own zone only and
@@ -392,18 +431,21 @@ answers:
 
   - name: storage_box_host
     kind: text
+    required: false
     describes: >-
       The hostname of the Hetzner Storage Box that backups, moves and restores are written to, in
       the form uXXXXXX.your-storagebox.de.
 
   - name: storage_box_user
     kind: text
+    required: false
     describes: >-
       A SUB-account of that storage box (uXXXXXX-subN), with SSH/SFTP enabled and its own directory.
       Never the main account, whose password also unlocks the Hetzner Robot.
 
   - name: storage_box_password
     kind: text
+    required: false
     secret: true
     describes: >-
       The password of that storage box sub-account. Never the main account's, which also unlocks the
@@ -413,12 +455,13 @@ answers:
   # Every other cluster reads its images through that one and never looks at these.
   #
   # STATED WHEN THIS CLUSTER IS THE BUILD PLANE, which is exactly what "build_plane_fqdn names this
-  # cluster" means and is now said in the declaration rather than left to a step to discover. Plain
-  # "optional" was wrong in both directions: on a build plane the two credentials below are not
-  # optional at all — the row that seeds them says so in as many words — and on any other cluster an
-  # answer given for them is an answer nothing will ever read. Written this way a run without them
-  # is refused at the answers, before a single tool is looked for, instead of thirty-five steps into
-  # an installation that has already changed the machine.
+  # cluster" means and is said in the declaration rather than left to a step to discover. On any
+  # other cluster an answer given for one of the three below is an answer nothing will ever read,
+  # and the engine refuses it by name rather than carrying it.
+  #
+  # AND OPTIONAL WHERE IT IS STATED, for the reason the seven above are: the row that seeds them
+  # fills only a key that is still empty, so a build plane that already stands holds them in its own
+  # file and a second run of this program is not the operator typing them again.
   - name: registry_dockerhub_user
     kind: text
     required: false
@@ -457,6 +500,7 @@ answers:
   - name: build_platform_repo_write_pat
     kind: text
     stated_when: {predicate: build_plane_here_in_answers}
+    required: false
     secret: true
     describes: >-
       Build plane only: a GitHub credential with Contents: Read and Write on the repository this
@@ -465,6 +509,7 @@ answers:
   - name: build_manager_repo_write_pat
     kind: text
     stated_when: {predicate: build_plane_here_in_answers}
+    required: false
     secret: true
     describes: >-
       Build plane only: the same, on the repository the platform's own Manager is built from. It
@@ -475,6 +520,7 @@ answers:
   - name: build_catalog_repo_write_pat
     kind: text
     stated_when: {predicate: build_plane_here_in_answers}
+    required: false
     secret: true
     describes: >-
       Build plane only: the same, on the tenant catalog named above. One organisation credential can
@@ -488,7 +534,7 @@ steps:
   # as a branch name and no resolver will ever answer for it.
 
   # THE ONE TOOL THIS PROGRAM IS, ASKED FOR BEFORE ANYTHING USES IT. Every step below is git — the
-  # identity, the remote, the branch, the six stamps and the push. deploy-host installs it, and
+  # identity, the remote, the branch, the three stamps and the push. deploy-host installs it, and
   # that this program usually runs after that one is a fact of the usual ORDER rather than of this
   # program. Run on a machine deploy-host never touched, it would otherwise fail at the identity
   # check with a message about configuration where the truth is a missing command.
@@ -517,13 +563,20 @@ steps:
   # checkout was cloned with no credential in its remote address, deliberately — one written there
   # is at rest for as long as the checkout stands, and `git remote -v` prints it to anybody who can
   # read the tree — and the push at the foot of this program says the credential is not its
-  # business. This row is what stands between the two.
+  # business. These two rows are what stand between the two.
   #
-  # IT READS THE ANSWER AND NOT THE FILE, and that is a fact about WHERE IT STANDS. The file this
-  # installation keeps its credentials in is written thirty rows down; at this point in the run it
-  # does not exist, and the writer credential exists only as the answer this run was given. A
-  # regeneration is the other way round, and its own row says so where it stands.
+  # TWO ROWS AND NOT ONE, BECAUSE THE VALUE COMES FROM TWO PLACES AND THE STEP TAKES ONE. It refuses
+  # a row naming both an answer and a file, deliberately: whichever a reader took first would be the
+  # one that decided, and the other would sit there looking like it had been read. So the same
+  # condition that decides the spine below decides which of the two is right here.
+  #
+  # AT A BIRTH IT IS THE ANSWER. The file this installation keeps its credentials in is written
+  # thirty rows down; at this point in the run it does not exist, and the writer credential exists
+  # only as the answer this run was given. A run that was given none is refused HERE, naming that
+  # answer, which is what lets the declaration above leave it optional without leaving a birth
+  # silent about it.
   - step: git_push_credential
+    when: [install_branch_unpublished]
     repository: /srv/hostyour-cloud
     remote: origin
     credential_answer: platform_repo_write_pat
@@ -533,34 +586,84 @@ steps:
     credential_user: x-access-token
     on_failure: exit
 
+  # AND ON AN INSTALLATION THAT ALREADY STANDS IT IS THE FILE, for the reason the declaration above
+  # gives: the credentials are optional there because the file they seed is on the machine already,
+  # filled at birth or rotated by hand since. A run that was given no credential holds no answer to
+  # read, and the value that is actually correct for this machine is the one in that file.
+  - step: git_push_credential
+    when: [install_branch_published]
+    repository: /srv/hostyour-cloud
+    remote: origin
+    credential_file: /srv/hostyour-cloud/secrets/secrets.<stage>
+    credential_key: GITOPS_REPO_PAT
+    credential_user: x-access-token
+    run_answer: stage
+    on_failure: exit
+
+  # THE SPINE, AND IT IS THE WHOLE OF WHAT A BIRTH AND A REGENERATION DIFFER BY. One of the two rows
+  # below runs and the other is skipped, decided before the first step by asking the remote whether
+  # it publishes a branch of this installation's name.
+  #
+  # CUT WHERE THE REMOTE PUBLISHES NONE. The branch is named for this run's domain, and the row says
+  # WHICH answer holds that name. The value is never substituted into this file: git_branch reads
+  # the answer called "fqdn" out of the run, which is the same answer every stamp below reads. It
+  # cuts and never moves — a name that already exists is refused rather than thrown away — which is
+  # exactly why the other half of this pair exists.
+  - step: git_branch
+    when: [install_branch_unpublished]
+    repository: /srv/hostyour-cloud
+    base: master
+    name_answer: fqdn
+    on_failure: exit
+
+  # AND STOOD ON WHERE IT DOES, at the tip the remote publishes. Without this row an installation
+  # that already stands cannot be written again at all: in an installation it is deploy-host that
+  # places the checkout, on the branch it was answered with, while the install branch moves without
+  # the machine — a platform release writes its `release:` line into it from somewhere else, and the
+  # manager's release writes image pins into it. So the machine stands behind its own branch, the
+  # gate below refuses a push that would not fast-forward, and the run stops before it has fetched
+  # anything.
+  #
+  # IT BRINGS THE BRANCH ITSELF. A checkout resolves origin/<branch> to whatever it last saw, and to
+  # nothing at all for a branch it has never fetched, so bringing it is part of standing on it
+  # rather than a row somebody has to remember.
+  - step: git_checkout_branch
+    when: [install_branch_published]
+    repository: /srv/hostyour-cloud
+    remote: origin
+    name_answer: fqdn
+    on_failure: exit
+
   # The name of the remote is stated rather than known: git gives a clone's remote the name "origin"
   # and a checkout made another way carries whatever name was chosen, so the step is told which one
   # this checkout holds.
   #
+  # IT NAMES THE BRANCH THIS RUN PRODUCES, in both acts, and it stands AFTER the spine for a reason
+  # that is in the step: the proof is `git push --dry-run <remote> <branch>` with a LOCAL ref name,
+  # so it cannot name a branch this checkout does not hold yet. A branch the remote does not publish
+  # is the ordinary create case git accepts, so one row serves the birth and the regeneration alike.
+  #
   # AND IT DOES NOT ANSWER ON ITS OWN, which is what the line below says. The credential it presents
-  # is written by the row above, and a dry run writes nothing — so in a dry run the gate cannot be
+  # is written by a row above, and a dry run writes nothing — so in a dry run the gate cannot be
   # reached at all and the record stamps it declared rather than proven. In a real run it is
   # enforced in full, and a real run is admitted only where a dry one came back green.
   - step: require_pushable_remote
     rests_on_an_earlier_step: true
     repository: /srv/hostyour-cloud
     remote: origin
-    branch: master
+    branch_answer: fqdn
     on_failure: exit
 
-  # The branch is named for this run's domain, and the row says WHICH answer holds that name. The
-  # value is never substituted into this file: git_branch reads the answer called "fqdn" out of the
-  # run, which is the same answer every stamp below reads.
-  - step: git_branch
-    repository: /srv/hostyour-cloud
-    base: master
-    name_answer: fqdn
-    on_failure: exit
-
-  # THE STATE THE BRANCH IS BORN ON, brought into it before the first stamp. The branch is cut from
-  # master, which is whatever the clone happened to bring; these two rows put the release this run
-  # was answered with into it, so the `release:` line the map gets thirty rows down names a state
-  # the branch actually carries. `git merge-base --is-ancestor <platform_ref> HEAD` is what says so.
+  # THE STATE THIS RUN PUTS THE BRANCH ON, brought into it before the first stamp, and the same two
+  # rows in both acts. A branch just cut carries whatever master the clone happened to bring; one
+  # that already stood carries what it was last brought to. These two rows put the release this run
+  # was answered with into it either way, so the `release:` line the map gets thirty rows down names
+  # a state the branch actually carries. `git merge-base --is-ancestor <platform_ref> HEAD` is what
+  # says so.
+  #
+  # MERGED AND NEVER RESET, which is what makes this safe on a branch that has been lived on.
+  # Everything only the branch has is kept — the books above all — everything only the named state
+  # has comes in, and exactly the overlaps stop the run as conflicts with their paths named.
   #
   # WHAT THIS DOES NOT PROMISE, and the pin is written as if it did: the branch may also carry what
   # master gained after the tag was minted. git_merge_ref reports that state satisfied — it asks
@@ -570,9 +673,9 @@ steps:
   #
   # THE FETCH IS SEPARATE AND COMES FIRST because a ref this checkout has never fetched resolves to
   # nothing, and the merge would then refuse with a message about the name while the cause was only
-  # that the checkout was behind. Both rest on an earlier step: in test and dry the branch has not
-  # been cut and the tag has not been fetched, and without the line neither row would ever come back
-  # green in a mode that changes nothing.
+  # that the checkout was behind. Both rest on an earlier step: in test and dry the branch has been
+  # neither cut nor stood on and the tag has not been fetched, and without the line neither row
+  # would ever come back green in a mode that changes nothing.
   - step: git_fetch
     rests_on_an_earlier_step: true
     repository: /srv/hostyour-cloud
@@ -949,7 +1052,11 @@ steps:
     # that produces is not a quiet omission but a run that stages the names before the stale one,
     # dies on it and stops there: files written, nothing recorded, nothing pushed.
     paths: [clusters, configs, installation]
-    message: "Generate this installation from the answers the run was given"
+    # ONE SENTENCE FOR BOTH ACTS, and it says nothing about which of the two this run was, because
+    # one message cannot say both and a message that guessed would be wrong half the time. What
+    # tells them apart in the record is the verdict of the two spine rows above: exactly one of them
+    # ran and the other is skipped.
+    message: "Write this installation from the answers the run was given"
     on_failure: exit
 
   # AND SENT, because until it lands the work is on one machine. The step reads the postcondition

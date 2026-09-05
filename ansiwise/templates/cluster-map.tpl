@@ -27,10 +27,10 @@ booksCluster: <books-cluster>
 # this line off the map and hands it back as the ref it merges, so the field and the branch state
 # are one statement and "this cluster runs platform X" is a question with an answer.
 #
-# WRITTEN AT BIRTH AND NEVER CARRIED. Both runs that render this file are answered with the state
-# they bring the branch to — deploy-branch fetches and merges it into the branch it has just cut,
-# regenerate-branch into the branch that already stands — so the run that writes this line is the
-# run that made it true. The slot is required: a map naming no release is one the Manager cannot
+# WRITTEN ON EVERY RUN AND NEVER CARRIED. The one run that renders this file is answered with the
+# state it brings the branch to — deploy-branch fetches and merges it, into the branch it has just
+# cut or into the one that already stands — so the run that writes this line is the run that made it
+# true. The slot is required: a map naming no release is one the Manager cannot
 # regenerate and cannot give a slave, and the run that would leave it empty is refused instead.
 release: <release>
 
