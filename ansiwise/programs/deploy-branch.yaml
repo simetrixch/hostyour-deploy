@@ -81,6 +81,11 @@ defaults:
   # installation shares — the member charts of the tenant catalog — and retargeting those would
   # point them at a branch that does not carry them.
   keep_marker: set-domain:keep
+  # The branch no stamp may run on. A checkout standing on it is the source every installation is cut
+  # from and not one installation, so a stamp there would write one installation's domain into the
+  # tree all of them are cut from. It is stated here rather than on the row because it is a fact
+  # about the tree, the same as the marker above it, and a row added below inherits it.
+  refuse_on_branch: master
   # Which directories of this tree hold product material rather than installation state. A segment
   # and not a prefix, so a chart's templates/ several levels down is excluded like one at the top.
   excluded_segments: [docs, scripts, templates]
@@ -689,16 +694,16 @@ steps:
     ref_answer: platform_ref
     on_failure: exit
 
-  # What the rows of this step share — the marker that exempts a line and the three exclusion lists —
-  # stands in the defaults block at the head of this file, and so does the answer a row naming none
-  # of its own reads. What is HERE is what tells one row from another.
+  # What the rows of this step share — the branch no stamp may run on, the marker that exempts a line
+  # and the three exclusion lists — stands in the defaults block at the head of this file, and so
+  # does the answer a row naming none of its own reads. What is HERE is what tells one row from
+  # another.
   #
   # The domain the source branch carries in place of an installation's own, anywhere in the checkout. It
   # names no tree and no key, and both are left OUT rather than written as empty: the whole checkout
   # and "the literal is itself the value" are the off states of those two, not values of them.
   - step: stamp_placeholder_in_tracked_files
     repository: /srv/hostyour-cloud
-    refuse_on_branch: master
     placeholder: example.invalid
     on_failure: exit
 
