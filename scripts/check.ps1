@@ -124,7 +124,12 @@ if ($status -ne 0) { Stop-Check "dart test $suite in $($cli.FullName)" }
 # and dart test still exits 0. That is honest of the suite, because a clone standing alone has no
 # programs to judge. Here the suite was pointed at this tree, so a skip means these programs were
 # never bound to anything.
-if ($output -match 'All tests skipped' -or $output -match 'Skip:') {
+#
+# `-clike` AND NOT `-match`, because the shell twin decides this with a `case` glob. PowerShell's
+# `-match` is a case-insensitive regular expression and differs from that glob twice over, so a
+# phrase spelt in another case, or a phrase that gained a regex character, makes the two spellings of
+# this check take different branches on the same input.
+if ($output -clike '*All tests skipped*' -or $output -clike '*Skip:*') {
   Stop-Check "dart test $suite skipped its tests, so no program was bound to the shipped registry"
 }
 
