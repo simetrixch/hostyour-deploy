@@ -897,30 +897,78 @@ steps:
       BUILD_CATALOG_REPO_PAT: { answer: build_catalog_repo_write_pat }
     on_failure: exit
 
-  # THE TWO MARKERS THAT HAD NO WRITER — __CLUSTER_NAME__ and __BOOKS_NAME__. Each of them needed a
-  # value no answer carried: the first label of a domain. The trunk still says of them "NOTHING
-  # fills this — the short name is not an answer of the branch program", and that stopped being true
-  # when the framework learned to work an answer out from another. `cluster_name` and `books_name`
-  # are derived, before the first step and inside the fingerprint, so nobody types a short name that
-  # its own domain contradicts.
+  # THE SEVEN BOOTSTRAP MANIFESTS THAT NAME THIS INSTALLATION, rendered from the templates standing
+  # beside them on the branch. deploy-platform-services reads each rendered file; none of the seven
+  # exists on a machine until these rows write it.
   #
-  # ONE LITERAL FOR ONE VALUE. The short name of this cluster gets exactly one marker in the tree
-  # this stamps: two spellings of which one is a substring of the other let whichever is stamped
-  # first eat the other halfway through, leaving a name nothing wrote.
-  - step: stamp_placeholder_in_tracked_files
-    repository: /srv/hostyour-cloud
-    refuse_on_branch: master
-    placeholder: __CLUSTER_NAME__
-    value_answer: cluster_name
-    tree: clusters/bootstrap
+  # THE TEMPLATE IS NAMED ABSOLUTELY AND STANDS IN THE PLATFORM CHECKOUT, not beside these programs.
+  # Every other template of this catalogue ships with the programs and is the same on every
+  # installation; these seven are the platform's own manifests with their per-installation values
+  # taken out, so they travel and are versioned with the tree they belong to.
+  #
+  # THE SLOTS ARE BOUND ONE BY ONE AND NOT BY NAME. A slot nothing fills and a value with no slot are
+  # both refused by the engine, together, so a template that gains a slot stops the run that does not
+  # bind it rather than writing angle brackets into a manifest for a chart to read as a value.
+  - step: write_file_from_template
+    template: /srv/hostyour-cloud/clusters/bootstrap/argocd/ingressroute.tpl
+    path: /srv/hostyour-cloud/clusters/bootstrap/argocd/ingressroute.yaml
+    # 420 — a manifest the reconciler and the installer both read.
+    file_mode: 420
+    values:
+      fqdn: { answer: fqdn }
     on_failure: exit
 
-  - step: stamp_placeholder_in_tracked_files
-    repository: /srv/hostyour-cloud
-    refuse_on_branch: master
-    placeholder: __BOOKS_NAME__
-    value_answer: books_name
-    tree: clusters/bootstrap
+  - step: write_file_from_template
+    template: /srv/hostyour-cloud/clusters/bootstrap/argocd/values.tpl
+    path: /srv/hostyour-cloud/clusters/bootstrap/argocd/values.yaml
+    file_mode: 420
+    values:
+      fqdn: { answer: fqdn }
+    on_failure: exit
+
+  # THE ONE THAT NEEDS THE SHORT NAMES. `cluster_name` and `books_name` are the first label of a
+  # domain, derived before the first step and inside the fingerprint, so nobody types a short name
+  # that its own domain contradicts.
+  - step: write_file_from_template
+    template: /srv/hostyour-cloud/clusters/bootstrap/headlamp/values.tpl
+    path: /srv/hostyour-cloud/clusters/bootstrap/headlamp/values.yaml
+    file_mode: 420
+    values:
+      fqdn: { answer: fqdn }
+      cluster-name: { answer: cluster_name }
+      books-name: { answer: books_name }
+    on_failure: exit
+
+  - step: write_file_from_template
+    template: /srv/hostyour-cloud/clusters/bootstrap/headlamp/ingressroute.tpl
+    path: /srv/hostyour-cloud/clusters/bootstrap/headlamp/ingressroute.yaml
+    file_mode: 420
+    values:
+      fqdn: { answer: fqdn }
+    on_failure: exit
+
+  - step: write_file_from_template
+    template: /srv/hostyour-cloud/clusters/bootstrap/idp/idp-bootstrap-env.tpl
+    path: /srv/hostyour-cloud/clusters/bootstrap/idp/idp-bootstrap-env.yaml
+    file_mode: 420
+    values:
+      fqdn: { answer: fqdn }
+    on_failure: exit
+
+  - step: write_file_from_template
+    template: /srv/hostyour-cloud/clusters/bootstrap/idp/ingressroute.tpl
+    path: /srv/hostyour-cloud/clusters/bootstrap/idp/ingressroute.yaml
+    file_mode: 420
+    values:
+      fqdn: { answer: fqdn }
+    on_failure: exit
+
+  - step: write_file_from_template
+    template: /srv/hostyour-cloud/clusters/bootstrap/vault/ingressroute.tpl
+    path: /srv/hostyour-cloud/clusters/bootstrap/vault/ingressroute.yaml
+    file_mode: 420
+    values:
+      fqdn: { answer: fqdn }
     on_failure: exit
 
   # WHICH AUTHORITY EVERY CERTIFICATE OF THIS INSTALLATION IS ISSUED BY, written into the values
