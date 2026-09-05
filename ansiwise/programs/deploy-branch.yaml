@@ -390,7 +390,7 @@ answers:
   # key that is still empty.
   #
   # WHAT THAT COSTS AT A BIRTH: a first installation that omits
-  # one is no longer refused when its answers are read. platform_repo_write_pat is still refused
+  # one is not refused when its answers are read. platform_repo_write_pat is still refused
   # inside this program, at the row that makes the checkout able to push, naming this answer. The
   # other six are refused wherever they are first read, which is not here.
   - name: platform_repo_write_pat
@@ -834,7 +834,7 @@ steps:
   # each key under the paragraph of the template that says what to obtain and where. Writing every
   # key from this run's answers would put back a credential somebody rotated by hand.
   #
-  # WHAT THAT COSTS, said here rather than left to be found: an answer given to a LATER run does not
+  # WHAT THAT COSTS: an answer given to a LATER run does not
   # reach a key that already holds something. Changing a credential of a running installation is an
   # edit to this file, not a different answer to a re-run.
   #

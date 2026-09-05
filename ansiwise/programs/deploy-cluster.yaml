@@ -513,13 +513,11 @@ steps:
     rollout_timeout_seconds: 90
     on_failure: continue
 
-  # NOTHING SWITCHES THE DISTRIBUTION'S OWN REGISTRY ADDON OFF HERE, and it is worth saying why so
-  # that the row does not come back.
+  # NOTHING SWITCHES THE DISTRIBUTION'S OWN REGISTRY ADDON OFF HERE, AND A ROW THAT DID WOULD HAVE
+  # NOTHING TO DO AND NO WAY TO PROVE IT.
   #
-  # It stood here because this platform brings its own registry and two of them on one machine is one
-  # too many. It never had anything to do: the distribution does not switch that addon on by itself
-  # and no step of this program switches it on either, so on every machine it has ever run it was
-  # already off.
+  # It would have nothing to do because the distribution does not switch that addon on by itself and
+  # no step of this program switches it on either, so on a machine this program has run it is off.
   #
   # AND AFTER THE PLATFORM STANDS, IT CANNOT BE MEASURED. The distribution decides whether an addon is
   # on by looking for a TEXT — `deployment.apps/registry` — in the output of one listing of everything
@@ -945,8 +943,8 @@ steps:
   # THE ENGINE THIS PROGRAM IS RUNNING IN IS ASSERTED BELOW AND FETCHED NOWHERE, and the two halves
   # of that are decided by different things.
   #
-  # It is ASSERTED because it can be asked. The binary answers --version with its release tag
-  # (ansiwise-cli#7), so a machine whose engine drifted off the pin is a fact this program can
+  # It is ASSERTED because it can be asked. The binary answers --version with its release tag,
+  # so a machine whose engine drifted off the pin is a fact this program can
   # state, which is why the entry stands in the assert row below.
   #
   # It is FETCHED NOWHERE because /usr/local/bin/ansiwise has ONE writer, and it is not this

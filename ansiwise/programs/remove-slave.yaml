@@ -18,8 +18,8 @@
 # EVERY DESTRUCTIVE ROW IS ARMED. The entry removal is the metadata delete — every version at once,
 # which is what lets the same name onboard clean later — and each of the three steps behind it
 # proves absence rather than assuming it: an answer nobody can read blocks the row instead of
-# passing for "already gone". The two refusals that keep working things working are carried from
-# the shell this replaces: the master's role list is never written empty (that would refuse every
+# passing for "already gone". Two refusals keep working things working:
+# the master's role list is never written empty (that would refuse every
 # platform secret reader at once), and the reconciler project is deleted ONLY where it carries the
 # hostyour.cloud/slave label — a platform project or a unit's own that merely shares the name is
 # refused, and the run carries on past both refusals because neither is this slave's removal

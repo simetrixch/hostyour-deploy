@@ -95,8 +95,8 @@ elevation:
 # It is a slot and not a written-out name because an installation's configuration is read ONCE,
 # before a program is resolved, and it holds no answers: `stage` is an answer, supplied per run. A
 # binding naming one stage literally is therefore right on exactly one kind of installation and
-# refuses every other before its first step — which is what stood here, and what made two of the
-# three stages this product ships unable to run deploy-platform-services at all.
+# refuses every other before its first step, leaving two of the three stages this product ships
+# unable to run deploy-platform-services at all.
 #
 # WHY IT MUST ALREADY BE THERE. Every condition of a program is measured once, before the first step
 # runs — with the run's answers in hand (ansiwise-core engine/runner.dart `_measure`), which is what

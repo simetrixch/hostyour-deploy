@@ -67,8 +67,8 @@ defaults:
   # Nothing here runs through a shell, and a non-interactive one would not load the alias anyway —
   # so a row starting `helm` starts a command that is not a command.
   #
-  # Found on a real machine: the row at the head of this file demanded `helm`, the alias was there,
-  # the gate passed, and the first release would have failed with a message about a chart repository.
+  # A row at the head of this file demanding `helm` passes its gate on a machine where the alias is
+  # there, and the first release then fails with a message about a chart repository.
   helm_command: [microk8s, helm3]
   # AND THE SNAP THAT CARRIES IT REFUSES THE ACCOUNT THIS RUN STARTED AS. The command above is the
   # same one `microk8s config` is asked through: it admits the `microk8s` group and nobody else, and
@@ -305,12 +305,12 @@ steps:
   # against a controller that is not serving yet is refused by the webhook this chart brings, and that
   # webhook is the last part of the release to answer.
   #
-  # WAITING FOR THE DEPLOYMENT'S `Available` CONDITION WAS NOT THAT, and the gap is measurable rather
-  # than theoretical. Measured on a real installation: the container serves the webhook on 6443 and is
-  # probed for readiness on 6060, the Service maps 443 to 6443, and the condition turns True as soon
-  # as the pod is Ready - which is a statement about 6060. The API server then dialled 6443 and was
-  # answered `connection refused`, and because the webhook declares `failurePolicy: Fail` the window
-  # was not a delay but a refused object and a stopped run.
+  # WAITING FOR THE DEPLOYMENT'S `Available` CONDITION IS NOT THAT, and the gap is measurable rather
+  # than theoretical: the container serves the webhook on 6443 and is probed for readiness on 6060,
+  # the Service maps 443 to 6443, and the condition turns True as soon as the pod is Ready - which is
+  # a statement about 6060. The API server dialling 6443 inside that window is answered
+  # `connection refused`, and because the webhook declares `failurePolicy: Fail` the window is not a
+  # delay but a refused object and a stopped run.
   #
   # SO THIS ASKS FOR THE ONE THING THE NEXT ROW NEEDS: that a Bundle is admitted. A server-side dry run
   # writes nothing and is refused by exactly what would refuse the real apply, so this cannot pass
@@ -1175,10 +1175,10 @@ steps:
   # that renders the manager materializes a private key and a host-key fingerprint out of
   # <stage>/manager-host/ssh, and neither source that step has can supply them: the hand-filled
   # input is a file of single-line assignments, so it cannot hold a private key, and `mint` makes a
-  # random value rather than a key pair whose two halves match. So the entry stood empty, the secret
-  # behind it was never materialized, and what the manager could not do was reach this host over
-  # SSH — which is the path its deploy-slave run takes, and therefore the reason it could not add a
-  # cluster to this installation.
+  # random value rather than a key pair whose two halves match. Without this row the entry stands
+  # empty, the secret behind it is never materialized, and the manager cannot reach this host over
+  # SSH — which is the path its deploy-slave run takes, so it cannot add a cluster to this
+  # installation.
   #
   # THE PAIR IS MINTED ONCE AND NEVER AGAIN. Its public half stands in the authorized_keys file of
   # every machine the manager reaches, and a second pair written over the first would leave the
