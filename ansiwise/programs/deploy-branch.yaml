@@ -797,30 +797,26 @@ steps:
     run_answer: stage
     file_mode: 420
     subject: configuration
+    # ONE FACT, ONE PLACE. A fact this run also writes into clusters/active/<fqdn>.yaml is not
+    # written here as well: the map is the record, nothing compares the two copies, and a second
+    # copy is one more place every later answer has to reach.
     values:
-      DEPLOY_ENV: { answer: stage }
       # THE WHOLE DOMAIN OF THIS CLUSTER, under one key. It is not the SHORT name the reconciler's
       # selectors match on: that one is `clusterName` in the cluster map, a different value in a
       # different file for a different reader, and the two are never the same string.
       CLUSTER_FQDN: { answer: fqdn }
-      LETSENCRYPT_EMAIL: { answer: letsencrypt_email }
       CLUSTER_ISSUER: { answer: cluster_issuer }
-      # Several mailboxes on one line, because that is the shape this file has always had and what
-      # reads it splits on the comma.
-      ALERT_RECIPIENTS: { answer: alert_recipients, join: "," }
-      UNIT_APEX: { answer: unit_apex }
-      PLATFORM_DOMAIN: { answer: platform_domain }
       # THE CLUSTER THAT KEEPS THE BOOKS, from the SAME answer the map's own `books-cluster` is
       # written from, so the two files cannot come to say it apart. It reaches a slave by being
       # copied whole with the rest of this file, which is what makes it a slave's statement that
       # the books are elsewhere.
       BOOKS_CLUSTER: { answer: books_fqdn }
       BUILD_PLANE_FQDN: { answer: build_plane_fqdn }
-      CATALOG_REPO: { answer: catalog_repo }
-      # THE PROGRAMS' OWN REPOSITORY, which the row that clones the catalogue reads out of this
-      # file. It is written beside catalog_repo and not merged with it: one names an
-      # installation's charts and is private, the other names the platform's programs and is
-      # public, and a single key for both would clone one where the other is meant.
+      # THE PROGRAMS' OWN REPOSITORY, which the row of deploy-platform-services that clones the
+      # catalogue reads out of this file by name. It is not the same repository as the map's
+      # `catalogRepo`: one names the platform's programs and is public, the other names an
+      # installation's charts and is private, and one key for both would clone one where the other
+      # is meant.
       DEPLOY_REPO: { answer: deploy_repo }
     on_failure: exit
 
