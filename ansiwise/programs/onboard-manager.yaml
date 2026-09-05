@@ -1,23 +1,18 @@
 # THE PLATFORM'S OWN MANAGER, ONBOARDED AS A CONSUMER — by the Manager, over the route every
 # other consumer takes, so that nothing about this one unit is a mechanism of its own.
 #
-# WHY IT IS NOT RENDERED FROM A TEMPLATE. Rendering the Manager's registration out of deploy-branch
-# would make a SECOND writer of
-# registrations/** over a tree whose only writer is the Manager itself: two hands on one file
-# with nothing arbitrating, and the installer's hand rewriting the Manager's on every re-run —
-# and deploy-branch runs again on every regeneration, so "at install time" is not once.
-# That program names no registrations/ path, down to the directory list its commit row
-# carries. This run is what puts
-# registrations/hostyour-manager/build.yaml there, and its builds[] — manager, gate-runner, dbtools —
-# come out of the unit's own deploy/platform.yaml, which is the same list the release pipeline holds
-# the registration against.
+# THE MANAGER IS THE ONLY WRITER OF registrations/**, and this run is how a registration gets there.
+# deploy-branch names no registrations/ path, down to the directory list its commit row carries, and
+# it runs again on every regeneration — so a registration rendered from a template there would be a
+# second hand on one file, rewriting the Manager's on every re-run with nothing arbitrating. What
+# this run puts there is registrations/hostyour-manager/build.yaml, and its builds[] — manager,
+# gate-runner, dbtools — come out of the unit's own deploy/platform.yaml, which is the same list the
+# release pipeline holds the registration against.
 #
-# WHY IT IS NOT A SECOND MECHANISM EITHER. This program re-implements nothing. It sends ONE request
-# that creates an onboarding run, approves that run, and watches it settle — the same three acts a
-# person performs in the wizard, against the same addresses, through the same chokepoint, the same
-# audit and the same executor. Every step of the onboarding itself is the Manager's own, in its
-# own order, and this file knows none of them. A program that spelled those steps out as rows would
-# be exactly the unit-only path that is forbidden.
+# THE ROWS BELOW SPELL OUT NO STEP OF THE ONBOARDING. They send ONE request that creates an
+# onboarding run, approve it, and watch it settle. The onboarding's own steps are the Manager's, in
+# its order, and a program that wrote them out as rows would be the unit-only path this program
+# exists to avoid.
 #
 # WHERE IT RUNS AND WHEN. On the MASTER, after the Manager is serving: it is the Manager that
 # is being asked to do the work, so it has to be up before the first row. It runs on the machine

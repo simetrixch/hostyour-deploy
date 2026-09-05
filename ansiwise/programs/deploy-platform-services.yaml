@@ -2031,9 +2031,8 @@ steps:
   # — the binary, the catalogue and the platform checkout are found standing and only the service is
   # placed — and it measures the service by what the UNIT STARTS, so a machine met at a moved pin has
   # its unit written again instead of being reported on the new version while it starts the old file.
-  # A master carries no such step: at its first installation it is reached by ansiwise-client, which
-  # places the binary and nothing else. So the arrangement above is that ONE list's, and on a master
-  # the switch is still somebody's to throw.
+  # A master carries no such step, so the arrangement above is that ONE list's, and on a master the
+  # switch is still somebody's to throw.
 
   # --- the reconciler -------------------------------------------------------------------------
   #

@@ -11,8 +11,7 @@
 # a branch cut fresh over one that is published shares no history with it, and the push at the foot
 # of that run is refused as a non-fast-forward. The two spines are the two rows gated on
 # install_branch_published and install_branch_unpublished, and every other row is the same row in
-# both acts. That is why they are one file: sixteen of them were identical in two, and a fix typed
-# into one was not typed into the other.
+# both acts.
 #
 # WHAT A REGENERATION KEEPS, AND WHY IT IS A MERGE. An install branch holds two kinds of bytes: what
 # came from the product at the last state it was brought to, and what was written onto the branch
@@ -385,7 +384,7 @@ answers:
   # here would be the operator typing a credential the machine already has. Give one only to fill a
   # key that is still empty.
   #
-  # WHAT THAT COSTS AT A BIRTH, said rather than left to be found: a first installation that omits
+  # WHAT THAT COSTS AT A BIRTH: a first installation that omits
   # one is no longer refused when its answers are read. platform_repo_write_pat is still refused
   # inside this program, at the row that makes the checkout able to push, naming this answer. The
   # other six are refused wherever they are first read, which is not here.
@@ -760,8 +759,8 @@ steps:
       cluster-issuer: { answer: cluster_issuer }
       letsencrypt-email: { answer: letsencrypt_email }
       letsencrypt-server: { answer: letsencrypt_server }
-      # Several mailboxes on one line, because that is the shape this file has always had.
-      # SEPARATED THE WAY THE TEMPLATE WRITES A LIST, and that is not the same as a comma.
+      # Several mailboxes on one line, SEPARATED THE WAY THE TEMPLATE WRITES A LIST, which is not
+      # the same as a comma.
       # The slot stands inside `['...']`, so a plain ", " puts BOTH mailboxes inside one pair
       # of quotes: measured, two answers render as ['a@x.ch, b@x.ch'] — one entry carrying a
       # comma, which the alert route reads as a single malformed mailbox. It is invisible today
@@ -769,9 +768,9 @@ steps:
       alert-recipients: { answer: alert_recipients, join: "', '" }
       catalog-repo: { answer: catalog_repo }
       mail-url: { answer: mail_url }
-      # The short name, its two registry accounts and the two placement facts. Every one of them
-      # is a slot of the template and none of them was here: the map gained them and the row that
-      # fills it did not, so the run refused with the names it could not fill.
+      # The short name, its two registry accounts and the two placement facts. This row binds every
+      # slot the map template carries: a slot it does not bind refuses the run by name, and a
+      # binding with no slot is refused the same way.
       cluster-name: { answer: cluster_name }
       registry-pull-user: { answer: registry_pull_user }
       registry-push-user: { answer: registry_push_user }
