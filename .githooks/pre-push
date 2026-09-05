@@ -1,161 +1,26 @@
 #!/usr/bin/env bash
-# What may leave this checkout.
+# NOT A GATE. The push gate of every repository of this organisation is one file, simetrix-gh's
+# hooks/pre-push, and this finds it and hands it git's own standard input unread. Nothing is
+# decided here, so this file cannot come to a different verdict than the one beside it in the
+# next repository.
 #
-# Installed once per clone with:
+# Installed once per clone with:  git config core.hooksPath .githooks
 #
-#   git config core.hooksPath .githooks
+# THE NEIGHBOURHOOD IS MEASURED FROM THE MAIN CHECKOUT, NOT FROM THIS TREE. Work is done in a
+# worktree under `../.worktrees/<repo>/`, and the only thing standing beside a worktree is
+# another worktree. `--git-common-dir` points into the main checkout's `.git` from a worktree as
+# well as from the checkout itself, so one line answers for both.
 #
-# It judges ONLY the commits this push actually sends, in this order:
-#
-#   1. the pushed commit is the one that is checked out
-#   2. every pushed commit names its issue, or says why it does not
-#   3. the three team modes are installed
-#   4. scripts/check.sh is green
-#
-# WHY THE PUSHED COMMITS AND NOT THE BRANCH. A hook that read the whole branch would judge somebody
-# else's commits on every push, and a hook that read only HEAD would let everything under it
-# through. git hands this hook one line per ref on standard input:
-#
-#   <local ref> <local sha> <remote ref> <remote sha>
-#
-# and `<remote sha>..<local sha>` is exactly what the remote does not have yet.
-#
-# MERGES ARE LEFT OUT. A merge commit carries no change of its own. Its subject is generated and
-# names no issue, and refusing it would refuse every merge that ever happens.
-#
-# A DELETION RUNS NO CHECKS. An all-zero LOCAL sha is a ref being removed. There is no commit to
-# judge and no tree to test, so a push that only deletes goes through.
-
-set -uo pipefail
-# Git exports GIT_DIR, GIT_WORK_TREE and GIT_INDEX_FILE to a hook. A check that starts git itself in
-# a temporary directory - a test that runs git init and git remote add - would then act on THIS
-# repository instead of its own. Git started this hook in the tree being pushed, so every git call
-# below finds the repository by the working directory and nothing needs the variables.
-unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_PREFIX GIT_COMMON_DIR
-
-root="$(git rev-parse --show-toplevel)"
-head="$(git rev-parse HEAD)"
-
-refuse() { echo "pre-push: REFUSED — $*" >&2; exit 1; }
-
-# An all-zero sha is read by its digits and not compared with a written-out constant, because git
-# writes as many digits as the repository's hash has and a repository is not always SHA-1.
-is_zero() { case "$1" in *[!0]*) return 1 ;; *) return 0 ;; esac; }
-
-# Every commit this push sends, across every ref on standard input.
-commits=''
-pushing=0
-while read -r local_ref local_sha remote_ref remote_sha; do
-  [ -n "${local_sha:-}" ] || continue
-  is_zero "$local_sha" && continue                     # a deletion sends no commit
-  pushing=1
-
-  # Work stays on master and is pushed by ref: `git push origin HEAD:master`. A local sha that is
-  # not HEAD means the tree the checks are about to run in is not the tree being sent.
-  [ "$local_sha" = "$head" ] \
-    || refuse "$local_ref is not what is checked out - push what you have: git push origin HEAD:${remote_ref##*/}"
-
-  if is_zero "${remote_sha:-}"; then
-    found="$(git rev-list --no-merges "$local_sha")"
-  else
-    # A remote sha this checkout does not carry cannot be measured from. git rev-list would fail,
-    # `found` would be empty, and a forced push over an unfetched remote would reach the end of
-    # this hook with no commit read at all.
-    git cat-file -e "${remote_sha}^{commit}" 2>/dev/null \
-      || refuse "the commit $remote_sha that $remote_ref points at is not in this checkout, so the commits being pushed cannot be listed - run git fetch, then push again"
-    found="$(git rev-list --no-merges "$remote_sha..$local_sha")"
-  fi
-  commits="$commits$found"$'\n'
-done
-
-# Nothing to send, or nothing but deletions: there is nothing to judge and nothing to test.
-[ "$pushing" -eq 1 ] || exit 0
-commits="$(printf '%s\n' "$commits" | grep -v '^$' || true)"
-if [ -z "$commits" ]; then
-  echo 'pre-push: nothing new to send.'
-  exit 0
-fi
-
-# WHAT EXCUSES A COMMIT FROM NAMING AN ISSUE, and why each one is here:
-#
-#   a release stamp        the subject opens with `release:`; a version bump belongs to no issue
-#   an explanation only    every file it touches is a `*.md` or a LICENSE; a typo in a document is
-#                          not worth a ticket, and requiring one is how documents stop being
-#                          corrected
-#   a No-issue: trailer    somebody wrote down who asked and why there is no ticket. It is a
-#                          sentence a reviewer reads, not a way around the rule
-#
-# The name is read without its folders, because the rule is about the file and not about where it
-# stands: docs/LICENSE explains as much as LICENSE does. LICENSE* is one pattern, so LICENSE-MIT
-# and LICENSE.txt are both a licence.
-explains_only() {  # explains_only <sha>
-  local files file
-  files="$(git show --pretty=format: --name-only "$1" | grep -v '^$' || true)"
-  [ -n "$files" ] || return 1
-  while IFS= read -r file; do
-    case "${file##*/}" in
-      *.md|LICENSE*) ;;
-      *) return 1 ;;
-    esac
-  done <<< "$files"
-  return 0
-}
-
-unnamed=0
-while IFS= read -r sha; do
-  [ -n "$sha" ] || continue
-  message="$(git log -1 --format='%B' "$sha")"
-  subject="$(git log -1 --format='%s' "$sha")"
-
-  case "$message" in *'#'[0-9]*) continue ;; esac
-  case "$subject" in 'release:'*) continue ;; esac
-  # A REAL TRAILER WITH A REAL REASON. The words have to open a line of their own and something
-  # has to follow them: `No-issue:` alone names nobody, and the same words inside a sentence in the
-  # body are prose, not a trailer a reviewer can read.
-  if printf '%s\n' "$message" | grep -Eq '^No-issue:[[:space:]]*[^[:space:]]'; then continue; fi
-  if explains_only "$sha"; then continue; fi
-
-  echo "pre-push: $(git log -1 --format='%h %s' "$sha") names no issue" >&2
-  unnamed=$((unnamed + 1))
-done <<< "$commits"
-
-[ "$unnamed" -eq 0 ] \
-  || refuse "$unnamed commit(s) name no issue. Write #<number> in the message, open the subject with 'release:', touch only files that explain, or add a 'No-issue: <who asked and why>' trailer."
-
 # THE TOOLING CHECKOUT IS FOUND BY NAME, WITHOUT CASE. A checkout is regularly cased differently
 # from the repository it came from, and an exact match reports a present one as absent.
-#
-# IT STANDS BESIDE THE MAIN CHECKOUT, and this hook also runs from a worktree. An issue is worked in
-# a worktree under ../.worktrees/<repo>/, whose own parent directory holds nothing but other
-# worktrees, so a search beside the working tree finds no tooling there. The common git directory is
-# the main checkout's .git from either place, and it is what the neighbourhood is measured from.
-common="$(git rev-parse --git-common-dir)"
-case "$common" in
-  /*|[A-Za-z]:*) ;;
-  *) common="$root/$common" ;;
-esac
-main_checkout="$(cd "$common/.." && pwd)"
-tooling=''
-for entry in "$main_checkout"/../*; do
+set -uo pipefail
+main="$(cd "$(git rev-parse --git-common-dir)/.." && git rev-parse --show-toplevel)"
+for entry in "$(dirname "$main")"/*; do
   [ -d "$entry" ] || continue
   [ "$(printf '%s' "${entry##*/}" | tr '[:upper:]' '[:lower:]')" = 'simetrix-gh' ] || continue
-  tooling="$(cd "$entry" && pwd)"
-  break
+  [ -f "$entry/hooks/pre-push" ] \
+    || { echo "pre-push: REFUSED — $entry/hooks/pre-push is missing, so nothing judged this push." >&2; exit 1; }
+  exec bash "$entry/hooks/pre-push" "$@"
 done
-[ -n "$tooling" ] \
-  || refuse "no simetrix-gh checkout beside $main_checkout - the team-modes check lives there, and no work starts without the three modes"
-
-# THE CHECK IS CALLED EVEN WHERE IT IS NOT THERE, and its path is named. A hook that stepped over a
-# missing script would go green on the machine where the tooling was never fetched, which is the
-# machine the three modes are most likely missing on.
-modes="$tooling/bin/team-modes-check.sh"
-[ -f "$modes" ] \
-  || refuse "$modes is missing - it is the check that says whether the three team modes are installed, and no work starts without them"
-
-# Started through bash rather than by its own executable bit, which a clone on a filesystem that
-# does not carry one does not have. It runs loud: the refusal below sends the person to the lines
-# above it, and those lines are the MISSING line and the install command the check itself prints.
-bash "$modes" \
-  || refuse 'the team modes are missing - the lines above say which and how to install them'
-
-bash "$root/scripts/check.sh" || exit 1
+echo "pre-push: REFUSED — no simetrix-gh checkout stands beside $main, and the push gate of every repository lives there, at hooks/pre-push." >&2
+exit 1
