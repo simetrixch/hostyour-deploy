@@ -22,9 +22,10 @@ steps:
   #
   # What each is for: `apt-get` and `dpkg-query` are the package manager the install step drives;
   # `nproc` and `df` answer the size and disk gates; `getent` and `sshd` decide whether a key login
-  # would work; `stat` reads the mode of the key file.
+  # would work; `stat` reads the mode of the key file; `systemctl` and `timedatectl` are how the
+  # clock rows below reach the service manager and read what the clock actually is.
   - step: require_commands
-    commands: [apt-get, dpkg-query, nproc, df, getent, sshd, stat]
+    commands: [apt-get, dpkg-query, nproc, df, getent, sshd, stat, systemctl, timedatectl]
     on_failure: exit
 
   - step: require_pinned_ubuntu
@@ -67,6 +68,57 @@ steps:
   - step: require_free_disk
     path: /
     free_kibibytes: 40000000
+    on_failure: exit
+
+  # --- the clock, before anything is fetched over a network -------------------------------------
+  #
+  # WHY IT STANDS HERE. A clock that is out is not a slow machine: a package index is refused for
+  # standing outside its validity window, a certificate authority refuses a request, a token is
+  # rejected, and a lease of the secret store expires before it is used. Every row below this one
+  # fetches something, so the clock is put in step first. The rows above only refuse a machine and
+  # write nothing, which is where this file's own order rule puts the boundary.
+  #
+  # WHAT THE DISTRIBUTION LEAVES BEHIND. Ubuntu names its own pool in /etc/chrony/chrony.conf and
+  # runs chronyd, so the machine is SET to synchronise. Whether those servers ANSWER is a property
+  # of the network the machine stands on: a provider that answers only its own time servers leaves
+  # chronyd with every source unreached and the clock free-running, and nothing on the machine
+  # reports it. That is the gap these three rows close — the sources, and then the reading that
+  # says whether they worked.
+  - step: write_file_from_template
+    template: ansiwise/templates/chrony-sources.tpl
+    path: /etc/chrony/sources.d/hostyour.sources
+    file_mode: 420
+    elevated: true
+    values:
+      # THE SEPARATOR CARRIES THE REST OF THE LINE, because chrony states one server per directive
+      # and the template holds one `server ... iburst` line. Joined with a plain ", " both servers
+      # land on that one line, which chronyd reads as a single server name carrying a comma.
+      time-sources: { answer: time_sources, join: " iburst\nserver " }
+    on_failure: exit
+
+  # WHAT MAKES THE FILE LIVE. chronyd reads its source directory when it starts, so this row is what
+  # starts it wherever the service manager reports the unit as anything but enabled and running.
+  #
+  # ON A MACHINE WHERE IT IS ALREADY BOTH, the step reads that state, reports nothing to do, and the
+  # answered sources reach chronyd at its next start rather than in this run. The row below is what
+  # keeps that from passing in silence: it asks what the clock actually is and stops the run while
+  # the answer is no.
+  - step: enable_service
+    unit: chrony.service
+    on_failure: exit
+
+  # THE READING THAT DECIDES, AND IT IS NOT THE ONE THAT SAYS A MACHINE IS MEANT TO SYNCHRONISE.
+  # `NTP` is the setting and answers yes on a machine whose every source is unreachable;
+  # `NTPSynchronized` is what the clock is. Refusing here rather than continuing is the whole point
+  # of the three rows: everything this platform installs afterwards issues or verifies something
+  # that carries a time.
+  - step: wait_for_command_output
+    waiting_for: the clock to come into step with a time source this machine can reach
+    command: timedatectl
+    command_arguments: [show, -p, NTPSynchronized, --value]
+    answer: 'yes'
+    timeout_seconds: 180
+    interval_seconds: 5
     on_failure: exit
 
   - step: install_packages
@@ -202,6 +254,19 @@ answers:
       standing on master. A machine adopted into an installation that already has one takes that
       installation's branch. There is no default: guessing either would move the other one's
       checkout every time this program ran again.
+
+  # NO `shape:`, and that is a decision rather than an omission. A time server is named by an
+  # address as readily as by a name, and the `hostname` shape refuses one: it requires the last
+  # label to open with a letter, so 213.239.239.164 would be turned away before the first step.
+  - name: time_sources
+    kind: text_list
+    required: false
+    describes: >-
+      The time servers this machine asks the time of, each as a hostname or an address, and they are
+      asked in addition to the ones the distribution already names. Leave it empty where those
+      answer. Name your provider's where the network answers only those: a machine whose sources
+      never answer keeps a clock nothing corrects, and this program refuses rather than installing
+      onto one.
 
   - name: operator_public_key
     kind: text
