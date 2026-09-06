@@ -95,8 +95,9 @@ steps:
     path: /etc/chrony/sources.d/ubuntu-ntp-pools.sources
     file_mode: 420
     elevated: true
-    # THE FILE IS EMPTIED AND NOT DELETED, because it is a conffile of the distribution's chrony
-    # package: dpkg asks about one that changed and puts back one that is gone.
+    # THE FILE IS EMPTIED AND NOT DELETED, because this catalogue has a step that writes a file and
+    # none that removes one. The chrony package puts it back neither way: ucf holds it, and ucf
+    # leaves a file the machine emptied or deleted alone.
     restart_command: [systemctl, restart, chrony.service]
     ready_command: [systemctl, is-active, chrony.service]
     on_failure: exit
@@ -286,13 +287,13 @@ answers:
   # label to open with a letter, so 213.239.239.164 would be turned away before the first step.
   - name: time_sources
     kind: text_list
-    required: false
     describes: >-
-      The time servers this machine asks the time of, each as a hostname or an address, and they are
-      asked in addition to the ones the distribution already names. Leave it empty where those
-      answer. Name your provider's where the network answers only those: a machine whose sources
-      never answer keeps a clock nothing corrects, and this program refuses rather than installing
-      onto one.
+      The time servers this machine asks the time of, each as a hostname or an address, and the only
+      ones it asks: the row writing /etc/chrony/sources.d/ubuntu-ntp-pools.sources empties the pools
+      the distribution names. There is no empty answer, and a run without this one is refused before
+      its first step. Name your provider's where the network answers only those: a machine whose
+      sources never answer keeps a clock nothing corrects, and this program refuses rather than
+      installing onto one.
 
   - name: operator_public_key
     kind: text
