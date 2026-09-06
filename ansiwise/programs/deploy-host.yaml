@@ -94,15 +94,24 @@ steps:
       # and the template holds one `server ... iburst` line. Joined with a plain ", " both servers
       # land on that one line, which chronyd reads as a single server name carrying a comma.
       time-sources: { answer: time_sources, join: " iburst\nserver " }
+    # WHAT MAKES THE SOURCES LIVE IN THIS RUN. chronyd reads its source directory when it starts,
+    # and while it runs it reads it again only when it is told to. On a machine where chrony is
+    # already up — which is every machine, because Ubuntu starts it at boot — the file written above
+    # would otherwise reach chronyd at its next start, and the wait below would refuse first. The
+    # restart runs only on a run that really wrote the file: a second run renders the same text,
+    # writes nothing, and leaves the daemon alone.
+    restart_command: [systemctl, restart, chrony.service]
+    # WHAT ANSWERING MEANS HERE. The service manager reports success when it has ACCEPTED the
+    # restart, not when chronyd is serving again. Without this the row below reads a unit that is
+    # still starting, finds it not active, and restarts it a second time in the same run.
+    ready_command: [systemctl, is-active, chrony.service]
     on_failure: exit
 
-  # WHAT MAKES THE FILE LIVE. chronyd reads its source directory when it starts, so this row is what
-  # starts it wherever the service manager reports the unit as anything but enabled and running.
-  #
-  # ON A MACHINE WHERE IT IS ALREADY BOTH, the step reads that state, reports nothing to do, and the
-  # answered sources reach chronyd at its next start rather than in this run. The row below is what
-  # keeps that from passing in silence: it asks what the clock actually is and stops the run while
-  # the answer is no.
+  # WHAT KEEPS IT RUNNING AFTER THIS RUN. The row above puts the running daemon on the sources this
+  # run wrote; this one has the service manager want chrony on its way up, wherever the machine
+  # arrived without it. It is not what makes the file live, and it cannot be: it reads what the
+  # manager says about the unit, and a data file under /etc/chrony/ is not something the manager
+  # knows about.
   - step: enable_service
     unit: chrony.service
     on_failure: exit
