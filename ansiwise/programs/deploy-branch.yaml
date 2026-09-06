@@ -1035,6 +1035,26 @@ steps:
       lan-host: { answer: lan_host }
     on_failure: exit
 
+  # WHERE THIS INSTALLATION'S ALERT MAIL SENDS THE READER, in the same file class and for a reason
+  # the monitoring chart makes unavoidable: the mail template stands under
+  # alertmanager.templateFiles, which that chart writes into its Secret without running helm's tpl
+  # over it. An address spelled there as a Helm expression reaches Alertmanager as text and is
+  # rendered against an alert, where a chart's values do not exist. So the address is substituted
+  # before helm reads the tree, and this is the row that does it.
+  #
+  # WITHOUT IT ALERTMANAGER SENDS NOTHING. The mail template calls three defines that this file
+  # alone carries, and a call to a define no loaded file declares is a template error rather than an
+  # empty link — the notification is cancelled, so the installation loses every alert mail and not
+  # one line of one.
+  - step: write_file_from_template
+    template: ansiwise/templates/observability-values.tpl
+    path: /srv/hostyour-cloud/installation/values/observability.yaml
+    # 420 — the reconciler's render reads this file.
+    file_mode: 420
+    values:
+      fqdn: { answer: fqdn }
+    on_failure: exit
+
   # WHAT THIS RUN WROTE, RECORDED. Without it the program ends exit 0 having produced files that
   # exist in one working tree on one machine — every step right about itself, and the installation
   # branch not existing.
