@@ -77,9 +77,11 @@ defaults:
   # another one. Never the value: the domain of one installation cannot stand in a file that ships
   # to all of them.
   value_answer: fqdn
-  # The trailing comment that exempts a line from every stamp. What is marked is product every
-  # installation shares — the member charts of the tenant catalog — and retargeting those would
-  # point them at a branch that does not carry them.
+  # The trailing comment that exempts a line from every stamp: a line carrying it keeps the value the
+  # product wrote, where every other occurrence of the placeholder on that line would be rewritten.
+  # The step requires the word and carries no default of its own, because the word belongs to the
+  # tree being generated and not to this program, so a row could not be written without this line
+  # whatever that tree marks.
   keep_marker: set-domain:keep
   # The branch no stamp may run on. A checkout standing on it is the source every installation is cut
   # from and not one installation, so a stamp there would write one installation's domain into the
