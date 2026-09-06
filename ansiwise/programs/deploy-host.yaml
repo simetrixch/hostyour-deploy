@@ -78,12 +78,29 @@ steps:
   # fetches something, so the clock is put in step first. The rows above only refuse a machine and
   # write nothing, which is where this file's own order rule puts the boundary.
   #
-  # WHAT THE DISTRIBUTION LEAVES BEHIND. Ubuntu names its own pool in /etc/chrony/chrony.conf and
-  # runs chronyd, so the machine is SET to synchronise. Whether those servers ANSWER is a property
-  # of the network the machine stands on: a provider that answers only its own time servers leaves
-  # chronyd with every source unreached and the clock free-running, and nothing on the machine
-  # reports it. That is the gap these three rows close — the sources, and then the reading that
-  # says whether they worked.
+  # WHAT THE DISTRIBUTION LEAVES BEHIND, AND WHY IT IS REPLACED RATHER THAN ADDED TO. Ubuntu runs
+  # chronyd and names five authenticated (`nts`) pools in
+  # /etc/chrony/sources.d/ubuntu-ntp-pools.sources, so the machine is SET to synchronise. Whether
+  # those pools ANSWER is a property of the network the machine stands on, and a provider that
+  # answers only its own time servers leaves every one of them unreached. They are then not merely
+  # useless. chronyd's authselectmode defaults to `mix`, which gives every authenticated source the
+  # require and trust options as soon as an unauthenticated source is specified beside it, so
+  # adding the servers this installation names to that file's pools makes them unselectable:
+  # chronyd logs "Can't synchronise: no required source in selectable sources" for as long as it is
+  # asked to wait, and the clock free-runs with nothing on the machine reporting it. That is the gap
+  # these four rows close — the distribution's file emptied of directives, this installation's
+  # sources, the unit the machine keeps, and then the reading that says whether they worked.
+  - step: write_file_from_template
+    template: ansiwise/templates/ubuntu-ntp-pools.tpl
+    path: /etc/chrony/sources.d/ubuntu-ntp-pools.sources
+    file_mode: 420
+    elevated: true
+    # THE FILE IS EMPTIED AND NOT DELETED, because it is a conffile of the distribution's chrony
+    # package: dpkg asks about one that changed and puts back one that is gone.
+    restart_command: [systemctl, restart, chrony.service]
+    ready_command: [systemctl, is-active, chrony.service]
+    on_failure: exit
+
   - step: write_file_from_template
     template: ansiwise/templates/chrony-sources.tpl
     path: /etc/chrony/sources.d/hostyour.sources
@@ -119,7 +136,7 @@ steps:
   # THE READING THAT DECIDES, AND IT IS NOT THE ONE THAT SAYS A MACHINE IS MEANT TO SYNCHRONISE.
   # `NTP` is the setting and answers yes on a machine whose every source is unreachable;
   # `NTPSynchronized` is what the clock is. Refusing here rather than continuing is the whole point
-  # of the three rows: everything this platform installs afterwards issues or verifies something
+  # of the four rows: everything this platform installs afterwards issues or verifies something
   # that carries a time.
   - step: wait_for_command_output
     waiting_for: the clock to come into step with a time source this machine can reach
