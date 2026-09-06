@@ -601,13 +601,18 @@ steps:
 
   # The service itself, which is the act. Rewritten rather than created, so an installation carrying
   # a unit from an earlier release ends up with the one this release means instead of keeping that
-  # text for ever. It names no answer: the engine is read from /usr/local/bin, not out of the
-  # operating account's home.
+  # text for ever.
+  #
+  # THE ONE ANSWER IT NAMES is the account the unit runs as, and the unit says why it is that one.
+  # The engine it starts is read from /usr/local/bin and not out of that account's home, so the path
+  # to the binary is written in the template and takes no answer.
   - step: write_file_from_template
     template: ansiwise/templates/vault-unseal-service.tpl
     path: /etc/systemd/system/hostyour-vault-unseal.service
     file_mode: 420
     elevated: true
+    values:
+      operator-user: { answer: operator_user }
     when: [secret_store_enabled, books_here_in_answers]
     on_failure: exit
 

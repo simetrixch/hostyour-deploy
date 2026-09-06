@@ -10,7 +10,8 @@
 #
 # So a run started by the machine names no elevation route at all. Nothing it runs raises a command
 # to root, and a step that tried would be refused by name at the moment it tried rather than passed
-# over: the service runs AS root, so what it reads it reads directly and never through sudo.
+# over: the service runs as the account that owns the checkouts and the credential files these
+# programs read, so what it reads it reads directly and never through sudo.
 #
 # WHAT MAY BE RUN UNDER THIS: the programs in ansiwise/boot-programs, and nothing else. They stand
 # in a directory of their own because a run resolves EVERY program in the directory it is given and

@@ -36,6 +36,12 @@ StartLimitIntervalSec=0
 
 [Service]
 Type=oneshot
+# THE ACCOUNT THAT OWNS EVERY PATH THIS TOUCHES. /srv/ansiwise-catalog and /srv/hostyour-cloud are
+# handed to it by deploy-platform-services and deploy-host, and the two files the run reads out of
+# the second — the quorum file under secrets/ and the envelope named below — are its own at mode
+# 0600. Nothing here raises a command to root either: ansiwise-boot.yaml names no elevation route,
+# so a step that asked for one would be refused by name at the moment it asked.
+User=<operator-user>
 # NO RemainAfterExit, AND EVERY FIRING DEPENDS ON THAT. The row that installs this unit reads the
 # TIMER back, so nothing here needs the line to tell a run that finished from one that never
 # happened. Written here, this service would stand as `active (exited)` for ever, and a
@@ -73,9 +79,18 @@ TimeoutStartSec=45s
 # require_cli_tool_versions asks about. This unit runs every minute, long after both, so it
 # names the lasting one. On an installation that is already standing the home copy is not there,
 # and a unit naming it fails at EXEC with "Unable to locate executable".
+#
+# THE RECORDS STAND APART FROM THE INSTALLATION'S, and --runs is what puts them there: the engine
+# bounds a record directory by a COUNT and applies that bound wherever a header lands, so a unit
+# firing twice a minute into /var/lib/ansiwise/runs removes the records of the operator's own runs
+# within hours.
+#
+# BOTH LINES NAME THE SAME ROOT. The gate reads the run store at --runs to find the clean dry run a
+# real run needs behind it, so a real run pointed at a second directory would be refused for want of
+# a proof that is sitting in the first.
 WorkingDirectory=/srv/ansiwise-catalog
-ExecStart=/usr/local/bin/ansiwise unseal-vault --mode dry --programs /srv/ansiwise-catalog/ansiwise/boot-programs --config /srv/ansiwise-catalog/ansiwise-boot.yaml --answers /srv/hostyour-cloud/configs/unseal-vault-answers.json
-ExecStart=/usr/local/bin/ansiwise unseal-vault --mode run --programs /srv/ansiwise-catalog/ansiwise/boot-programs --config /srv/ansiwise-catalog/ansiwise-boot.yaml --answers /srv/hostyour-cloud/configs/unseal-vault-answers.json
+ExecStart=/usr/local/bin/ansiwise unseal-vault --mode dry --programs /srv/ansiwise-catalog/ansiwise/boot-programs --config /srv/ansiwise-catalog/ansiwise-boot.yaml --runs /var/lib/ansiwise/boot-runs --answers /srv/hostyour-cloud/configs/unseal-vault-answers.json
+ExecStart=/usr/local/bin/ansiwise unseal-vault --mode run --programs /srv/ansiwise-catalog/ansiwise/boot-programs --config /srv/ansiwise-catalog/ansiwise-boot.yaml --runs /var/lib/ansiwise/boot-runs --answers /srv/hostyour-cloud/configs/unseal-vault-answers.json
 
 # NO [Install] SECTION, AND THAT IS WHAT LEAVES THE TIMER AS THE ONLY TRIGGER. A unit wanted by the
 # target the machine reaches on its way up runs once at boot and never again, which is the shape
