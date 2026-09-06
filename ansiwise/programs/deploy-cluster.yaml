@@ -112,6 +112,13 @@ defaults:
   # the machine this runs on IS the installation the map describes.
   profile_path: clusters/active/<fqdn>.yaml
   mirror_host_key: global.endpoints.registry.host
+  # WHERE THE CREDENTIAL COMES FROM, said twice, and the RUN decides which is read. Where the run
+  # holds a value under credential_answer that value IS the credential and secrets_path is not read;
+  # where it holds none, the file is. So one row serves both machines: a cluster that keeps the books
+  # has the file its own branch program wrote there, and a cluster that keeps none has no such file
+  # and never can — it is gitignored, so no branch carries it — and is answered the credential
+  # instead. Where a machine has neither, both rows refuse and the refusal names both sources.
+  credential_answer: registry_pull_dockerconfigjson
   secrets_path: secrets/secrets.<stage>
   credential_key: REGISTRY_PULL_DOCKERCONFIGJSON
   placeholder_prefix: BASE64_OF_
@@ -1159,3 +1166,23 @@ answers:
     describes: >-
       The directory under that mount which the cluster's volumes are kept in, written as the whole
       path and not as a name relative to the mount, or empty to leave them where the snap puts them.
+
+  # The one credential this program is answered, and the only answer here that is not a fact of the
+  # installation's shape. No default, because the engine refuses one on a secret — a default for a
+  # credential is a credential written into a file that ships to every installation.
+  - name: registry_pull_dockerconfigjson
+    kind: text
+    required: false
+    secret: true
+    describes: >-
+      The credential this cluster pulls its images through the installation's own registry with,
+      as the whole encoded pull configuration a container runtime reads and not a password.
+
+      ANSWER IT FOR A CLUSTER THAT KEEPS NO BOOKS. No file of this installation writes this
+      credential to such a machine, and without it the machine's mirror is never written: it pulls
+      from the rate-limited public registry instead, and nothing anywhere says so.
+
+      LEAVE IT EMPTY FOR THE CLUSTER THAT KEEPS THE BOOKS. That machine reads the credential out of
+      the secrets file its stage names, which is the installation's hand-filled input, and its own
+      branch program wrote it there. Answered anyway, the answer is what is read and the file is
+      not.
