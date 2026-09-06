@@ -2263,3 +2263,11 @@ answers:
     describes: >-
       The domain of the cluster that keeps the books — the cluster maps and the registrations this
       installation knows about itself. Leave it empty where this cluster keeps them itself.
+
+  - name: build_plane_fqdn
+    kind: text
+    describes: >-
+      The domain of the cluster whose image registry and builders this installation pulls from.
+      Write this cluster's own domain unless another machine carries the build plane, in which case
+      write that machine's. Nothing derives it: a cluster that silently made itself the build plane
+      would start building images nobody asked it to build.
