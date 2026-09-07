@@ -1888,9 +1888,13 @@ steps:
     on_failure: continue
 
   # LAST OF THE IDENTITY ROWS ON PURPOSE. The group and the token are both objects the provider
-  # applies from its own configuration, and it applies them on its own schedule after coming up. A
-  # run that reaches this before either exists is REFUSED by name — it says which of the two is not
-  # there — rather than inventing anything, and the next run finds them.
+  # applies from its own configuration, and it applies them on its own schedule after coming up —
+  # measured on apps1: the token was refused sixty milliseconds after this row wrote it and
+  # accepted ninety seconds later, while the provider's worker was still applying its bootstrap. So
+  # the row WAITS for both, asking every interval_seconds for as long as timeout_seconds allows,
+  # and is refused only when that clock runs out — naming which of the two never came and how long
+  # it waited — rather than inventing anything. The wait lives in the step and not in a row that
+  # asks the provider's API itself, because the path between the parts is the provider's own.
   - step: authentik_group_membership
     rests_on_an_earlier_step: true
     subdomain: idp
@@ -1902,6 +1906,10 @@ steps:
     # binding, the reconciler's policy and the secret store's role all name it.
     group: admins
     token_path: /srv/hostyour-cloud/secrets/idp-api-token.txt
+    # The step's own defaults, restated so the number an operator waits on stands on the row. The
+    # measured gap on apps1 was ninety seconds; a master whose worker is slower raises the first.
+    timeout_seconds: 300
+    interval_seconds: 5
     when: [secret_store_enabled, idp_enabled, books_here_in_answers]
     on_failure: continue
 
