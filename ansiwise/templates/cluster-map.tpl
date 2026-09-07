@@ -53,7 +53,8 @@ global:
   platformDomain: <platform-domain>
   # WHERE THIS INSTALLATION'S CERTIFICATES COME FROM, and the mailbox that authority writes to. The
   # same three for every cluster of one installation — a slave added later reads them here rather
-  # than being asked again, which is the difference between one answer and two that may disagree.
+  # than being asked again, as it does timeSources below, which is the difference between one
+  # answer and two that may disagree.
   # The authority stands here as well as in the config, because this file is what a caller reads to
   # learn what the installation already is. A caller that cannot read it here hands the regeneration
   # nothing, the answer falls to its default of platform-local, and every certificate is reissued
@@ -61,6 +62,11 @@ global:
   clusterIssuer: <cluster-issuer>
   letsencryptEmail: <letsencrypt-email>
   letsencryptServer: <letsencrypt-server>
+  # The time servers the machines of this installation ask the time of, and the only ones they ask.
+  # A slave added later is told them from here rather than being asked again. Quoted the way the
+  # mailboxes below are: the slot carries every source on one line, and what keeps them apart as
+  # entries is the closing and opening quote.
+  timeSources: ['<time-sources>']
   # Where this installation's platform alerts are delivered. An alert route of the observability
   # application that names no recipients of its own resolves them through this key, and the render
   # of the whole application stops where an enabled route resolves to neither. Quoted, because a

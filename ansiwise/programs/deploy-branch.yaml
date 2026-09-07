@@ -269,6 +269,17 @@ answers:
       an alert route that resolves to nobody stops the render of the whole observability app, and
       nothing composes a mailbox out of a domain.
 
+  # NO `shape:`, and that is a decision rather than an omission. A time server is named by an
+  # address as readily as by a name, and the `hostname` shape refuses one: it requires the last
+  # label to open with a letter, so 213.239.239.164 would be turned away before the first step.
+  - name: time_sources
+    kind: text_list
+    describes: >-
+      The time servers the machines of this installation ask the time of, each as a hostname or an
+      address. They are written into the cluster map, so a machine added to this installation later
+      is told them from there rather than being asked for them again. The same answer deploy-host
+      takes when it puts a machine on them.
+
   - name: catalog_repo
     kind: text
     describes: >-
@@ -773,6 +784,10 @@ steps:
       # comma, which the alert route reads as a single malformed mailbox. It is invisible today
       # only because exactly one recipient is answered.
       alert-recipients: { answer: alert_recipients, join: "', '" }
+      # Several sources on one line, separated the same way and for the same reason: joined with a
+      # plain ", " every source lands inside one pair of quotes as a single entry carrying a comma,
+      # and a machine told that entry asks the time of nothing.
+      time-sources: { answer: time_sources, join: "', '" }
       catalog-repo: { answer: catalog_repo }
       mail-url: { answer: mail_url }
       # The short name, its two registry accounts and the two placement facts. This row binds every
