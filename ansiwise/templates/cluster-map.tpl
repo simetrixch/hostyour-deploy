@@ -127,6 +127,11 @@ global:
     # browser login is told this address, and the auth mount in the store reads it from here.
     idp: {url: 'https://idp.<books-cluster>'}
     tailnet: {url: 'https://tale.<books-cluster>'}
+    # Where a cluster's agent pushes its metrics and logs. The observability plane runs on the
+    # cluster that keeps the books (servicesLocal.observability below), behind the two routes it
+    # publishes; a slave takes both from here through the Manager's mark, and its agent refuses to
+    # render without them rather than send to an address with no host.
+    observability: {prometheusPush: 'https://prom-push.<books-cluster>', lokiPush: 'https://loki-push.<books-cluster>'}
   # WHICH OF THE SHARED SERVICES RUN HERE, keyed by the service. A chart reads its own key to decide
   # whether to reach in-cluster or over the address above.
   servicesLocal:
