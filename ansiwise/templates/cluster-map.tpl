@@ -63,15 +63,16 @@ global:
   letsencryptEmail: <letsencrypt-email>
   letsencryptServer: <letsencrypt-server>
   # The time servers the machines of this installation ask the time of, and the only ones they ask.
-  # A slave added later is told them from here rather than being asked again. Quoted the way the
-  # mailboxes below are: the slot carries every source on one line, and what keeps them apart as
-  # entries is the closing and opening quote.
-  timeSources: ['<time-sources>']
+  # A slave added later is told them from here rather than being asked again. A flow sequence of
+  # plain scalars, one per source, kept apart by the comma the join writes: a hostname or an
+  # address needs no quoting in YAML, and a slot inside quoting would refuse a list of two, because
+  # the joined value then carries the quote that closes it.
+  timeSources: [<time-sources>]
   # Where this installation's platform alerts are delivered. An alert route of the observability
   # application that names no recipients of its own resolves them through this key, and the render
-  # of the whole application stops where an enabled route resolves to neither. Quoted, because a
-  # mailbox is one word to YAML only by accident and a plain scalar beginning with # is a comment.
-  alertRecipients: ['<alert-recipients>']
+  # of the whole application stops where an enabled route resolves to neither. Written the same
+  # way, one plain mailbox per entry; the shape of the answer holds each entry to a mailbox.
+  alertRecipients: [<alert-recipients>]
   # The repository holding this installation's tenant charts, as the URL a build clones. Written
   # from the answer that names it as owner/name — the pipeline that releases a unit reads it to find
   # the charts a release is rendered against, and refuses to render at all without it.

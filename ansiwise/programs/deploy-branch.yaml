@@ -777,17 +777,13 @@ steps:
       cluster-issuer: { answer: cluster_issuer }
       letsencrypt-email: { answer: letsencrypt_email }
       letsencrypt-server: { answer: letsencrypt_server }
-      # Several mailboxes on one line, SEPARATED THE WAY THE TEMPLATE WRITES A LIST, which is not
-      # the same as a comma.
-      # The slot stands inside `['...']`, so a plain ", " puts BOTH mailboxes inside one pair
-      # of quotes: measured, two answers render as ['a@x.ch, b@x.ch'] — one entry carrying a
-      # comma, which the alert route reads as a single malformed mailbox. It is invisible today
-      # only because exactly one recipient is answered.
-      alert-recipients: { answer: alert_recipients, join: "', '" }
-      # Several sources on one line, separated the same way and for the same reason: joined with a
-      # plain ", " every source lands inside one pair of quotes as a single entry carrying a comma,
-      # and a machine told that entry asks the time of nothing.
-      time-sources: { answer: time_sources, join: "', '" }
+      # Several mailboxes on one line, SEPARATED THE WAY THE TEMPLATE WRITES A LIST: the slot stands
+      # inside `[...]` and outside any quoting, so ", " puts each mailbox in an entry of its own.
+      # Inside quotes it could not: a joined list of two carries the quote that closes them, and
+      # the engine refuses to write a file it could not read back.
+      alert-recipients: { answer: alert_recipients, join: ", " }
+      # Several sources on one line, separated the same way and for the same reason.
+      time-sources: { answer: time_sources, join: ", " }
       catalog-repo: { answer: catalog_repo }
       mail-url: { answer: mail_url }
       # The short name, its two registry accounts and the two placement facts. This row binds every
