@@ -30,7 +30,7 @@ roles: [master]
 
 steps:
   - step: require_commands
-    commands: [microk8s, tailscale, openssl]
+    commands: [microk8s, tailscale]
     on_failure: exit
 
   # AVAILABILITY, NOT EXISTENCE. A deployment that exists but serves nothing answers the admin
@@ -92,27 +92,13 @@ steps:
     key_file_answer: key_file
     on_failure: exit
 
+  # THE JOIN IS THE LAST ACT. A master's serving certificate is NOT re-signed with its tailnet
+  # address, as the rejoin does for a slave: nothing dials a master's API over that address — the
+  # only kube-apiserver reached over the private network is a slave's, at the `apiHost` its map
+  # carries — and the re-sign restarts the whole control plane under the platform this program
+  # stands on top of (hostyour-deploy#25).
   - step: tailnet_join
     rests_on_an_earlier_step: true
-    on_failure: exit
-
-  # The address the machine answers on the private network is not in the certificate it was issued
-  # before it had one, so every in-cluster caller that dials it over that address is refused by the
-  # name it dialed. Same rows as the rejoin performs, for the same reason.
-  - step: stamp_tailnet_address_in_certificate
-    rests_on_an_earlier_step: true
-    template: /var/snap/microk8s/current/certs/csr.conf.template
-    certificate: /var/snap/microk8s/current/certs/server.crt
-    marker: '#MOREIPS'
-    resign: [microk8s, refresh-certs, --cert, server.crt]
-    # WHAT THE NEXT CALLER WILL USE, and not a neighbouring readiness. The re-sign restarts the API
-    # server, and `status --wait-ready` answers about the NODE — it succeeds while the API is still
-    # refusing, and the next program dies seconds later on
-    # "the connection to the server 127.0.0.1:16443 was refused". Asking the API itself is the only
-    # question whose answer means what this row needs it to mean. The step asks it over and over
-    # until it answers, within the window below.
-    settled_by: [microk8s, kubectl, get, --raw, /readyz]
-    elevated: true
     on_failure: exit
 
 answers:
