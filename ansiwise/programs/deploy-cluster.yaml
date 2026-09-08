@@ -264,6 +264,22 @@ steps:
     on_failure: exit
 
   # ---------------------------------------------------------------------------------------------
+  # The lock that keeps the control plane standing when an address appears on the host.
+  # ---------------------------------------------------------------------------------------------
+  # MicroK8s runs a daemon, apiserver-kicker, that re-renders its certificate request, re-signs
+  # server.crt and restarts kubelite whenever the host gains or loses an address. The private
+  # network's join is such a change, and on a master it comes last, under the running platform
+  # (hostyour-deploy#25). The daemon honours this one file and nothing else. It is written after
+  # the wait above because the directory it stands in is the snap's own, there once the snap runs.
+  - step: write_file_from_template
+    rests_on_an_earlier_step: true
+    template: ansiwise/templates/microk8s-no-cert-reissue.tpl
+    path: /var/snap/microk8s/current/var/lock/no-cert-reissue
+    file_mode: 420
+    elevated: true
+    on_failure: exit
+
+  # ---------------------------------------------------------------------------------------------
   # The network the cluster paints its rules into, before an addon paints any.
   # ---------------------------------------------------------------------------------------------
   - step: set_process_flag
