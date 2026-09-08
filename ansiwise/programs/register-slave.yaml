@@ -64,7 +64,7 @@ steps:
   # that one key is written and not compared — comparing it would rewrite the mount on every run
   # and never call it finished. The annotation switch is the same one every cluster's mount
   # carries: it is what lifts an account's alias-metadata annotations into the login, which the
-  # tenant policy below templates on.
+  # consumer and tenant policies below template on.
   - step: vault_auth_method
     repository: /srv/hostyour-cloud
     type: kubernetes
@@ -98,10 +98,11 @@ steps:
       path "secret/metadata/<stage>/idp/bootstrap" { capabilities = ["read", "list"] }
     on_failure: exit
 
-  # One templated policy covers every consumer the slave will ever host — the path interpolates the
-  # calling account's own namespace, so onboarding a consumer needs no write to the store at all.
-  # Byte-identical to the master's own consumer policy but templated on THIS mount's accessor,
-  # because an accessor belongs to one mount and the slave's logins arrive through the mount
+  # One templated policy covers every consumer the slave will ever host, and onboarding a consumer
+  # needs no write to the store at all. Byte-identical to the master's own consumer policy —
+  # templated on the unit and the unit's own stage the calling account is annotated with, under
+  # the contract that policy's comment states — but on THIS mount's accessor, because an accessor
+  # belongs to one mount and the slave's logins arrive through the mount
   # kubernetes-<slave_cluster_name>.
   - step: vault_policy
     rests_on_an_earlier_step: true
@@ -109,8 +110,8 @@ steps:
     auth_mount: kubernetes-<slave_cluster_name>
     name: <slave_cluster_name>-consumer-read
     rules: |
-      path "secret/data/<stage>/consumer/{{identity.entity.aliases.<accessor>.metadata.service_account_namespace}}/*" { capabilities = ["read"] }
-      path "secret/metadata/<stage>/consumer/{{identity.entity.aliases.<accessor>.metadata.service_account_namespace}}/*" { capabilities = ["read", "list"] }
+      path "secret/data/{{identity.entity.aliases.<accessor>.metadata.stage}}/consumer/{{identity.entity.aliases.<accessor>.metadata.unit}}/*" { capabilities = ["read"] }
+      path "secret/metadata/{{identity.entity.aliases.<accessor>.metadata.stage}}/consumer/{{identity.entity.aliases.<accessor>.metadata.unit}}/*" { capabilities = ["read", "list"] }
     on_failure: exit
 
   # Templated on the tenant the calling account is annotated with, exactly as on the master: one

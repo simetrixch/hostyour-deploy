@@ -720,17 +720,33 @@ steps:
     when: [secret_store_enabled, books_here_in_answers]
     on_failure: exit
 
-  # One templated policy and one label-bound role cover every consumer there will ever be: the path
-  # interpolates the calling account's own namespace, so a reader in namespace X can only reach that
-  # namespace's entries, and onboarding a consumer needs no write to the secret store at all.
+  # One templated policy and one label-bound role cover every consumer there will ever be, and
+  # onboarding a consumer needs no write to the secret store at all. The path interpolates the UNIT
+  # and the STAGE the calling account is annotated with, never its namespace and never this
+  # cluster's stage: a unit's namespace is <unit>-<stage>, its entry is <stage>/consumer/<unit>/,
+  # and the stage is the unit's own — a test unit stands on a prod cluster and reads test/consumer/.
+  # Templated on the namespace or on this cluster's <stage>, the path names an entry nobody writes.
+  #
+  # THE CONTRACT WITH EVERY CONSUMER CHART. Every account a consumer namespace logs in with — the
+  # chart's own external-secrets-sa, and the platform's postgres-eso and mongodb-eso rendered by
+  # clusters/units/postgresql and clusters/units/mongodb — carries the two annotations
+  # vault.hashicorp.com/alias-metadata-unit, the unit's name, and
+  # vault.hashicorp.com/alias-metadata-stage, the unit's own stage (the chart's global.env). The
+  # mount above lifts them into the login alias, and this policy reads them as metadata.unit and
+  # metadata.stage. An account missing either resolves the path to an empty segment and reads
+  # nothing, with a message about its own token.
+  #
+  # Nothing here holds an account to its own unit and stage: the store believes the annotations.
+  # That fence is the unit's admission policy and the onboarding gate, on the chart side, where a
+  # tenant is held to its alias-metadata-tenant the same way.
   - step: vault_policy
     rests_on_an_earlier_step: true
     repository: /srv/hostyour-cloud
     auth_mount: <kubernetes-mount>
     name: <cluster>-consumer-read
     rules: |
-      path "secret/data/<stage>/consumer/{{identity.entity.aliases.<accessor>.metadata.service_account_namespace}}/*" { capabilities = ["read"] }
-      path "secret/metadata/<stage>/consumer/{{identity.entity.aliases.<accessor>.metadata.service_account_namespace}}/*" { capabilities = ["read", "list"] }
+      path "secret/data/{{identity.entity.aliases.<accessor>.metadata.stage}}/consumer/{{identity.entity.aliases.<accessor>.metadata.unit}}/*" { capabilities = ["read"] }
+      path "secret/metadata/{{identity.entity.aliases.<accessor>.metadata.stage}}/consumer/{{identity.entity.aliases.<accessor>.metadata.unit}}/*" { capabilities = ["read", "list"] }
     when: [secret_store_enabled, books_here_in_answers]
     on_failure: exit
 
@@ -935,11 +951,13 @@ steps:
 
   # Three account names and never a wildcard: the namespace label is what bounds this role, and a
   # name list that admitted anything would let a consumer's own chart mint an account and read
-  # through a store the platform never rendered.
+  # through a store the platform never rendered. The three carry the two annotations the consumer
+  # policy above templates on, the unit and the unit's own stage; that row states the contract.
   #
   # THE LABEL IS THE CHART'S, SPELLED THE CHART'S WAY — the twin of the same rule on the build role
   # below. A consumer's namespace is created by the fan-out and carries hostyour.cloud/consumer
-  # (clusters/argocd/files/consumers-appset.yaml:122). Selecting on digitacloud.app/consumer, a key
+  # (clusters/argocd/files/consumers-appset.yaml, managedNamespaceMetadata). Selecting on
+  # digitacloud.app/consumer, a key
   # nothing anywhere writes, makes the role match no namespace at all and every consumer's secret
   # reader is refused at login — before any policy is consulted, with a message about the role
   # rather than about the label.
