@@ -115,10 +115,14 @@ global:
   endpoints:
     registry:
       host: zot.<build-plane>
-    # Where units reach the installation's shared mail service. Optional: an installation that runs
-    # no mail service has none, and a tenant's auth and report charts stop their render naming this
-    # key rather than sending nowhere.
-    mail: {url: <mail-url?>}
+    # The unit that is the installation's shared mail service: a unit name, not an address. The mail
+    # service exists once per stage, and its host follows the unit host law, so every unit composes
+    # the address itself as https:// followed by this name, a hyphen, the unit's OWN stage and the
+    # unit apex. A test unit then reaches the test mail service and a prod unit the prod one; one
+    # address written here would send every stage to one of them. Optional: an installation that
+    # runs no mail service has none, and a chart that requires the key stops its render naming it
+    # rather than sending nowhere.
+    mail: {unit: <mail-unit?>}
     # coredns rewrites exactly this name to the in-cluster Service, so it follows the books-keeping
     # cluster and not this one — a cluster that keeps no books would otherwise be pointed at a Vault
     # that does not run there.

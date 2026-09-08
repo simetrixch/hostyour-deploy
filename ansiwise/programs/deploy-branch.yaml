@@ -303,13 +303,16 @@ answers:
       the platform's own and public, so the default is the right answer unless this installation
       runs programs of its own.
 
-  - name: mail_url
+  - name: mail_unit
     kind: text
     required: false
     describes: >-
-      The address of this installation's own mail service, if it runs one. Leave empty when it has
-      none: an empty value would satisfy a chart that requires the key with something nothing can be
-      reached at, which is worse than the key being absent.
+      The unit name of this installation's own shared mail service, if it runs one: a plain unit
+      name, no scheme and no host. Every unit composes the address itself, as https:// followed by
+      that name, a hyphen, the unit's own stage and the unit apex, so a test unit reaches the test
+      mail service. Leave empty when the installation has none: an empty value would satisfy a chart
+      that requires the key with a name nothing answers under, which is worse than the key being
+      absent.
 
   # ── the machine this installation's Manager runs on ──────────────────────
   #
@@ -729,9 +732,9 @@ steps:
   # first commit, and an installation is never born without an answer to "which release does this
   # machine run".
   #
-  # `mail-url` is absent rather than empty where this installation has no mail service. An empty
-  # value satisfies a chart that requires the key with something nothing can be reached at, which is
-  # worse than the missing key a gate reports by name.
+  # `mail-unit` is absent rather than empty where this installation has no mail service. An empty
+  # value satisfies a chart that requires the key with a name nothing answers under, which is worse
+  # than the missing key a gate reports by name.
 
   # WHERE THIS MACHINE CAN BE REACHED, for the boundary the gate sandbox is drawn with. Measured and
   # never answered: it is a fact about the machine this run is standing on, and one mistyped octet is
@@ -785,7 +788,7 @@ steps:
       # Several sources on one line, separated the same way and for the same reason.
       time-sources: { answer: time_sources, join: ", " }
       catalog-repo: { answer: catalog_repo }
-      mail-url: { answer: mail_url }
+      mail-unit: { answer: mail_unit }
       # The short name, its two registry accounts and the two placement facts. This row binds every
       # slot the map template carries: a slot it does not bind refuses the run by name, and a
       # binding with no slot is refused the same way.
