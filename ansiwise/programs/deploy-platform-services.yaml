@@ -195,7 +195,7 @@ steps:
   # write_cluster_issuer_manifest, kubernetes_secret_from_vault and file_from_vault each make the
   # PARENT of a file they are about to write, as a by-product of writing it, and none of them takes an
   # owner. create_storage_directory is the only one whose purpose IS a directory, and it makes exactly
-  # one — the answer `storage_subdirectory` names — with a mode and no owner either. Until a step
+  # one — the directory on the data disk it measures — with a mode and no owner either. Until a step
   # exists that takes all four (ansiwise-plugins#159), the directory is declared the way
   # this catalogue already declares work a machine has to do by itself: a unit file written from a
   # template, handed to the service manager by the row below it.

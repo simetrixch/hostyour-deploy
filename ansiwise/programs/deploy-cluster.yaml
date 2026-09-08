@@ -659,7 +659,11 @@ steps:
     on_failure: continue
 
   # ---------------------------------------------------------------------------------------------
-  # Where the volumes land.
+  # Where the volumes land. Nobody answers it: the three rows measure the machine's data disk
+  # themselves — the shallowest mount of a real block device outside /, /boot, /snap and /var/snap
+  # — and keep the volumes under <mount>/microk8s-storage. A machine with no such disk keeps the
+  # snap's own directory. One reading, the same for the launcher and the Manager, so a second run
+  # of this program on a standing machine finds the link where the first run put it.
   # ---------------------------------------------------------------------------------------------
   - step: require_storage_mount
     rests_on_an_earlier_step: true
@@ -667,11 +671,13 @@ steps:
 
   - step: create_storage_directory
     rests_on_an_earlier_step: true
+    subdirectory: microk8s-storage
     on_failure: exit
 
   - step: link_storage_path
     rests_on_an_earlier_step: true
     link_path: /var/snap/microk8s/common/default-storage
+    subdirectory: microk8s-storage
     force: false
     on_failure: exit
 
@@ -1165,23 +1171,6 @@ answers:
       The network this machine shares with the other clusters, as an IPv4 range, or empty when it
       shares none. It is refused when it overlaps the pod network, because pods on an overlapping
       range cannot reliably reach the other machines.
-
-  - name: storage_mount
-    kind: text
-    required: false
-    default: ''
-    describes: >-
-      Where this machine's separate storage is mounted, or empty when it has none. A path that is
-      named and is NOT a mount is refused: a volume written to the root disk instead of the storage
-      one fills the machine and nothing reports it.
-
-  - name: storage_subdirectory
-    kind: text
-    required: false
-    default: ''
-    describes: >-
-      The directory under that mount which the cluster's volumes are kept in, written as the whole
-      path and not as a name relative to the mount, or empty to leave them where the snap puts them.
 
   # The one credential this program is answered, and the only answer here that is not a fact of the
   # installation's shape. No default, because the engine refuses one on a secret — a default for a
