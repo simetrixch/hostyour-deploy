@@ -440,14 +440,20 @@ answers:
       it. A READER on its own, like the one above, so what runs programs on a machine cannot
       rewrite the catalog they come from.
 
-  - name: cloudflare_api_token
+  - name: cloudflare_dns_api_token
     kind: text
     required: false
     secret: true
     describes: >-
       A Cloudflare API token with Zone:DNS:Edit and Zone:Zone:Read, scoped to your own zone only and
       with no account-level permission. This installation writes its own wildcard record and one
-      record per unit with it.
+      record per unit with it, and the mail publisher writes the SPF, DKIM and DMARC records.
+
+      DNS AND NOTHING ELSE. A Cloudflare account holds tokens for other products — object storage
+      among them — and any of them fits this box. None of them can read a zone, so the value is
+      taken, seeded and carried for a whole installation before the first unit's record fails with
+      "no Cloudflare zone found", which is what an empty zone list reads as. The name says DNS for
+      that reason (hostyour-deploy#28).
 
   - name: storage_box_host
     kind: text
@@ -873,7 +879,7 @@ steps:
       GITOPS_REPO_PAT: { answer: platform_repo_write_pat }
       GITOPS_REPO_READ_PAT: { answer: platform_repo_read_pat }
       CATALOG_REPO_READ_PAT: { answer: catalog_repo_read_pat }
-      CLOUDFLARE_API_TOKEN: { answer: cloudflare_api_token }
+      CLOUDFLARE_DNS_API_TOKEN: { answer: cloudflare_dns_api_token }
       STORAGE_BOX_HOST: { answer: storage_box_host }
       STORAGE_BOX_USER: { answer: storage_box_user }
       STORAGE_BOX_PASSWORD: { answer: storage_box_password }

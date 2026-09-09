@@ -1276,7 +1276,7 @@ steps:
     repository: /srv/hostyour-cloud
     mount: secret
     path: <stage>/app/cloudflare-dns
-    fields: ['api-token=CLOUDFLARE_API_TOKEN']
+    fields: ['api-token=CLOUDFLARE_DNS_API_TOKEN']
     when: [secret_store_enabled, books_here_in_answers]
     on_failure: exit
 

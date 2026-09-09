@@ -35,7 +35,7 @@ defaults:
   # has one home and no second copy that can drift.
   repository: /srv/hostyour-cloud
   secrets_path: secrets/secrets.<stage>
-  token_variable: CLOUDFLARE_API_TOKEN
+  token_variable: CLOUDFLARE_DNS_API_TOKEN
   # Which answer the "<stage>" above stands for. The word is stated once, here, rather than known
   # by the package — a product with regions instead of stages would name that answer and write
   # "<region>".
