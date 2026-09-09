@@ -460,8 +460,13 @@ answers:
     required: false
     secret: true
     describes: >-
-      A Cloudflare API token for this account's object storage, with Workers R2 Storage Write. It is
-      a MANAGING credential and the only one this installation holds: the platform makes each
+      A Cloudflare API token for this account's object storage, carrying TWO permissions: Workers R2
+      Storage Write, which makes a bucket, and Account API Tokens Write, which mints and withdraws
+      the per-tenant keys. Both, because an R2 access key IS an account API token — the access key id
+      is that token's id and the secret is the SHA-256 of its value. With only the first, the bucket
+      is made and the mint is refused halfway through creating a tenant.
+
+      It is a MANAGING credential and the only one this installation holds: the platform makes each
       tenant's bucket with it and mints a key that reaches that one bucket, so no tenant ever holds
       this token and no tenant's key reaches another tenant's bucket.
 
