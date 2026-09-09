@@ -94,6 +94,18 @@ global:
   # authenticate nothing at all.
   registryPullUser: <registry-pull-user>
   registryPushUser: <registry-push-user>
+  # THE OBJECT STORAGE THIS INSTALLATION'S TENANTS ARE GIVEN A BUCKET IN. Neither value is a
+  # secret: the account stands in every bucket's public endpoint, and the jurisdiction is part of a
+  # bucket's identity — a bucket made under one is invisible under another. The token that MAKES a
+  # bucket is not here and never in git: it is a credential, and it stands in the secret store like
+  # every other one.
+  #
+  # ONE LINE, AND THAT IS WHAT MAKES AN UNANSWERED INSTALLATION SAFE. Both slots are optional, and a
+  # line holding one that nobody answered is dropped whole — so an installation with no object
+  # storage writes no key here, and the charts resolve the platform's own empty default through the
+  # values chain. Written as two lines, the parent would stand with nothing under it, and a key
+  # holding null overrides a default instead of leaving it alone.
+  objectStorage: {r2: {accountId: '<object-storage-account-id?>', jurisdiction: '<object-storage-jurisdiction?>'}}
   # WHERE THE MACHINES OF THIS CLUSTER CAN BE REACHED, each address on its own as a /32.
   #
   # A boundary drawn in address terms has to name the machine it is drawn around, and a cloud

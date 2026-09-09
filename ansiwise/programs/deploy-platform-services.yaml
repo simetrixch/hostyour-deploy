@@ -1280,6 +1280,26 @@ steps:
     when: [secret_store_enabled, books_here_in_answers]
     on_failure: exit
 
+  # The object storage's managing credential, and the two values that say WHICH account and WHICH
+  # jurisdiction it manages. Three fields and not three entries, for the reason the storage box
+  # below states: an account, the part of it that is addressed, and the credential for it are one
+  # credential, and a reader given two of the three composes an endpoint it cannot sign for.
+  #
+  # ITS OWN ENTRY, beside the DNS token rather than in it. The two are different products with
+  # different permissions, and the reader of one is not the reader of the other: what writes a unit's
+  # DNS record is not what makes a tenant's bucket.
+  - step: vault_kv_entry
+    rests_on_an_earlier_step: true
+    repository: /srv/hostyour-cloud
+    mount: secret
+    path: <stage>/app/cloudflare-r2
+    fields:
+      - 'api-token=CLOUDFLARE_R2_API_TOKEN'
+      - 'account-id=CLOUDFLARE_R2_ACCOUNT_ID'
+      - 'jurisdiction=CLOUDFLARE_R2_JURISDICTION'
+    when: [secret_store_enabled, books_here_in_answers]
+    on_failure: exit
+
   # Three fields and not three entries: a machine, an account on it and that account's password are
   # one credential, and a reader that got two of the three would compose an address it cannot log in
   # to.
