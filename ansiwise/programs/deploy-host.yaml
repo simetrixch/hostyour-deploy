@@ -134,16 +134,19 @@ steps:
     unit: chrony.service
     on_failure: exit
 
-  # THE READING THAT DECIDES, AND IT IS NOT THE ONE THAT SAYS A MACHINE IS MEANT TO SYNCHRONISE.
-  # `NTP` is the setting and answers yes on a machine whose every source is unreachable;
-  # `NTPSynchronized` is what the clock is. Refusing here rather than continuing is the whole point
-  # of the four rows: everything this platform installs afterwards issues or verifies something
-  # that carries a time.
-  - step: wait_for_command_output
-    waiting_for: the clock to come into step with a time source this machine can reach
-    command: timedatectl
-    command_arguments: [show, -p, NTPSynchronized, --value]
-    answer: 'yes'
+  # THE ROW THAT DECIDES, AND IT ACTS BEFORE IT DECIDES. Refusing a machine whose clock is out is
+  # the whole point of the four rows: everything this platform installs afterwards issues or
+  # verifies something that carries a time. But waiting alone only watched. A machine restored from
+  # a snapshot comes back with its daemon long past the updates its distribution lets it STEP the
+  # clock in, so a large error is slewed at 8.3 per cent — measured on a machine on 2026-09-09, 69
+  # seconds out and twelve minutes from closing, against a window of three. Four runs died there in
+  # one morning.
+  #
+  # So this row brings the clock into step and then measures it: past the tolerance it steps the
+  # clock, then waits for the kernel's own verdict, and a machine that reaches no source at all is
+  # refused by name rather than waited out — no step can invent a time.
+  - step: clock_in_step
+    tolerance_seconds: 1
     timeout_seconds: 180
     interval_seconds: 5
     on_failure: exit
