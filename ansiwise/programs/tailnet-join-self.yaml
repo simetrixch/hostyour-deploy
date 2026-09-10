@@ -17,11 +17,14 @@
 # answer that names it is derived, and the file it names is written earlier in this same run.
 #
 # WHY IT WAITS FIRST. The coordinator is not put here by any program — it is a workload the
-# reconciler brings, at sync wave 42, after the installation has handed the cluster its root
+# reconciler brings, at sync wave 0, after the installation has handed the cluster its root
 # application. So the moment this program starts, the coordinator may not exist yet, and minting
 # against a coordinator that cannot be asked is refused rather than guessed at. The row below waits
 # for it the way this installation already waits for its certificate, its secret store and its
-# identity provider — all of them delivered the same way.
+# identity provider — all of them delivered the same way. Wave 0 is what keeps that wait inside its
+# budget: the coordinator depends on nothing the reconciler brings, so what the row waits out is
+# the reconciler's own start and the coordinator's readiness, not the health of every application
+# ahead of it (simetrixch/hostyour-cloud#206).
 #
 # ROLES. Master only, and that is the whole of the distinction: a slave has no coordinator to wait
 # for and no key of its own to mint, and its join is the manager's act from the other side.
