@@ -2149,7 +2149,7 @@ steps:
   # which exists on the cluster that keeps the books and nowhere else. A cluster keeping none cannot
   # have it at all, and a row that tried would die at this point.
   #
-  # It arrives the way every other secret on every cluster does: clusters/inventories/argocd-signin
+  # It arrives the way every other secret on every cluster does: clusters/inventories/argocd-secrets
   # renders a SecretStore and an ExternalSecret into the reconciler's namespace, and this cluster's
   # own ESO reads the entry at <stage>/idp/bootstrap with this cluster's own policy. One mechanism
   # instead of two, and the object is a resource of a GitOps Application — visible in the reconciler
