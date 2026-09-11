@@ -70,13 +70,28 @@ steps:
     free_kibibytes: 40000000
     on_failure: exit
 
+  # --- the package manager, before anything leans on the service manager -----------------------
+  #
+  # THE FIRST ROW THAT CHANGES THE MACHINE, and it stands ahead of the clock on purpose: the rows
+  # below restart chrony, enable units and install packages, and every one of them asks the service
+  # manager. Ubuntu's apt-daily-upgrade.timer fires within minutes of a boot on a machine whose
+  # snapshot is weeks behind, and the upgrade it starts runs beside this installation: on apps2 it
+  # upgraded systemd, whose maintainer scripts re-execute PID 1, and a `snap run microk8s` asking
+  # PID 1 for its scope in that instant was answered with a closed bus and read as a failed step.
+  # This installation installs, removes and cleans packages itself, so the distribution's timers
+  # are masked for good; an upgrade already running is waited out and never killed
+  # (simetrixch/ansiwise-plugins#185).
+  - step: mask_automatic_upgrades
+    on_failure: exit
+
   # --- the clock, before anything is fetched over a network -------------------------------------
   #
   # WHY IT STANDS HERE. A clock that is out is not a slow machine: a package index is refused for
   # standing outside its validity window, a certificate authority refuses a request, a token is
   # rejected, and a lease of the secret store expires before it is used. Every row below this one
-  # fetches something, so the clock is put in step first. The rows above only refuse a machine and
-  # write nothing, which is where this file's own order rule puts the boundary.
+  # fetches something, so the clock is put in step first. The rows above only refuse a machine, or
+  # mask a timer — the one act that must come before the service manager is asked anything, and
+  # one no clock has a say in — which is where this file's own order rule puts the boundary.
   #
   # WHAT THE DISTRIBUTION LEAVES BEHIND, AND WHY IT IS REPLACED RATHER THAN ADDED TO. Ubuntu runs
   # chronyd and names five authenticated (`nts`) pools in
