@@ -303,16 +303,17 @@ answers:
       the platform's own and public, so the default is the right answer unless this installation
       runs programs of its own.
 
-  - name: mail_unit
+  - name: mail_host
     kind: text
     required: false
     describes: >-
-      The unit name of this installation's own shared mail service, if it runs one: a plain unit
-      name, no scheme and no host. Every unit composes the address itself, as https:// followed by
-      that name, a hyphen, the unit's own stage and the unit apex, so a test unit reaches the test
-      mail service. Leave empty when the installation has none: an empty value would satisfy a chart
-      that requires the key with a name nothing answers under, which is worse than the key being
-      absent.
+      The host LABEL this installation's own shared mail service stands on, if it runs one: one DNS
+      label, the `host` its manifest declares (for digita-post that is `post`), no scheme and no
+      zone. Every unit composes the address itself, as https:// followed by that label and the
+      unit's own stage zone — `post.digitacloud.app` at prod, `post.dev.digitacloud.app` at dev —
+      so a test unit reaches the test mail service. Leave empty when the installation has none: an
+      empty value would satisfy a chart that requires the key with a label nothing answers under,
+      which is worse than the key being absent.
 
   # ── the machine this installation's Manager runs on ──────────────────────
   #
@@ -776,7 +777,7 @@ steps:
   # first commit, and an installation is never born without an answer to "which release does this
   # machine run".
   #
-  # `mail-unit` is absent rather than empty where this installation has no mail service. An empty
+  # `mail-host` is absent rather than empty where this installation has no mail service. An empty
   # value satisfies a chart that requires the key with a name nothing answers under, which is worse
   # than the missing key a gate reports by name.
 
@@ -832,7 +833,7 @@ steps:
       # Several sources on one line, separated the same way and for the same reason.
       time-sources: { answer: time_sources, join: ", " }
       catalog-repo: { answer: catalog_repo }
-      mail-unit: { answer: mail_unit }
+      mail-host: { answer: mail_host }
       # The account and the jurisdiction the tenant charts compose their storage endpoint from. Both
       # bindings stand on ONE line of the template, so an installation that answered neither writes
       # no key at all rather than a key holding nothing — a chart resolves the platform's own empty
