@@ -128,10 +128,11 @@ global:
     registry:
       host: zot.<build-plane>
     # The host LABEL the installation's shared mail service stands on: one DNS label, not an
-    # address. The mail service exists once per stage, and its host follows the unit host law
-    # `<label>.<stage apex>`, so every unit composes the address itself as https:// followed by this
-    # label and the unit's OWN stage zone. A test unit then reaches the test mail service and a
-    # prod unit the prod one; one address written here would send every stage to one of them.
+    # address. The mail service exists once per stage, and its host follows the unit host law —
+    # the label, a dot, the stage apex — so every unit composes the address itself as https://
+    # followed by this label and the unit's OWN stage zone. A test unit then reaches the test mail
+    # service and a prod unit the prod one; one address written here would send every stage to
+    # one of them. Angle brackets are slots to the engine, comments included, so none stand here.
     # Optional: an installation that runs no mail service has none, and a chart that requires the
     # key stops its render naming it rather than sending nowhere.
     mail: {host: <mail-host?>}
