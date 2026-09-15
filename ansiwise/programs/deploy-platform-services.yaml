@@ -1169,16 +1169,20 @@ steps:
     when: [secret_store_enabled, books_here_in_answers]
     on_failure: exit
 
-  # The mail signing key is owned by another writer, which is why it is named here as one: an entry
-  # written with no fields replaces what is there with nothing, so a run that finds the value still
-  # unfilled leaves the field out and, with nothing else left in the entry, writes nothing at all.
-  - step: vault_kv_entry
+  # THE MAIL SIGNING KEY PAIR, minted here because nobody can be asked for it: a hand-filled input
+  # is a file of single-line assignments and cannot hold a private key, and a pair a person typed is
+  # one they have also written down somewhere. The private half is what the relay signs with — its
+  # ExternalSecret reads this entry under the first field name; the public half stands beside it
+  # under the second, so the row that publishes the DKIM record (publish-mail-dns) reads exactly what
+  # the relay holds. A pair already in the store is kept: minting again would leave every record
+  # published for the first key naming one the relay no longer signs with.
+  - step: vault_kv_dkim_key_pair
     rests_on_an_earlier_step: true
     repository: /srv/hostyour-cloud
     mount: secret
     path: <stage>/app/postfix
-    fields: ['dkim-private-key=MAIL_RELAY_DKIM_PRIVATE_KEY']
-    fields_owned_elsewhere: ['dkim-private-key']
+    private_key_field: dkim-private-key
+    public_key_field: dkim-public-key
     when: [secret_store_enabled, books_here_in_answers]
     on_failure: exit
 

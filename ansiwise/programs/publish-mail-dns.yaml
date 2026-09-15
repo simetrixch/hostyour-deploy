@@ -22,9 +22,9 @@
 #
 # WHAT THIS PROGRAM DOES NOT DO. The reverse-DNS entry of the sending address is set where the
 # address is rented, not in any DNS zone this token can edit — no row here can carry it. And no row
-# derives the DKIM public key from the private one: the public half arrives as the answer
-# dkim_public_key from the caller that holds the pair (the cluster manager that minted it), or on a
-# hand-run out of the hand-filled input below, and the DKIM row says out loud when both are empty.
+# derives the DKIM public key from the private one: the pair is minted where the store is seeded
+# (deploy-platform-services), the public half stands in the store beside the private one, and the
+# row below that reads it hands the DKIM row exactly what the relay signs with.
 name: publish-mail-dns
 roles: [master]
 
@@ -40,6 +40,14 @@ defaults:
   # by the package — a product with regions instead of stages would name that answer and write
   # "<region>".
   run_answer: stage
+  # Where the store's profile and root token stand, for the one row that reads the store — the same
+  # layout deploy-platform-services writes them under, stated the same way.
+  profile_path: clusters/active/<fqdn>.yaml
+  domain_answer: fqdn
+  vault_url_key: global.endpoints.vault.url
+  cluster_name_key: global.clusterName
+  kubernetes_auth_path_key: global.vaultKubernetesAuthPath
+  credentials_path: secrets/vault-<stage>.txt
 
 steps:
   # SPF FIRST, AND THE ORDER IS THE SAFETY PROPERTY. This is the one row that can find the domain
@@ -61,15 +69,25 @@ steps:
     address_answer: egress_address
     on_failure: exit
 
-  # Published ONLY where a signing key exists. The step takes the public half off this run's
-  # dkim_public_key answer where the caller holds the pair, and otherwise reads it out of the same
-  # hand-filled input the token stands in; with both empty it publishes nothing and says so — a DKIM
-  # record nothing signs with makes receivers fail mail that is otherwise fine. The private half
-  # never comes near this program.
+  # THE KEY THE RELAY SIGNS WITH, read out of the store. The pair is minted where the store is
+  # seeded and the public half stands beside the private one; this row publishes it for the row
+  # below. An installation whose store holds no pair is refused here and named — and the run goes
+  # on, because the records above are right without a signature and the DKIM row below then
+  # publishes nothing and says so. The private half is never read by this program.
+  - step: measure_dkim_public_key
+    mount: secret
+    path: <stage>/app/postfix
+    public_key_field: dkim-public-key
+    on_failure: continue
+
+  # Published ONLY where a signing key exists. The step takes the public half the row above
+  # measured; where that row could not (no pair in the store), it falls back to the hand-filled
+  # input the token stands in, and with that empty too it publishes nothing and says so — a DKIM
+  # record nothing signs with makes receivers fail mail that is otherwise fine.
   - step: cloudflare_dkim_record
     apex_answer: mail_domain
     selector_answer: dkim_selector
-    public_key_answer: dkim_public_key
+    public_key: {measured: dkim_public_key}
     public_key_variable: MAIL_RELAY_DKIM_PUBLIC_KEY
     on_failure: exit
 
@@ -116,14 +134,12 @@ answers:
       signer actually writes into its signatures. Leave it empty to use the stage, which is what
       this installation's signer does.
 
-  - name: dkim_public_key
+  - name: fqdn
     kind: text
-    required: false
+    shape: hostname
     describes: >-
-      The DKIM public key to publish, as the single line of base64 the record's p= carries — answered
-      by the cluster manager that minted the pair and holds the private half. Leave it empty on a
-      hand-run: the key is then read out of the hand-filled input (MAIL_RELAY_DKIM_PUBLIC_KEY), and
-      with that empty too no record is published.
+      This cluster's own domain — the name its map stands under, which is where the one row that
+      reads the store finds the store's address and its own name.
 
   - name: dmarc_policy
     kind: text
