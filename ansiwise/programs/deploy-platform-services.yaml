@@ -1284,6 +1284,25 @@ steps:
     when: [secret_store_enabled, books_here_in_answers]
     on_failure: exit
 
+  # The platform's GitHub App, three fields and one entry like the object storage: an App id
+  # without its installation id signs a token for no organisation, and a key without either
+  # signs nothing. ALL THREE OPTIONAL, because an installation that creates no tenant repository
+  # has no App and is complete without one: with all three empty no entry is written, the manager
+  # chart renders nothing for it (installation/values/manager.yaml carries no githubApp.appId), and
+  # the run that needs the App refuses at its plan.
+  - step: vault_kv_entry
+    rests_on_an_earlier_step: true
+    repository: /srv/hostyour-cloud
+    mount: secret
+    path: <stage>/app/github-app
+    fields:
+      - 'app-id=GITHUB_APP_ID'
+      - 'installation-id=GITHUB_APP_INSTALLATION_ID'
+      - 'private-key=GITHUB_APP_PRIVATE_KEY'
+    optional_fields: [app-id, installation-id, private-key]
+    when: [secret_store_enabled, books_here_in_answers]
+    on_failure: exit
+
   # The object storage's managing credential, and the two values that say WHICH account and WHICH
   # jurisdiction it manages. Three fields and not three entries, for the reason the storage box
   # below states: an account, the part of it that is addressed, and the credential for it are one

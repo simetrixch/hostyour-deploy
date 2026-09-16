@@ -36,3 +36,9 @@ onboarding:
   # every other private address. It is a target that IS listening, which is what makes the block it
   # proves worth proving — the Manager's own address is probed separately and needs no entry here.
   gateFenceMustFail: '<lan-host>:16443'
+
+# THE SWITCH FOR THE PLATFORM'S GITHUB APP. The chart renders the App's ExternalSecret and the
+# three env only where this key is set, because an installation may have no App and the seed
+# then writes no entry for one — and an ExternalSecret naming an entry that is not there holds
+# the manager Application Degraded. An optional slot: unanswered, the line is dropped whole.
+githubApp: {appId: '<github-app-id?>'}
