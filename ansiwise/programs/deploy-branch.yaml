@@ -476,8 +476,9 @@ answers:
     secret: true
     describes: >-
       A Cloudflare API token with Zone:DNS:Edit and Zone:Zone:Read, scoped to your own zone only and
-      with no account-level permission. This installation writes its own wildcard record and one
-      record per unit with it, and the mail publisher writes the SPF, DKIM and DMARC records.
+      with no account-level permission. This installation writes its own wildcard record with it
+      (this program, a CNAME `*.<fqdn>` to `<fqdn>`) and one record per unit (the Manager), and the
+      mail publisher writes the SPF, DKIM and DMARC records.
 
       DNS AND NOTHING ELSE. A Cloudflare account holds tokens for other products — object storage
       among them — and any of them fits this box. None of them can read a zone, so the value is
@@ -967,6 +968,28 @@ steps:
       STORAGE_BOX_USER: { answer: storage_box_user }
       STORAGE_BOX_PASSWORD: { answer: storage_box_password }
     on_failure: exit
+
+  # THE INSTALLATION'S OWN WILDCARD, `*.<fqdn>`, kept a CNAME to `<fqdn>` — so every platform name
+  # under the installation (argo., vault., kube., manager., and every unit's) answers what the
+  # machine's own record answers, and a from-zero installation on a zone that carries only that
+  # record issues its first certificate without a hand-made wildcard (hostyour-deploy#35). A CNAME
+  # and never an address: the Manager reads a cluster's address off the machine's own record, and a
+  # wildcard restating the address would part from it the day the machine moves. Written HERE, the
+  # program that holds the DNS token and runs before the services that order certificates; the
+  # token is read off the credentials file the row above just filled. abandon-installation takes
+  # this record away with the installation, which is why the installation has to write it.
+  #
+  # ON_FAILURE CONTINUE, because the token is optional: without one the step refuses by name and
+  # the run goes on to the certificate, which then fails loud where it always did — a run cannot
+  # skip a step on an answer's emptiness, and a refusal that names the missing token is the better
+  # message anyway.
+  - step: cloudflare_wildcard_record
+    fqdn_answer: fqdn
+    repository: /srv/hostyour-cloud
+    secrets_path: secrets/secrets.<stage>
+    token_variable: CLOUDFLARE_DNS_API_TOKEN
+    run_answer: stage
+    on_failure: continue
 
   # THE FOUR ONLY THE CLUSTER CARRYING THE BUILD PLANE EVER READS. Every other cluster reads its
   # images through that one and never looks at them, so writing them there would put a credential on
