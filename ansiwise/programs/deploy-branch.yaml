@@ -436,10 +436,11 @@ answers:
     secret: true
     describes: >-
       A GitHub credential with Contents: Read and no write at all, on the tenant catalog named
-      above — the repository that also carries this installation's deployment programs. The
-      machine's resident deployment service keeps its own checkout of those programs current with
-      it. A READER on its own, like the one above, so what runs programs on a machine cannot
-      rewrite the catalog they come from.
+      above — ONLY where the platform's GitHub App below does not reach that catalog. Where it
+      does, the App is the catalog's identity in every reconciler and this stays empty; the
+      Manager measures which of the two applies (its readiness row catalog.identity) and turns red
+      on a credential answered beside a reaching App. A READER on its own, like the one above, so
+      what runs programs on a machine cannot rewrite the catalog they come from.
 
   - name: github_app_id
     kind: text
@@ -616,8 +617,10 @@ answers:
     required: false
     secret: true
     describes: >-
-      Build plane only: the same, on the tenant catalog named above. One organisation credential can
-      back both; they are two answers so that they can be rotated apart.
+      Build plane only: the same, on the tenant catalog named above — ONLY where the platform's
+      GitHub App does not reach that catalog; where it does, the Manager writes the pipeline's
+      catalog credential from the App on its own timer, and this stays empty. One organisation
+      credential can back both; they are two answers so that they can be rotated apart.
 
 steps:
   # THE SECOND REFUSAL THAT ASKS NO MACHINE ANYTHING, AND IT STANDS AHEAD OF THE FIRST TOOL. The
@@ -868,6 +871,7 @@ steps:
       # default through the values chain, and a key written null would override that with null.
       object-storage-account-id: { answer: cloudflare_r2_account_id }
       object-storage-jurisdiction: { answer: cloudflare_r2_jurisdiction }
+      github-app-id: { answer: github_app_id }
       # The short name, its two registry accounts and the two placement facts. This row binds every
       # slot the map template carries: a slot it does not bind refuses the run by name, and a
       # binding with no slot is refused the same way.
