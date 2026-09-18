@@ -5,3 +5,6 @@ AGENTS.md
 
 # The agent's own state directory. Tooling state, never a program.
 .claude/
+
+# graft's local graph cache — regenerable, not committed (run `graft build`).
+/graft/
