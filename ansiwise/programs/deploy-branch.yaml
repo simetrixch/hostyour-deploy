@@ -982,7 +982,14 @@ steps:
   # the run goes on to the certificate, which then fails loud where it always did — a run cannot
   # skip a step on an answer's emptiness, and a refusal that names the missing token is the better
   # message anyway.
+  #
+  # AND IT RESTS ON THE ROW ABOVE: the token is read off the credentials file that row fills, and a
+  # test or dry run fills nothing — at the birth of an installation the file is not there yet, so
+  # the check cannot hold and the record stamps the row declared rather than refusing the run
+  # (hostyour-deploy#38, measured on apps1). The real run measures it in full, and a regeneration
+  # finds the file the birth run wrote.
   - step: cloudflare_wildcard_record
+    rests_on_an_earlier_step: true
     fqdn_answer: fqdn
     repository: /srv/hostyour-cloud
     secrets_path: secrets/secrets.<stage>
