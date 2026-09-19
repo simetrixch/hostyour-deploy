@@ -135,16 +135,15 @@ answers:
 
   - name: role
     kind: text
-    allowed: [master, slave, master+slave]
+    allowed: [master, slave]
     describes: >-
-      Every part this cluster carries: "master" where it holds the master part, "slave" where it
-      belongs to another one, and "master+slave" where one machine does both jobs. The master part
-      keeps the books — the cluster maps and the consumer registrations — and a pure slave keeps
-      none of them, because a second copy of the books goes stale the moment anything writes to
-      the master's branch. Adding the slave part to a machine that held the master part alone is
-      done by running this again with "master+slave"; a role that DROPS the master part is not,
-      because the books stand on that machine's own branch and this run has to carry them through
-      unharmed.
+      What this cluster is: "master" where it keeps the books — the cluster maps and the consumer
+      registrations — and operates the management plane, "slave" where it belongs to a master. A
+      master carries the slave part as well: the data services and every workload a slave runs
+      stand on it too, so a unit can be placed on any cluster of the installation. A slave keeps
+      no copy of the books, because a second copy goes stale the moment anything writes to the
+      master's branch. A role that DROPS the master part is not a change this run makes: the books
+      stand on that machine's own branch and this run has to carry them through unharmed.
 
   - name: books_fqdn
     kind: text

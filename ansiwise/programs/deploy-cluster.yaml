@@ -1098,11 +1098,11 @@ answers:
 
   - name: role
     kind: text
-    allowed: [master, slave, master+slave]
+    allowed: [master, slave]
     describes: >-
-      Every part this cluster carries — "master", "slave", or "master+slave" where one machine does
-      both jobs. A cluster that holds the master part runs the identity provider every cluster of
-      the installation authenticates against; one that does not is pointed at the master's.
+      What this cluster is — "master" or "slave"; a master carries the slave part as well. A master
+      runs the identity provider every cluster of the installation authenticates against; a slave
+      is pointed at the master's.
 
   - name: books_fqdn
     kind: text

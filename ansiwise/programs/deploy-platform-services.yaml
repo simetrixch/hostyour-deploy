@@ -2317,11 +2317,11 @@ answers:
 
   - name: role
     kind: text
-    allowed: [master, slave, master+slave]
+    allowed: [master, slave]
     describes: >-
-      Every part this cluster carries — "master", "slave", or "master+slave" where one machine does
-      both jobs. The identity provider of an installation stands on the cluster holding the master
-      part, and every other cluster accepts the tokens it issues.
+      What this cluster is — "master" or "slave"; a master carries the slave part as well. The
+      identity provider of an installation stands on the master, and every other cluster accepts
+      the tokens it issues.
 
   - name: operator_user
     kind: text
