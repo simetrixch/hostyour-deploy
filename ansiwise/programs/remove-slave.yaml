@@ -85,12 +85,6 @@ steps:
     path: <stage>/slaves/<slave_cluster_name>/repo-pat
     on_failure: exit
 
-  - step: remove_vault_kv_entry
-    repository: /srv/hostyour-cloud
-    mount: secret
-    path: <stage>/slaves/<slave_cluster_name>/deploy-repo-pat
-    on_failure: exit
-
   # The mount, its accessor and every role on it. Guarded on the type: a mount of any other kind at
   # this path is a name collision this program never created, refused rather than disabled.
   - step: remove_vault_auth_method

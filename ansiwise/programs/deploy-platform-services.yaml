@@ -1521,19 +1521,10 @@ steps:
     when: [secret_store_enabled, build_plane_here_in_answers, books_here_in_answers]
     on_failure: exit
 
-  # OPTIONAL, unlike the platform's own above: where the platform's GitHub App is the catalog's
-  # identity the answer is empty, no entry is written here, and the Manager writes this same entry
-  # from the App's token on the timer that refreshes every unit's (hostyour-manager#197) — a token
-  # GitHub issues for an hour cannot be seeded once by an installer.
-  - step: vault_kv_entry
-    rests_on_an_earlier_step: true
-    repository: /srv/hostyour-cloud
-    mount: secret
-    path: build/catalog/repo-pat
-    fields: ['pat=BUILD_CATALOG_REPO_PAT']
-    optional_fields: [pat]
-    when: [secret_store_enabled, build_plane_here_in_answers, books_here_in_answers]
-    on_failure: exit
+  # The catalog's own entry, build/catalog/repo-pat, is NOT seeded here: the platform's GitHub App
+  # is the catalog's identity, and the Manager writes that entry from the App's token on the timer
+  # that refreshes every unit's (hostyour-manager#197) — a token GitHub issues for an hour cannot
+  # be seeded once by an installer. The policies above grant its read.
 
   # --- the identity provider ------------------------------------------------------------------
   #

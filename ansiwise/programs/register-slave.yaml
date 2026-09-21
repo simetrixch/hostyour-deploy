@@ -227,16 +227,9 @@ steps:
     fields: ['pat=GITOPS_REPO_READ_PAT']
     on_failure: exit
 
-  # OPTIONAL: where the platform's GitHub App is the catalog's identity, the slave's reconciler
-  # reads the App's entry <stage>/app/github-app through the cluster's own store instead
-  # (hostyour-cloud#228), the answer is empty and no entry is written here.
-  - step: vault_kv_entry
-    repository: /srv/hostyour-cloud
-    mount: secret
-    path: <stage>/slaves/<slave_cluster_name>/deploy-repo-pat
-    fields: ['pat=CATALOG_REPO_READ_PAT']
-    optional_fields: [pat]
-    on_failure: exit
+  # The catalog needs no entry of its own here: the platform's GitHub App is the catalog's identity,
+  # and the slave's reconciler reads the App's entry <stage>/app/github-app through the cluster's
+  # own store (hostyour-cloud#228).
 
   # --- the master's own role is NOT touched here -------------------------------------------------
   #

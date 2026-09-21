@@ -429,18 +429,6 @@ answers:
       Two credentials rather than one, so a component that only reads cannot rewrite the books of
       every cluster.
 
-  - name: catalog_repo_read_pat
-    kind: text
-    required: false
-    secret: true
-    describes: >-
-      A GitHub credential with Contents: Read and no write at all, on the tenant catalog named
-      above — ONLY where the platform's GitHub App below does not reach that catalog. Where it
-      does, the App is the catalog's identity in every reconciler and this stays empty; the
-      Manager measures which of the two applies (its readiness row catalog.identity) and turns red
-      on a credential answered beside a reaching App. A READER on its own, like the one above, so
-      what runs programs on a machine cannot rewrite the catalog they come from.
-
   - name: github_app_id
     kind: text
     required: false
@@ -610,17 +598,6 @@ answers:
       is a unit like any other, and its build reads the credential at the path every unit's build
       reads — which the Manager writes when it onboards a unit, this one included:
       ansiwise/programs/onboard-manager.yaml asks for the same answer under this same name.
-
-  - name: build_catalog_repo_write_pat
-    kind: text
-    stated_when: {predicate: build_plane_here_in_answers}
-    required: false
-    secret: true
-    describes: >-
-      Build plane only: the same, on the tenant catalog named above — ONLY where the platform's
-      GitHub App does not reach that catalog; where it does, the Manager writes the pipeline's
-      catalog credential from the App on its own timer, and this stays empty. One organisation
-      credential can back both; they are two answers so that they can be rotated apart.
 
 steps:
   # THE SECOND REFUSAL THAT ASKS NO MACHINE ANYTHING, AND IT STANDS AHEAD OF THE FIRST TOOL. The
@@ -955,7 +932,6 @@ steps:
     values:
       GITOPS_REPO_PAT: { answer: platform_repo_write_pat }
       GITOPS_REPO_READ_PAT: { answer: platform_repo_read_pat }
-      CATALOG_REPO_READ_PAT: { answer: catalog_repo_read_pat }
       GITHUB_APP_ID: { answer: github_app_id }
       GITHUB_APP_INSTALLATION_ID: { answer: github_app_installation_id }
       GITHUB_APP_PRIVATE_KEY: { answer: github_app_private_key }
@@ -1028,7 +1004,6 @@ steps:
       REGISTRY_DOCKERHUB_TOKEN: { answer: registry_dockerhub_token }
       BUILD_HOSTYOUR_CLOUD_REPO_PAT: { answer: build_platform_repo_write_pat }
       BUILD_HOSTYOUR_MANAGER_REPO_PAT: { answer: build_manager_repo_write_pat }
-      BUILD_CATALOG_REPO_PAT: { answer: build_catalog_repo_write_pat }
     on_failure: exit
 
   # THE SEVEN BOOTSTRAP MANIFESTS THAT NAME THIS INSTALLATION, rendered from the templates standing
