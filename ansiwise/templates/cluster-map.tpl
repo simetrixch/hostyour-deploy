@@ -106,12 +106,6 @@ global:
   # values chain. Written as two lines, the parent would stand with nothing under it, and a key
   # holding null overrides a default instead of leaving it alone.
   objectStorage: {r2: {accountId: '<object-storage-account-id?>', jurisdiction: '<object-storage-jurisdiction?>'}}
-  # THE SWITCH FOR THE PLATFORM'S GITHUB APP, for every chart of the installation: answered, the
-  # catalog's repository credential renders as the App itself in the reconciler of the master and
-  # of every slave, and the Manager is handed no catalog PAT (hostyour-cloud#228). The App's id is
-  # no secret; its installation id and its key stand in the secret store alone. One line, optional,
-  # dropped whole when unanswered — the reason the object storage above is one line.
-  githubApp: {appId: '<github-app-id?>'}
   # WHERE THE MACHINES OF THIS CLUSTER CAN BE REACHED, each address on its own as a /32.
   #
   # A boundary drawn in address terms has to name the machine it is drawn around, and a cloud

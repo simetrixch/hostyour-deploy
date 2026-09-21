@@ -1285,11 +1285,9 @@ steps:
     on_failure: exit
 
   # The platform's GitHub App, three fields and one entry like the object storage: an App id
-  # without its installation id signs a token for no organisation, and a key without either
-  # signs nothing. ALL THREE OPTIONAL, because an installation that creates no tenant repository
-  # has no App and is complete without one: with all three empty no entry is written, the manager
-  # chart renders nothing for it (installation/values/manager.yaml carries no githubApp.appId), and
-  # the run that needs the App refuses at its plan.
+  # without its installation id signs a token for no owner, and a key without either signs
+  # nothing. All three required (hostyour-cloud#237): the App is the identity the catalog is read
+  # and written with everywhere, so an installation without it does not exist.
   - step: vault_kv_entry
     rests_on_an_earlier_step: true
     repository: /srv/hostyour-cloud
@@ -1299,7 +1297,6 @@ steps:
       - 'app-id=GITHUB_APP_ID'
       - 'installation-id=GITHUB_APP_INSTALLATION_ID'
       - 'private-key=GITHUB_APP_PRIVATE_KEY'
-    optional_fields: [app-id, installation-id, private-key]
     when: [secret_store_enabled, books_here_in_answers]
     on_failure: exit
 
