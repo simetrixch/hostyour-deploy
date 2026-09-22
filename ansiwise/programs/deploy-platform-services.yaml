@@ -829,7 +829,14 @@ steps:
   # no read grant the manager cannot look before it writes, so its writes are create-only at the
   # call site — which is exactly the point: a second onboarding of something already running must
   # fail loudly rather than rotate the keys a pod read once at container start, or the password a
-  # database was initialized with. The delete is on the metadata and not on the data, because a data
+  # database was initialized with.
+  #
+  # `patch` ON THE CONSUMER APPLICATION LEAF ALONE, and it is a write, not a read: Vault merges the
+  # keys it is handed into the stored entry and answers the new version, so the manager changes one
+  # declared secret of a standing consumer (hostyour-manager#245 consumer-set-secrets) without ever
+  # holding the values it did not change. Without the read grant beside it, the leaf stays one the
+  # manager can write and cannot look at — which is why the database leaves keep create and update
+  # alone: a password a database was initialized with is not a value to merge into. The delete is on the metadata and not on the data, because a data
   # delete is soft and leaves version history that create-only refuses to write over; and it is a
   # delete alone, with no create or update on the metadata, so nothing can set the field that makes
   # values expire by themselves.
@@ -842,7 +849,7 @@ steps:
       path "secret/metadata/manager/cred/*" { capabilities = ["read", "delete", "list"] }
       path "secret/data/build/+/repo-pat" { capabilities = ["create", "update"] }
       path "secret/metadata/build/+/repo-pat" { capabilities = ["delete"] }
-      path "secret/data/<stage>/consumer/+/app" { capabilities = ["create", "update"] }
+      path "secret/data/<stage>/consumer/+/app" { capabilities = ["create", "update", "patch"] }
       path "secret/metadata/<stage>/consumer/+/app" { capabilities = ["delete"] }
       path "secret/data/<stage>/consumer/+/postgres" { capabilities = ["create", "update"] }
       path "secret/metadata/<stage>/consumer/+/postgres" { capabilities = ["delete"] }
@@ -860,7 +867,7 @@ steps:
     rules: |
       path "secret/data/manager/cred/*" { capabilities = ["create", "read", "update", "delete", "list"] }
       path "secret/metadata/manager/cred/*" { capabilities = ["read", "delete", "list"] }
-      path "secret/data/<stage>/consumer/+/app" { capabilities = ["create", "update"] }
+      path "secret/data/<stage>/consumer/+/app" { capabilities = ["create", "update", "patch"] }
       path "secret/metadata/<stage>/consumer/+/app" { capabilities = ["delete"] }
       path "secret/data/<stage>/consumer/+/postgres" { capabilities = ["create", "update"] }
       path "secret/metadata/<stage>/consumer/+/postgres" { capabilities = ["delete"] }
