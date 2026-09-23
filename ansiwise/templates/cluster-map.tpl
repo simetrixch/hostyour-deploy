@@ -35,6 +35,10 @@ booksCluster: <books-cluster>
 release: <release>
 
 global:
+  # THIS MASTER'S ADDRESS ON ITS PRIVATE NETWORK, carried: tailnet-record-address writes it once the
+  # machine has joined, which is after this file is first written, and every rewrite from the answers
+  # hands it back as it stands. The fence of a mail sender's SMTP entry admits it.
+  apiHost: <api-host!?>
   # This cluster's own public domain name, which is also the name of its install branch.
   domain: <fqdn>
   # The first DNS label of that domain. Everything named per cluster carries it — the Vault auth

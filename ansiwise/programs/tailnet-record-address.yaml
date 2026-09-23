@@ -1,0 +1,77 @@
+# A master recording the address it holds on its own private network, as `global.apiHost` in its
+# cluster map.
+#
+# WHAT READS IT. A slave's map carries the same field — the address the master's components dial
+# the slave on, which deploy-slave writes from the other side. On a master it is the address the
+# books cluster reaches the others FROM: the fence of a unit that declares an SMTP entry admits it,
+# and nothing else, on that entry (simetrixch/hostyour-cloud#242).
+#
+# WHY IT IS ITS OWN PROGRAM. The address exists only after the join, so the installation runs this
+# right after tailnet-join-self. A regeneration runs it on its own: the machine is on its network
+# already, and running the join again would mint a join key nothing redeems, standing until it
+# expires. deploy-branch rewrites this map from the answers on every run and hands the line back
+# through a carried slot (ansiwise/templates/cluster-map.tpl), so this program changes the map only
+# where the address itself changed.
+#
+# ROLES. Master only: a slave's address is recorded by the cluster manager, which joins it.
+name: tailnet-record-address
+roles: [master]
+
+steps:
+  - step: require_commands
+    commands: [tailscale]
+    on_failure: exit
+
+  # READ OFF THE CLIENT. A machine on no network is refused here by name, before anything is
+  # written: an empty address in the map would be a fence admitting nobody, silently.
+  - step: measure_tailnet_address
+    on_failure: exit
+
+  # ON THE TIP THE REMOTE PUBLISHES before anything is written: the cluster manager commits the
+  # registrations onto this same branch from its own side, so the checkout on this machine is behind
+  # it as a rule and a commit made on top of it would not push.
+  - step: git_checkout_branch
+    repository: /srv/hostyour-cloud
+    remote: origin
+    name_answer: fqdn
+    on_failure: exit
+
+  - step: require_pushable_remote
+    rests_on_an_earlier_step: true
+    repository: /srv/hostyour-cloud
+    remote: origin
+    branch_answer: fqdn
+    on_failure: exit
+
+  # INTO THE BLOCK EVERY CHART READS, where a slave's map carries the same field. A map that already
+  # states this address is left as it is, and one stating another is corrected.
+  - step: write_value_in_branch_file
+    rests_on_an_earlier_step: true
+    repository: /srv/hostyour-cloud
+    path: clusters/active/<fqdn>.yaml
+    run_answer: fqdn
+    key: global.apiHost
+    value: {measured: tailnet_address}
+    # 420 — everything that reads a cluster map reads this file.
+    file_mode: 420
+    on_failure: exit
+
+  - step: git_commit
+    repository: /srv/hostyour-cloud
+    paths: [clusters/active]
+    message: "Record this master's address on its private network"
+    on_failure: exit
+
+  - step: git_push
+    repository: /srv/hostyour-cloud
+    remote: origin
+    on_failure: exit
+
+answers:
+  - name: fqdn
+    kind: text
+    shape: hostname
+    denied: [example.invalid]
+    describes: >-
+      The domain of this installation, which names its install branch and its cluster map — the
+      file the address is recorded in.
