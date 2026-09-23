@@ -26,6 +26,13 @@
 # the reconciler's own start and the coordinator's readiness, not the health of every application
 # ahead of it (simetrixch/hostyour-cloud#206).
 #
+# AND IT RECORDS THE ADDRESS THE JOIN HANDED OUT, as `global.apiHost` in this cluster's map — the
+# field a slave's map carries for the address it is reached on, which deploy-slave writes from the
+# other side. On a master it is the address the books cluster reaches the others FROM: the fence of
+# a unit that declares an SMTP entry admits it and nothing else on that entry
+# (simetrixch/hostyour-cloud#242). Nothing else can write it: the address exists only after the join,
+# and the join happens in this run.
+#
 # ROLES. Master only, and that is the whole of the distinction: a slave has no coordinator to wait
 # for and no key of its own to mint, and its join is the manager's act from the other side.
 name: tailnet-join-self
@@ -95,13 +102,59 @@ steps:
     key_file_answer: key_file
     on_failure: exit
 
-  # THE JOIN IS THE LAST ACT. A master's serving certificate is NOT re-signed with its tailnet
-  # address, as the rejoin does for a slave: nothing dials a master's API over that address — the
-  # only kube-apiserver reached over the private network is a slave's, at the `apiHost` its map
-  # carries — and the re-sign restarts the whole control plane under the platform this program
-  # stands on top of (hostyour-deploy#25).
+  # THE JOIN IS THE LAST ACT ON THE MACHINE. A master's serving certificate is NOT re-signed with
+  # its tailnet address, as the rejoin does for a slave: nothing dials a master's API over that
+  # address — the only kube-apiserver reached over the private network is a slave's, at the `apiHost`
+  # its map carries — and the re-sign restarts the whole control plane under the platform this
+  # program stands on top of (hostyour-deploy#25).
   - step: tailnet_join
     rests_on_an_earlier_step: true
+    on_failure: exit
+
+  # THE ADDRESS THE JOIN HANDED OUT, read back off the client. Only after the join does this machine
+  # hold one, so the row rests on the join, and a dry run, where no join has happened, stops here.
+  - step: measure_tailnet_address
+    rests_on_an_earlier_step: true
+    on_failure: exit
+
+  # ON THE TIP THE REMOTE PUBLISHES before anything is written: the cluster manager commits the
+  # registrations onto this same branch from its own side, so the checkout on this machine is behind
+  # it as a rule and a commit made on top of it would not push.
+  - step: git_checkout_branch
+    repository: /srv/hostyour-cloud
+    remote: origin
+    name_answer: fqdn
+    on_failure: exit
+
+  - step: require_pushable_remote
+    rests_on_an_earlier_step: true
+    repository: /srv/hostyour-cloud
+    remote: origin
+    branch_answer: fqdn
+    on_failure: exit
+
+  # INTO THE BLOCK EVERY CHART READS, where a slave's map carries the same field. A map that already
+  # states this address is left as it is, and one stating another is corrected.
+  - step: write_value_in_branch_file
+    rests_on_an_earlier_step: true
+    repository: /srv/hostyour-cloud
+    path: clusters/active/<fqdn>.yaml
+    run_answer: fqdn
+    key: global.apiHost
+    value: {measured: tailnet_address}
+    # 420 — everything that reads a cluster map reads this file.
+    file_mode: 420
+    on_failure: exit
+
+  - step: git_commit
+    repository: /srv/hostyour-cloud
+    paths: [clusters/active]
+    message: "Record this master's address on its private network"
+    on_failure: exit
+
+  - step: git_push
+    repository: /srv/hostyour-cloud
+    remote: origin
     on_failure: exit
 
 answers:
