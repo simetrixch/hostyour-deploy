@@ -160,13 +160,13 @@ answers:
     describes: >-
       The domain of the slave being removed — the same domain it was registered under.
 
-  # The slave's short name, worked out rather than asked, exactly as the register side works it
-  # out: every resource this program removes is named after it, and a mismatched pair would remove
-  # a slave nobody registered while the registered one keeps everything.
+  # The slave's name, ASKED exactly as the register side asks it: fixed at the slave's adoption,
+  # standing in its cluster map (global.clusterName), and left by a rename of its domain. Every
+  # resource this program removes is named after it, and a name worked out of a renamed domain
+  # would remove a slave nobody registered while the registered one keeps everything.
   - name: slave_cluster_name
     kind: text
-    derived: first_dns_label_of
-    from: slave_fqdn
+    required: true
     describes: >-
-      The slave's name on this master — the first label of its domain, the name every resource of
-      its management plane carries.
+      The slave's name on this master — global.clusterName of its cluster map, the name every
+      resource of its management plane carries.

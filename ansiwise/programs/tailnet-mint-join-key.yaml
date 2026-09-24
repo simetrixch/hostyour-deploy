@@ -70,12 +70,12 @@ answers:
       The domain of the slave this credential is FOR, as its cluster is reached from outside. The
       key puts exactly one machine on the network, once — mint per slave, never shared.
 
-  # The slave's short name, worked out rather than asked: asking for both invites a pair that does
-  # not match, and the coordinator user created under the mismatch is one no removal ever finds.
+  # The slave's name, ASKED and never worked out of slave_fqdn: fixed at the slave's adoption and
+  # standing in its cluster map (global.clusterName), while a rename moves its domain. A user
+  # created under a name worked out of a renamed domain is one no removal ever finds.
   - name: slave_cluster_name
     kind: text
-    derived: first_dns_label_of
-    from: slave_fqdn
+    required: true
     describes: >-
-      The slave's name at the coordinator — the first label of its domain, the same name the
+      The slave's name at the coordinator — global.clusterName of its cluster map, the name the
       platform files the slave's cluster under everywhere else.

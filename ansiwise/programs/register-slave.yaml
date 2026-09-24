@@ -291,16 +291,17 @@ answers:
       The domain of the slave being registered, as its cluster is reached from outside — the same
       domain its install branch and its cluster map are named for.
 
-  # The slave's short name, worked out rather than asked: asking for both invites a pair that does
-  # not match, and every resource this program makes is named after it — the auth mount, the three
-  # policies, the consumable entries, the reconciler project.
+  # The slave's name, ASKED and never worked out of slave_fqdn: it is fixed when the slave is
+  # adopted and stands in its cluster map (global.clusterName), and a rename moves the slave's
+  # domain while the name stays. Every resource this program makes is named after it — the auth
+  # mount, the three policies, the consumable entries, the reconciler project — so a name worked
+  # out of a renamed domain would register a second slave beside the one that stands.
   - name: slave_cluster_name
     kind: text
-    derived: first_dns_label_of
-    from: slave_fqdn
+    required: true
     describes: >-
-      The slave's name on this master — the first label of its domain, the same name the platform
-      files the slave's cluster under everywhere else.
+      The slave's name on this master — global.clusterName of its cluster map, fixed at its
+      adoption, the name the platform files the slave's cluster under everywhere else.
 
   - name: api_server_url
     kind: text
