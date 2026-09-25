@@ -1138,6 +1138,7 @@ steps:
     values:
       operator-user: { answer: operator_user }
       lan-host: { answer: lan_host }
+      deploy-repo: { answer: deploy_repo }
     on_failure: exit
 
   # WHERE THIS INSTALLATION'S ALERT MAIL SENDS THE READER, in the same file class and for a reason
