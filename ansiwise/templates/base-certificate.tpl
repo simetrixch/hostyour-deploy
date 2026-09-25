@@ -41,6 +41,10 @@ metadata:
   namespace: vault
 spec:
   secretName: platform-tls
+  # A fresh key at every renewal, stated rather than left to cert-manager's default, which changed
+  # from Never to Always in cert-manager 1.18 and warns at every apply of a certificate that says nothing.
+  privateKey:
+    rotationPolicy: Always
   issuerRef:
     name: <cluster-issuer>
     kind: ClusterIssuer
