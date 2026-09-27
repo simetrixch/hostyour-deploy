@@ -716,7 +716,7 @@ steps:
     repository: /srv/hostyour-cloud
     name: <cluster>-deploy-pat-read
     rules: |
-      path "secret/data/build/catalog/repo-pat" { capabilities = ["read"] }
+      path "secret/data/build/deploy/repo-pat" { capabilities = ["read"] }
     when: [secret_store_enabled, books_here_in_answers]
     on_failure: exit
 
@@ -780,7 +780,7 @@ steps:
       path "secret/data/build/{{identity.entity.aliases.<accessor>.metadata.unit}}/*" { capabilities = ["read"] }
       path "secret/metadata/build/{{identity.entity.aliases.<accessor>.metadata.unit}}/*" { capabilities = ["read", "list"] }
       path "secret/data/build/hostyour-cloud/repo-pat" { capabilities = ["read"] }
-      path "secret/data/build/catalog/repo-pat" { capabilities = ["read"] }
+      path "secret/data/build/deploy/repo-pat" { capabilities = ["read"] }
       path "secret/data/<stage>/app/registry" { capabilities = ["read"] }
     when: [secret_store_enabled, build_plane_here_in_answers, books_here_in_answers]
     on_failure: exit
@@ -1293,8 +1293,8 @@ steps:
 
   # The platform's GitHub App, three fields and one entry like the object storage: an App id
   # without its installation id signs a token for no owner, and a key without either signs
-  # nothing. All three required (hostyour-cloud#237): the App is the identity the catalog is read
-  # and written with everywhere, so an installation without it does not exist.
+  # nothing. All three required (hostyour-cloud#237): the App is the identity the deploy repository
+  # is read and written with everywhere, so an installation without it does not exist.
   - step: vault_kv_entry
     rests_on_an_earlier_step: true
     repository: /srv/hostyour-cloud
@@ -1525,8 +1525,8 @@ steps:
     when: [secret_store_enabled, build_plane_here_in_answers, books_here_in_answers]
     on_failure: exit
 
-  # The catalog's own entry, build/catalog/repo-pat, is NOT seeded here: the platform's GitHub App
-  # is the catalog's identity, and the Manager writes that entry from the App's token on the timer
+  # The deploy repository's own entry, build/deploy/repo-pat, is NOT seeded here: the platform's
+  # GitHub App is its identity, and the Manager writes that entry from the App's token on the timer
   # that refreshes every unit's (hostyour-manager#197) — a token GitHub issues for an hour cannot
   # be seeded once by an installer. The policies above grant its read.
 
@@ -1991,17 +1991,17 @@ steps:
   # only one of them carries programs. /srv/hostyour-cloud is the machine layer — the branch
   # deploy-branch generated, the profile, the hand-filled input — and it is what the program rows
   # point their `repository:` at; it carries no ansiwise/ tree at all. The catalogue — the
-  # ansiwise.yaml, the programs, the templates — lives in the tenant catalog repository, so the
+  # ansiwise.yaml, the programs, the templates — lives in the programs repository, so the
   # service is given a checkout OF THAT REPOSITORY, at /srv/ansiwise-catalog, and reads its
   # programs there. Folding the catalogue into the installation branch instead would put it under
   # deploy-branch's stamping, which rewrites exactly the placeholder text a program file has to
   # keep.
   #
   # WHICH repository is this machine's own fact, and the branch program wrote it into the config
-  # file under DEPLOY_REPO; the row names the file and the key. No credential stands beside it: the
-  # programs are public, and a row that names a key it cannot find refuses rather than reading on.
+  # file under PROGRAMS_REPO; the row names the file and the key. No credential stands beside it:
+  # the programs are public, and a row that names a key it cannot find refuses rather than reading on.
   #
-  # DEPLOY_REPO AND NOT CATALOG_REPO, which sits in the same file and names something else — this
+  # PROGRAMS_REPO AND NOT DEPLOY_REPO, which sits in the same file and names something else — this
   # installation's own tenant charts, private and read with a credential. One key for both would
   # clone whichever repository the last writer meant.
   - step: git_clone
@@ -2010,7 +2010,7 @@ steps:
     host: github.com
     branch: master
     origin_file: /srv/hostyour-cloud/configs/config.<stage>
-    origin_key: DEPLOY_REPO
+    origin_key: PROGRAMS_REPO
     elevated: true
     # AND HANDED BACK, which every clone row in this catalogue states.
     #

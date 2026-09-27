@@ -279,22 +279,22 @@ answers:
       is told them from there rather than being asked for them again. The same answer deploy-host
       takes when it puts a machine on them.
 
-  - name: catalog_repo
+  - name: deploy_repo
     kind: text
     describes: >-
       The GitHub repository holding this installation's tenant charts and their per-stage pins,
-      written as owner/name — for example acme/acme-catalog. It is your own repository, not this
+      written as owner/name — for example acme/acme-deploy. It is your own repository, not this
       platform's, and no rule composes its name out of anything else here. It is NOT the
-      repository the deployment programs are read from — that one is deploy_repo, below.
+      repository the deployment programs are read from — that one is programs_repo, below.
 
   # THE REPOSITORY THE PROGRAMS THEMSELVES COME FROM, which is the platform's and not this
   # installation's. It is public, so no credential stands beside it, and a machine clones it
-  # without one; that is the whole difference from catalog_repo above, which holds an
+  # without one; that is the whole difference from deploy_repo above, which holds an
   # installation's own charts and is reached with a read credential.
   #
   # It is asked rather than composed because a machine cannot read it off itself: the checkout it
   # would be read from is the one this answer establishes.
-  - name: deploy_repo
+  - name: programs_repo
     kind: text
     default: simetrixch/hostyour-deploy
     describes: >-
@@ -433,9 +433,9 @@ answers:
     kind: text
     required: true
     describes: >-
-      The id of the platform's own GitHub App, installed with the owner of the catalog and of
-      every tenant repository, with repository administration (create), contents (write),
-      workflows (write) and webhooks (write): the identity the catalog is read and written with
+      The id of the platform's own GitHub App, installed with the owner of the deploy repository
+      and of every tenant repository, with repository administration (create), contents (write),
+      workflows (write) and webhooks (write): the identity the deploy repository is read and written with
       in every reconciler and in the Manager, and the identity a tenant's own apps repository is
       created under. Not a secret — it is the issuer every token the App mints names. Required:
       an installation without the App does not exist (hostyour-cloud#237).
@@ -839,7 +839,7 @@ steps:
       alert-recipients: { answer: alert_recipients, join: ", " }
       # Several sources on one line, separated the same way and for the same reason.
       time-sources: { answer: time_sources, join: ", " }
-      catalog-repo: { answer: catalog_repo }
+      deploy-repo: { answer: deploy_repo }
       mail-host: { answer: mail_host }
       # The account and the jurisdiction the tenant charts compose their storage endpoint from. Both
       # bindings stand on ONE line of the template, so an installation that answered neither writes
@@ -892,10 +892,10 @@ steps:
       BUILD_PLANE_FQDN: { answer: build_plane_fqdn }
       # THE PROGRAMS' OWN REPOSITORY, which the row of deploy-platform-services that clones the
       # catalogue reads out of this file by name. It is not the same repository as the map's
-      # `catalogRepo`: one names the platform's programs and is public, the other names an
+      # `deployRepo`: one names the platform's programs and is public, the other names an
       # installation's charts and is private, and one key for both would clone one where the other
       # is meant.
-      DEPLOY_REPO: { answer: deploy_repo }
+      PROGRAMS_REPO: { answer: programs_repo }
     on_failure: exit
 
   # The credentials a third party issued for this installation, put into the file that seeds its
@@ -1138,7 +1138,7 @@ steps:
     values:
       operator-user: { answer: operator_user }
       lan-host: { answer: lan_host }
-      deploy-repo: { answer: deploy_repo }
+      programs-repo: { answer: programs_repo }
     on_failure: exit
 
   # WHERE THIS INSTALLATION'S ALERT MAIL SENDS THE READER, in the same file class and for a reason

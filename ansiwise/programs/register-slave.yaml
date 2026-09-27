@@ -207,7 +207,7 @@ steps:
   # apps/slave chart. The registration: bearerToken + caData at slaves/<slave_cluster_name>/cluster
   # (externalsecret-cluster-slave.yaml) — written from this run's answers, so a re-registration
   # with a fresh emit rotates it in place. The two repo credentials: the READ-ONLY platform token
-  # and the catalog's read token, each copied from the hand-filled input rather than from the
+  # and the deploy repository's read token, each copied from the hand-filled input rather than from the
   # system tier, because the input is the one place both already stand and the write token must
   # never reach a tier every slave instance reads.
   - step: vault_kv_entry
@@ -227,7 +227,7 @@ steps:
     fields: ['pat=GITOPS_REPO_READ_PAT']
     on_failure: exit
 
-  # The catalog needs no entry of its own here: the platform's GitHub App is the catalog's identity,
+  # The deploy repository needs no entry of its own here: the platform's GitHub App is its identity,
   # and the slave's reconciler reads the App's entry <stage>/app/github-app through the cluster's
   # own store (hostyour-cloud#228).
 

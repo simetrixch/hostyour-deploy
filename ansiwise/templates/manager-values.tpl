@@ -26,7 +26,7 @@ github:
   # The repository the deployment programs are read from, as this installation was told: the
   # Manager clones it to run a program on a machine it onboards. From the installation's own answer,
   # so an installation running a fork of the programs is served from that fork.
-  programsRepo: <deploy-repo>
+  programsRepo: <programs-repo>
 
 onboarding:
   # The Manager's OWN address as it listens on this machine: its pod runs on the node's own

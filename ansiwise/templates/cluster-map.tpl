@@ -80,14 +80,14 @@ global:
   # The repository holding this installation's tenant charts, as the URL a build clones. Written
   # from the answer that names it as owner/name — the pipeline that releases a unit reads it to find
   # the charts a release is rendered against, and refuses to render at all without it.
-  catalogUrl: https://github.com/<catalog-repo>.git
+  deployUrl: https://github.com/<deploy-repo>.git
   # THE SAME REPOSITORY AS owner/name, WHICH IS A DIFFERENT THING TO READ. Every argocd file of
-  # this platform writes the marker inside a URL of its own — `https://github.com/__CATALOG_REPO__.git`
+  # this platform writes the marker inside a URL of its own — `https://github.com/__DEPLOY_REPO__.git`
   # — so what replaces the marker is the bare owner/name and never a URL. A cluster cutting a
   # SLAVE's branch has no answer to read it from (the manager tells that program only fqdn, stage,
-  # role and operator_user), so it reads this map instead, and catalogUrl above is the wrong shape
+  # role and operator_user), so it reads this map instead, and deployUrl above is the wrong shape
   # for it: stamped in, it would compose https://github.com/https://github.com/... .
-  catalogRepo: <catalog-repo>
+  deployRepo: <deploy-repo>
   # The Vault auth mount of THIS cluster. One Vault serves several clusters, so the mount is what
   # tells two of them apart, and every policy templated on a login is written against it.
   vaultKubernetesAuthPath: kubernetes-<cluster-name>
