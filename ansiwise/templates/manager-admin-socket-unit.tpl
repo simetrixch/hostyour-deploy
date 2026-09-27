@@ -5,7 +5,7 @@ Description=Make the directory the manager binds its admin socket in
 # A hostPath of that type is a REQUIREMENT and not a request: the kubelet refuses the mount when the
 # directory is absent, the container never starts, and the pod sits in ContainerCreating with a
 # FailedMount event naming the path. Nothing else on this machine makes that directory, and no step
-# of any program in this catalogue makes a directory at a named path with a named owner.
+# of any program in this repository makes a directory at a named path with a named owner.
 #
 # WHY THE KUBELET IS NOT ALLOWED TO MAKE IT ITSELF. DirectoryOrCreate would make it root-owned 0755.
 # The manager container runs as uid 65532 with a read-only root filesystem, so binding a socket

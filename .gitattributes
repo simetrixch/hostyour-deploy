@@ -1,6 +1,6 @@
 # Everything is stored and checked out with LF, on every operating system.
 #
-# A machine clones this repository to /srv/ansiwise-catalog and reads it with Linux tools. A file
+# A machine clones this repository to /srv/ansiwise-programs and reads it with Linux tools. A file
 # that arrived with CRLF carries a carriage return at the end of every line there: a shell script
 # rendered out of a template fails with "bad interpreter", a systemd unit takes the carriage return
 # into the value of every setting, and a YAML block scalar writes it into whatever it produces.

@@ -22,7 +22,7 @@ version stands in the platform repository's `clusters/platform/versions.yaml` an
 
 ## Public, and read without a credential
 
-A machine clones this repository to `/srv/ansiwise-catalog` and stands it on `master` before every
+A machine clones this repository to `/srv/ansiwise-programs` and stands it on `master` before every
 run. Nothing here is secret: the programs name secrets, and a machine reads the VALUES out of its
 own settings files, never out of this tree.
 

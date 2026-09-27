@@ -891,7 +891,7 @@ steps:
       BOOKS_CLUSTER: { answer: books_fqdn }
       BUILD_PLANE_FQDN: { answer: build_plane_fqdn }
       # THE PROGRAMS' OWN REPOSITORY, which the row of deploy-platform-services that clones the
-      # catalogue reads out of this file by name. It is not the same repository as the map's
+      # programs reads out of this file by name. It is not the same repository as the map's
       # `deployRepo`: one names the platform's programs and is public, the other names an
       # installation's charts and is private, and one key for both would clone one where the other
       # is meant.
@@ -1009,7 +1009,7 @@ steps:
   # exists on a machine until these rows write it.
   #
   # THE TEMPLATE IS NAMED ABSOLUTELY AND STANDS IN THE PLATFORM CHECKOUT, not beside these programs.
-  # Every other template of this catalogue ships with the programs and is the same on every
+  # Every other template of this repository ships with the programs and is the same on every
   # installation; these seven are the platform's own manifests with their per-installation values
   # taken out, so they travel and are versioned with the tree they belong to.
   #
@@ -1079,7 +1079,7 @@ steps:
     on_failure: exit
 
   # THE BASE LAYER'S OWN CERTIFICATE, whose authority no hand types into a tracked file: the
-  # file is generated from the catalogue's template on every run, and its issuer is this run's
+  # file is generated from this repository's template on every run, and its issuer is this run's
   # answer. One certificate carrying a hand-typed authority while every other one reads it from the
   # cluster map is the exception a switch of authority breaks on.
   - step: write_file_from_template

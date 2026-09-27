@@ -110,7 +110,7 @@ steps:
     path: /etc/chrony/sources.d/ubuntu-ntp-pools.sources
     file_mode: 420
     elevated: true
-    # THE FILE IS EMPTIED AND NOT DELETED, because this catalogue has a step that writes a file and
+    # THE FILE IS EMPTIED AND NOT DELETED, because this repository has a step that writes a file and
     # none that removes one. The chrony package puts it back neither way: ucf holds it, and ucf
     # leaves a file the machine emptied or deleted alone.
     restart_command: [systemctl, restart, chrony.service]

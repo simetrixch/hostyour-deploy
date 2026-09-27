@@ -34,7 +34,7 @@ steps:
 
   # The mint. The invocation reaches into the coordinator's own pod, because there is no other way
   # in: its admin listener is bound to loopback and the public address serves the CLIENT protocol —
-  # the deployment name is the catalogue element's own (<release>-app under the app alias, release
+  # the deployment name is the catalog element's own (<release>-app under the app alias, release
   # headscale-<stage>). 24 hours is the step's own default lifetime: the key is consumed
   # minutes after it is minted, and an unused credential that lives longer is a standing key into
   # the network.

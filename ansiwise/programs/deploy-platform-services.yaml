@@ -197,7 +197,7 @@ steps:
   # owner. create_storage_directory is the only one whose purpose IS a directory, and it makes exactly
   # one — the directory on the data disk it measures — with a mode and no owner either. Until a step
   # exists that takes all four (ansiwise-plugins#159), the directory is declared the way
-  # this catalogue already declares work a machine has to do by itself: a unit file written from a
+  # these programs already declare work a machine has to do by itself: a unit file written from a
   # template, handed to the service manager by the row below it.
   #
   # BEFORE ANYTHING SCHEDULES THE MANAGER. The manager is not installed by this program: the handoff
@@ -595,7 +595,7 @@ steps:
   #
   # THE ENVELOPE THE SERVICE HANDS THE RUN. A run reads its answers out of one file, and the two
   # values this one needs belong to this installation, so the file is written here rather than
-  # travelling in the catalogue. It carries the domain and the stage and no credential; it is
+  # travelling in the programs checkout. It carries the domain and the stage and no credential; it is
   # readable by its owner alone anyway, because an envelope is where a credential would go if one
   # were ever added to it.
 
@@ -716,7 +716,7 @@ steps:
     repository: /srv/hostyour-cloud
     name: <cluster>-deploy-pat-read
     rules: |
-      path "secret/data/build/catalog/repo-pat" { capabilities = ["read"] }
+      path "secret/data/build/deploy/repo-pat" { capabilities = ["read"] }
     when: [secret_store_enabled, books_here_in_answers]
     on_failure: exit
 
@@ -780,7 +780,7 @@ steps:
       path "secret/data/build/{{identity.entity.aliases.<accessor>.metadata.unit}}/*" { capabilities = ["read"] }
       path "secret/metadata/build/{{identity.entity.aliases.<accessor>.metadata.unit}}/*" { capabilities = ["read", "list"] }
       path "secret/data/build/hostyour-cloud/repo-pat" { capabilities = ["read"] }
-      path "secret/data/build/catalog/repo-pat" { capabilities = ["read"] }
+      path "secret/data/build/deploy/repo-pat" { capabilities = ["read"] }
       path "secret/data/<stage>/app/registry" { capabilities = ["read"] }
     when: [secret_store_enabled, build_plane_here_in_answers, books_here_in_answers]
     on_failure: exit
@@ -1525,7 +1525,7 @@ steps:
     when: [secret_store_enabled, build_plane_here_in_answers, books_here_in_answers]
     on_failure: exit
 
-  # The deploy repository's own entry, build/catalog/repo-pat, is NOT seeded here: the platform's
+  # The deploy repository's own entry, build/deploy/repo-pat, is NOT seeded here: the platform's
   # GitHub App is its identity, and the Manager writes that entry from the App's token on the timer
   # that refreshes every unit's (hostyour-manager#197) — a token GitHub issues for an hour cannot
   # be seeded once by an installer. The policies above grant its read.
@@ -1981,7 +1981,7 @@ steps:
   # connection — it ends when the operator disconnects. What the platform's manager needs
   # afterwards — another deployment run, a new cluster's branch, the tailnet, a release — has to be
   # asked of something that is already on the machine and comes back with it after a restart.
-  # These three rows are what a program file can put there: the catalogue the service runs programs
+  # These three rows are what a program file can put there: the programs checkout the service runs programs
   # from, the token that secures it in the store the manager reads it out of, and the machine's copy
   # of that token. The unit that starts the service and the switch that turns it on are the binary's
   # own act, and the paragraph after the last row says with what it is run. The binary itself is
@@ -1990,10 +1990,10 @@ steps:
   # WHICH CHECKOUT THE SERVICE POINTS AT, decided here because two trees stand on the machine and
   # only one of them carries programs. /srv/hostyour-cloud is the machine layer — the branch
   # deploy-branch generated, the profile, the hand-filled input — and it is what the program rows
-  # point their `repository:` at; it carries no ansiwise/ tree at all. The catalogue — the
+  # point their `repository:` at; it carries no ansiwise/ tree at all. The programs — the
   # ansiwise.yaml, the programs, the templates — lives in the programs repository, so the
-  # service is given a checkout OF THAT REPOSITORY, at /srv/ansiwise-catalog, and reads its
-  # programs there. Folding the catalogue into the installation branch instead would put it under
+  # service is given a checkout OF THAT REPOSITORY, at /srv/ansiwise-programs, and reads its
+  # programs there. Folding the programs into the installation branch instead would put it under
   # deploy-branch's stamping, which rewrites exactly the placeholder text a program file has to
   # keep.
   #
@@ -2006,27 +2006,27 @@ steps:
   # clone whichever repository the last writer meant.
   - step: git_clone
     rests_on_an_earlier_step: true
-    repository: /srv/ansiwise-catalog
+    repository: /srv/ansiwise-programs
     host: github.com
     branch: master
     origin_file: /srv/hostyour-cloud/configs/config.<stage>
     origin_key: PROGRAMS_REPO
     elevated: true
-    # AND HANDED BACK, which every clone row in this catalogue states.
+    # AND HANDED BACK, which every clone row in this repository states.
     #
     # Elevation is needed for the credential and the path, never for the RESULT: git runs as root
-    # here, and every file that changed since this machine cloned the catalogue is rewritten as root.
-    # The account that reads the catalogue is this one, and the engine reads the WHOLE of it when it
+    # here, and every file that changed since this machine cloned the programs is rewritten as root.
+    # The account that reads the programs is this one, and the engine reads the WHOLE of it when it
     # opens an installation — so a single file left under root stops every program after this one,
     # with a stack trace about a path instead of a sentence about a permission.
     #
-    # A commit reaching the catalogue's master while this program runs is brought forward by this
+    # A commit reaching the programs' master while this program runs is brought forward by this
     # row, and `tailnet-join-self` then dies before its first step on `deploy-platform-services.yaml`
     # — one file, root:root 0640, byte-identical to the repository's, standing among siblings owned
     # by the operator.
     #
     # driver.sh states the same lesson for its own elevated clone and runs `chown -R` after it. This
-    # row is the one place a machine's catalogue is written where nothing did.
+    # row is the one place a machine's programs checkout is written where nothing did.
     owner_answer: operator_user
     when: [secret_store_enabled]
     on_failure: exit
@@ -2078,15 +2078,15 @@ steps:
   # SERVICE. It composes
   # nothing — it invokes install-service and reads the machine afterwards for whether the unit is
   # enabled, running, and starting the version it just placed on the address it was told — and it is
-  # the same mechanism that put the binary, the catalogue and the platform checkout there, so there
+  # the same mechanism that put the binary, the programs checkout and the platform checkout there, so there
   # is one thing to drive and not two.
   #
-  # WHAT THE INSTALLATION IS TOLD is the catalogue the clone above placed. install-service takes the
+  # WHAT THE INSTALLATION IS TOLD is the programs checkout the clone above placed. install-service takes the
   # service's working directory from the directory it is itself run in, so it is run from
-  # /srv/ansiwise-catalog — which is also what makes --config and --runs the right values without
+  # /srv/ansiwise-programs — which is also what makes --config and --runs the right values without
   # being named: they default to ansiwise.yaml beside that directory and to /var/lib/ansiwise/runs,
   # and the binary writes both into the unit itself. What IS named is
-  # --programs /srv/ansiwise-catalog/ansiwise/programs, whose default is not where this catalogue
+  # --programs /srv/ansiwise-programs/ansiwise/programs, whose default is not where this repository
   # keeps them, and --service-token-file /etc/ansiwise/service-token, the file the row above writes.
   #
   # The token value itself arrives on standard input as the answer `service_token`, under
@@ -2102,7 +2102,7 @@ steps:
   # WHERE IT SITS INSTEAD, and it is ONE list and not a rule about every machine: hostyour-manager's
   # deploy-slave step list (server/domains/runs/defs/deploy-slave.ts), whose `enable-ansiwise-service`
   # step stands after the join and drives the same placement a second time. The placement is measured
-  # — the binary, the catalogue and the platform checkout are found standing and only the service is
+  # — the binary, the programs checkout and the platform checkout are found standing and only the service is
   # placed — and it measures the service by what the UNIT STARTS, so a machine met at a moved pin has
   # its unit written again instead of being reported on the new version while it starts the old file.
   # A master carries no such step, so the arrangement above is that ONE list's, and on a master the

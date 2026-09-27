@@ -71,7 +71,7 @@ steps:
 answers:
   # Where the coordinator serves, reached over its public name — a machine that has not joined yet
   # has no other path to it. One coordinator per installation, on the cluster with the master part,
-  # at tale.<master-domain>; the caller states it because this catalogue serves every installation
+  # at tale.<master-domain>; the caller states it because this repository serves every installation
   # and the master's domain is a fact of exactly one.
   - name: login_server
     kind: text

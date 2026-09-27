@@ -24,7 +24,7 @@
 # takes tens of minutes; this one runs every minute, unattended, and finishes or fails in seconds.
 # Nothing else of that program may run because a pod restarted.
 #
-# WHICH CONFIGURATION IT RUNS UNDER: ansiwise-boot.yaml at the root of this catalogue, and not
+# WHICH CONFIGURATION IT RUNS UNDER: ansiwise-boot.yaml at the root of this repository, and not
 # ansiwise.yaml beside it. Nothing here raises a command to root, and ansiwise.yaml says the password
 # that would is handed over by whoever starts the run — which nobody does when the machine starts
 # itself.

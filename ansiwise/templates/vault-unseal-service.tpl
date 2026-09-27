@@ -36,7 +36,7 @@ StartLimitIntervalSec=0
 
 [Service]
 Type=oneshot
-# THE ACCOUNT THAT OWNS EVERY PATH THIS TOUCHES. /srv/ansiwise-catalog and /srv/hostyour-cloud are
+# THE ACCOUNT THAT OWNS EVERY PATH THIS TOUCHES. /srv/ansiwise-programs and /srv/hostyour-cloud are
 # handed to it by deploy-platform-services and deploy-host, and the two files the run reads out of
 # the second — the quorum file under secrets/ and the envelope named below — are its own at mode
 # 0600. Nothing here raises a command to root either: ansiwise-boot.yaml names no elevation route,
@@ -60,15 +60,15 @@ TimeoutStartSec=45s
 # early into a retry: a store that cannot be reached fails the dry run, the second line is never
 # reached, and nothing has been changed on a store nobody could ask.
 #
-# THE PATHS ARE ABSOLUTE AND THE WORKING DIRECTORY IS THE CATALOGUE. The programs and the
+# THE PATHS ARE ABSOLUTE AND THE WORKING DIRECTORY IS THE PROGRAMS' CHECKOUT. The programs and the
 # configuration are stated in full because the service manager resolves nothing for them, and the
-# catalogue is where the run stands so the commit it records is the catalogue's own.
+# checkout is where the run stands so the commit it records is the programs' own.
 #
 # A PATH THAT IS WRONG IS NOT A RED ROW AT INSTALL TIME. The row that installs this unit
 # enables the timer and reads back the timer, and a timer is armed whether or not the service it
 # starts can run. What is left is the journal: the timer fires this service one second after it is
 # started, so a wrong path is written there while the operator's own deployment is still going.
-# A machine whose catalogue stands somewhere else fails with status=200/CHDIR, naming the working
+# A machine whose programs checkout stands somewhere else fails with status=200/CHDIR, naming the working
 # directory below.
 #
 # THE ENGINE AT ITS LASTING PLACE, not the copy the first contact left in a home directory.
@@ -88,9 +88,9 @@ TimeoutStartSec=45s
 # BOTH LINES NAME THE SAME ROOT. The gate reads the run store at --runs to find the clean dry run a
 # real run needs behind it, so a real run pointed at a second directory would be refused for want of
 # a proof that is sitting in the first.
-WorkingDirectory=/srv/ansiwise-catalog
-ExecStart=/usr/local/bin/ansiwise unseal-vault --mode dry --programs /srv/ansiwise-catalog/ansiwise/boot-programs --config /srv/ansiwise-catalog/ansiwise-boot.yaml --runs /var/lib/ansiwise/boot-runs --answers /srv/hostyour-cloud/configs/unseal-vault-answers.json
-ExecStart=/usr/local/bin/ansiwise unseal-vault --mode run --programs /srv/ansiwise-catalog/ansiwise/boot-programs --config /srv/ansiwise-catalog/ansiwise-boot.yaml --runs /var/lib/ansiwise/boot-runs --answers /srv/hostyour-cloud/configs/unseal-vault-answers.json
+WorkingDirectory=/srv/ansiwise-programs
+ExecStart=/usr/local/bin/ansiwise unseal-vault --mode dry --programs /srv/ansiwise-programs/ansiwise/boot-programs --config /srv/ansiwise-programs/ansiwise-boot.yaml --runs /var/lib/ansiwise/boot-runs --answers /srv/hostyour-cloud/configs/unseal-vault-answers.json
+ExecStart=/usr/local/bin/ansiwise unseal-vault --mode run --programs /srv/ansiwise-programs/ansiwise/boot-programs --config /srv/ansiwise-programs/ansiwise-boot.yaml --runs /var/lib/ansiwise/boot-runs --answers /srv/hostyour-cloud/configs/unseal-vault-answers.json
 
 # NO [Install] SECTION, AND THAT IS WHAT LEAVES THE TIMER AS THE ONLY TRIGGER. A unit wanted by the
 # target the machine reaches on its way up runs once at boot and never again, which is the shape

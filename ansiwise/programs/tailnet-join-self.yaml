@@ -139,7 +139,7 @@ answers:
       The address the private network's coordinator answers at, scheme and all — for this platform
       that is https://tale.<domain of this cluster>. The client logs in there, and a machine already
       logged in somewhere ELSE is refused rather than moved. It is stated rather than worked out,
-      because this catalogue serves every installation and the domain is a fact of exactly one.
+      because this repository serves every installation and the domain is a fact of exactly one.
 
   - name: key_file
     kind: text

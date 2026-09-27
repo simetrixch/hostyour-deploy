@@ -9,7 +9,7 @@
 # and unreachable at once, so chronyd logs "Can't synchronise: no required source in selectable
 # sources" and never selects the servers hostyour.sources names.
 #
-# THE FILE IS EMPTIED RATHER THAN DELETED because this catalogue has a step that writes a file and
+# THE FILE IS EMPTIED RATHER THAN DELETED because this repository has a step that writes a file and
 # none that removes one. Nothing on the machine would put it back either way: it is no conffile of
 # the chrony package, chrony.postinst hands it to ucf, and ucf leaves a file the machine emptied or
 # deleted alone unless UCF_FORCE_CONFFMISS is set. /etc/chrony/sources.d/README requires a name
