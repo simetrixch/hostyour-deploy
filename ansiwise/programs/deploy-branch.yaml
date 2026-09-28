@@ -1060,6 +1060,7 @@ steps:
     file_mode: 420
     values:
       fqdn: { answer: fqdn }
+      unit-apex: { answer: unit_apex }
     on_failure: exit
 
   - step: write_file_from_template

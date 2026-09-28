@@ -1138,7 +1138,7 @@ steps:
     when: [secret_store_enabled, books_here_in_answers]
     on_failure: exit
 
-  # THE FIVE CLIENT SECRETS EVERY LOGIN ON THIS INSTALLATION RESTS ON, and until this row existed
+  # THE SIX CLIENT SECRETS EVERY LOGIN ON THIS INSTALLATION RESTS ON, and until this row existed
   # nothing wrote them. Two later rows READ this entry — one puts all five into the identity
   # provider's own namespace, one puts the dashboard's copy where the dashboard is — and the
   # provider's blueprints take them out of the environment under these very names. With no writer,
@@ -1161,6 +1161,7 @@ steps:
       - 'grafana-client-secret=IDP_GRAFANA_CLIENT_SECRET'
       - 'headlamp-client-secret=IDP_HEADLAMP_CLIENT_SECRET'
       - 'vault-client-secret=IDP_VAULT_CLIENT_SECRET'
+      - 'post-client-secret=IDP_POST_CLIENT_SECRET'
       # NOT A CLIENT SECRET, and it stands here because this is the entry the provider's own
       # credentials live in. It is what the DEPLOYMENT authenticates to the provider with, for the
       # acts a declaration cannot perform — adding one account to one group without owning the other
@@ -1172,6 +1173,7 @@ steps:
       - grafana-client-secret
       - headlamp-client-secret
       - vault-client-secret
+      - post-client-secret
       - platform-api-token
     when: [secret_store_enabled, books_here_in_answers]
     on_failure: exit
@@ -1613,6 +1615,7 @@ steps:
       - 'IDP_GRAFANA_CLIENT_SECRET=grafana-client-secret'
       - 'IDP_HEADLAMP_CLIENT_SECRET=headlamp-client-secret'
       - 'IDP_VAULT_CLIENT_SECRET=vault-client-secret'
+      - 'IDP_POST_CLIENT_SECRET=post-client-secret'
       # DELIBERATELY WITHOUT THE PROVIDER'S OWN PREFIX. Every key of this Secret becomes an
       # environment variable of the provider's pods verbatim, and the provider reads every variable
       # named after itself as one of its configuration keys. A credential is not one, so this is
