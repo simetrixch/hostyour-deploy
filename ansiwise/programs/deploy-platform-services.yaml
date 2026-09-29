@@ -505,6 +505,13 @@ steps:
   # installation's to every installation, and a second reading of the same key with its own rule
   # for finding it agrees with the first only by accident: a wait one character away from the
   # address the next row uses reports a store that is up while the row after it cannot reach it.
+  # The host row between measure_vault_url and the wait takes the host from it for that reason.
+  #
+  # ON THE CLUSTER THAT RUNS THE STORE ALONE. A slave's own machine sends the store nothing: its
+  # rows here are all books_here_in_answers, and its secret stores reach the store from pods over
+  # the tailnet, which the Manager's verify-slave holds to Ready. Asked from a slave's machine by
+  # the public name, the store's route refuses it, and a new slave joins the tailnet only after
+  # this program.
   #
   # TEN MINUTES, WHERE THE TWO WAITS ABOVE ARE GIVEN FIVE, because this window covers the store's
   # pod coming into existence at all — the node scheduling it, the 5Gi claim of
@@ -512,7 +519,34 @@ steps:
   # cache is empty. Both waits above are given a pod that is already running.
   - step: measure_vault_url
     repository: /srv/hostyour-cloud
-    when: [secret_store_enabled]
+    when: [secret_store_enabled, books_here_in_answers]
+    on_failure: exit
+
+  # THE VAULT NAME IS KEPT OFF ITS PUBLIC ADDRESS ON THIS MACHINE, because the store's route admits
+  # only the tailnet, the pods and the node's own addresses (hostyour-cloud
+  # clusters/bootstrap/vault/ingressroute.tpl). A request from the machine by the public name would
+  # leave through the router and be refused. These rows come before the first request to the store,
+  # the wait below; the unseal service and every later program on the machine reach it the same way.
+  #
+  # AND IT HAS TO SURVIVE A REBOOT. Where cloud-init manages /etc/hosts it renders the file again at
+  # every boot and the entry is gone; the unseal service that runs at boot has no root to put it
+  # back. The template says why in the file it writes.
+  - step: write_file_from_template
+    template: ansiwise/templates/cloud-init-etc-hosts.tpl
+    path: /etc/cloud/cloud.cfg.d/99-hostyour-etc-hosts.cfg
+    file_mode: 420
+    elevated: true
+    when: [secret_store_enabled, books_here_in_answers]
+    on_failure: exit
+
+  # 127.0.0.1: Traefik listens on every address of the node, and a request to the loopback reaches
+  # it from the node's own address, which the route admits. The tailnet does not exist yet on a
+  # first installation, so its address could not be used here.
+  - step: set_host_address
+    host: {measured: vault_host}
+    address: 127.0.0.1
+    elevated: true
+    when: [secret_store_enabled, books_here_in_answers]
     on_failure: exit
 
   - step: wait_for_http_field
@@ -539,7 +573,7 @@ steps:
     accepts_any_certificate: true
     timeout_seconds: 600
     interval_seconds: 5
-    when: [secret_store_enabled]
+    when: [secret_store_enabled, books_here_in_answers]
     on_failure: exit
 
   # The quorum exists nowhere else and nothing else can produce it, so a run that could not mint it

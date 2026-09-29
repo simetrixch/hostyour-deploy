@@ -1079,6 +1079,9 @@ steps:
     file_mode: 420
     values:
       fqdn: { answer: fqdn }
+      # The node's own addresses, which the route admits beside the tailnet and the pods: the
+      # master's programs reach the store from there.
+      node-cidrs: { measured: host_addresses }
     on_failure: exit
 
   # THE BASE LAYER'S OWN CERTIFICATE, whose authority no hand types into a tracked file: the
