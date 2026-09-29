@@ -290,7 +290,7 @@ steps:
     on_failure: continue
 
   # ---------------------------------------------------------------------------------------------
-  # The pod network. Seven ordered steps and two gates in front of them.
+  # The pod network. Eight ordered steps and two gates in front of them.
   # ---------------------------------------------------------------------------------------------
   - step: require_pod_cidr_free_of_reserved_ranges
     pod_cidr: 10.244.0.0/16
@@ -323,6 +323,16 @@ steps:
     args_path: /var/snap/microk8s/current/args/kube-proxy
     flag: '--cluster-cidr'
     value: 10.244.0.0/16
+    on_failure: exit
+
+  # THE POOL FOR THE NEW RANGE GOES IN BEFORE THE DEFAULT ONE GOES. Calico's agent creates its default
+  # pool at start only where no IPv4 pool exists, so an agent that starts with its old environment
+  # while this pool stands creates none, and the delete below leaves nothing to come back on the old
+  # range. On a cluster already on the range this row finds that and writes nothing.
+  - step: create_ipv4_ippool_for_pod_cidr
+    rests_on_an_earlier_step: true
+    pod_cidr: 10.244.0.0/16
+    pool_manifest_path: /var/snap/microk8s/common/hostyour/pod-cidr-ipv4-ippool.json
     on_failure: exit
 
   - step: remove_default_ipv4_ippool
@@ -1012,17 +1022,16 @@ steps:
     version_command: ['--version']
     on_failure: continue
 
+  # The installer is handed this version and passes it to the package manager, so a client that
+  # drifted is installed again at the pin. The package manager refuses to step a newer client down,
+  # so a pin below what a machine carries fails this row there.
   - step: install_tailscale_client
+    version: v1.102.4
     on_failure: continue
 
   # Last inside the tool phase, and the only thing binding the list of tools to the steps above: a
-  # tool named here with no step to fetch it is caught here and nowhere else.
-  #
-  # `unpinnable` names the one whose install path takes no version: the tailnet client comes from its
-  # makers' own installer, which fetches whatever they publish on the day — so no re-run of this
-  # program could reach the pin, and failing on the version it does carry would make an install that
-  # can never end green. The difference is reported instead, so an operator who cares can act on it.
-  # Being MISSING still fails, for every tool without exception.
+  # tool named here with no step to fetch it is caught here and nowhere else. Every tool is installed
+  # at its pin, so a tool off its pin fails here like a missing one.
   #
   # `version_commands` says how each of them is asked what version it is. A tool named in `tools`
   # with no entry here is refused rather than passed over, so the two lists cannot drift apart.
@@ -1034,7 +1043,6 @@ steps:
       - yq=v4.53.3
       - jq=jq-1.8.2
       - tailscale=v1.102.4
-    unpinnable: [tailscale]
     version_commands:
       - ansiwise=--version
       - argocd=version --client --short

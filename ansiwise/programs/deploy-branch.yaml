@@ -710,10 +710,12 @@ steps:
   # and a checkout made another way carries whatever name was chosen, so the step is told which one
   # this checkout holds.
   #
-  # IT NAMES THE BRANCH THIS RUN PRODUCES, in both acts, and it stands AFTER the spine for a reason
-  # that is in the step: the proof is `git push --dry-run <remote> <branch>` with a LOCAL ref name,
-  # so it cannot name a branch this checkout does not hold yet. A branch the remote does not publish
-  # is the ordinary create case git accepts, so one row serves the birth and the regeneration alike.
+  # IT NAMES THE BRANCH THIS RUN PRODUCES, in both acts, and it stands AFTER the spine so that a real
+  # run offers that branch itself: `git push --dry-run <remote> <branch>`, which also refuses a remote
+  # that moved ahead of it. Where the checkout does not hold the branch yet — a test or a dry run,
+  # where the spine cut nothing — the step offers HEAD under the branch's name, which puts the same
+  # question about write access to the remote. A branch the remote does not publish is the ordinary
+  # create case git accepts, so one row serves the birth and the regeneration alike.
   #
   # AND IT DOES NOT ANSWER ON ITS OWN, which is what the line below says. The credential it presents
   # is written by a row above, and a dry run writes nothing — so in a dry run the gate cannot be
