@@ -961,10 +961,6 @@ steps:
     packages: [curl, unzip]
     on_failure: continue
 
-  - step: install_packages
-    packages: [jq]
-    on_failure: continue
-
   # `version_command` is what the step runs to read what is already on the machine, and it decides
   # the skip: a tool at the pin is left alone and one that drifted is fetched again. Each project
   # spells it its own way, and that is a fact of the tool rather than of the step, so it stands here
@@ -986,6 +982,13 @@ steps:
   # ANSIWISE-REST IS IN NEITHER, and for a third reason again: it is the executable a service runs,
   # and nothing here restarts a unit, so a machine could be told
   # its version was current while the service went on serving the old one.
+
+  - step: install_pinned_tool
+    tool: jq
+    version: jq-1.8.2
+    url: https://github.com/jqlang/jq/releases/download/<version>/jq-linux-amd64
+    version_command: ['--version']
+    on_failure: continue
 
   - step: install_pinned_tool
     tool: argocd
@@ -1015,12 +1018,11 @@ steps:
   # Last inside the tool phase, and the only thing binding the list of tools to the steps above: a
   # tool named here with no step to fetch it is caught here and nowhere else.
   #
-  # `unpinnable` names the two whose install path takes no version. jq comes from the package
-  # manager, which carries exactly ONE of it, and the tailnet client from its makers' own installer,
-  # which fetches whatever they publish on the day — so no re-run of this program could reach the
-  # pin for either, and failing on the version they do carry would make an install that can never
-  # end green. The difference is reported instead, so an operator who cares can act on it. Being
-  # MISSING still fails, for every tool without exception.
+  # `unpinnable` names the one whose install path takes no version: the tailnet client comes from its
+  # makers' own installer, which fetches whatever they publish on the day — so no re-run of this
+  # program could reach the pin, and failing on the version it does carry would make an install that
+  # can never end green. The difference is reported instead, so an operator who cares can act on it.
+  # Being MISSING still fails, for every tool without exception.
   #
   # `version_commands` says how each of them is asked what version it is. A tool named in `tools`
   # with no entry here is refused rather than passed over, so the two lists cannot drift apart.
@@ -1031,8 +1033,8 @@ steps:
       - vault=v2.0.3
       - yq=v4.53.3
       - jq=jq-1.8.2
-      - tailscale=v1.98.10
-    unpinnable: [jq, tailscale]
+      - tailscale=v1.102.4
+    unpinnable: [tailscale]
     version_commands:
       - ansiwise=--version
       - argocd=version --client --short
