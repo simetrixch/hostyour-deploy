@@ -63,7 +63,7 @@ defaults:
   status_command: [microk8s, status]
   enable_command: [microk8s, enable]
   disable_command: [microk8s, disable]
-  # The network manifest the pod range is stamped into and the pool is rebuilt from.
+  # The network manifest the pod range is stamped into, and the one Calico builds its default pool from.
   manifest_path: /var/snap/microk8s/current/args/cni-network/cni.yaml
   # EVERY path in this block belongs to root — they are all inside a distribution's own directories,
   # which is where a cluster installed that way keeps what it reads. A step reaching one as the
@@ -381,7 +381,7 @@ steps:
     interval_seconds: 5
     on_failure: exit
 
-  # Last of the seven, and the run goes on without it: the pods are rebuilt by their controllers, so a
+  # Last of the eight, and the run goes on without it: the pods are rebuilt by their controllers, so a
   # machine that did not manage it is one whose system pods come back with the right addresses on
   # their own.
   - step: recycle_kube_system_pod_ips
