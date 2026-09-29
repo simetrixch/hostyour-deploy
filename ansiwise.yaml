@@ -161,6 +161,18 @@ conditions:
     key: CLUSTER_ISSUER
     value: platform-acme
 
+  # WHETHER THIS INSTALLATION RUNS AT PROD, where a customer's test stage runs beside its prod one
+  # (hostyour-manager#295): a prod cluster also carries tenants at test, and needs the role their
+  # charts log in with. Read off the platform values of the run's own stage, whose `global.env` is
+  # that stage (clusters/platform/values-<stage>.yaml in the platform repository), because no
+  # registered comparison takes an answer and a literal word.
+  stage_is_prod:
+    predicate: yaml_key_has_value
+    file: /srv/hostyour-cloud/clusters/platform/values-<stage>.yaml
+    run_answer: stage
+    key: global.env
+    value: prod
+
   # Whether this installation hands its cluster over to a reconciler. The last rows of
   # deploy-platform-services are that handover, and with this off the cluster is left standing with
   # the platform's own services on it and nothing watching a repository.

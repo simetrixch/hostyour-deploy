@@ -768,6 +768,25 @@ steps:
     when: [secret_store_enabled, books_here_in_answers]
     on_failure: exit
 
+  # A CUSTOMER'S TEST STAGE ON A PROD INSTALLATION (hostyour-manager#295): the same read, on the
+  # test tier. A tenant's charts log in with the role named after the TENANT's stage, so a prod
+  # cluster carrying a test tenant needs tenant-eso-test beside tenant-eso-prod, and this is the
+  # policy that role grants. The registry leaf stays the installation's: every tenant workload pulls
+  # this platform's images, whatever its stage.
+  - step: vault_policy
+    rests_on_an_earlier_step: true
+    repository: /srv/hostyour-cloud
+    auth_mount: <kubernetes-mount>
+    name: <cluster>-tenant-read-test
+    rules: |
+      path "secret/data/test/tenants/{{identity.entity.aliases.<accessor>.metadata.tenant}}" { capabilities = ["read"] }
+      path "secret/metadata/test/tenants/{{identity.entity.aliases.<accessor>.metadata.tenant}}" { capabilities = ["read", "list"] }
+      path "secret/data/test/tenants/{{identity.entity.aliases.<accessor>.metadata.tenant}}/*" { capabilities = ["read"] }
+      path "secret/metadata/test/tenants/{{identity.entity.aliases.<accessor>.metadata.tenant}}/*" { capabilities = ["read", "list"] }
+      path "secret/data/<stage>/app/registry" { capabilities = ["read"] }
+    when: [secret_store_enabled, books_here_in_answers, stage_is_prod]
+    on_failure: exit
+
   # Templated on the unit, which is what stops one build namespace reading a sibling's credential —
   # and some units belong to external parties. The two literal leaves are the platform repositories
   # a release bump pushes to.
@@ -825,6 +844,13 @@ steps:
   # The cluster manager's own policy, in the two shapes a cluster can need it in. Written whole
   # either way, so the two are separate entries and only one of them ever runs.
   #
+  # `+` WHERE A UNIT'S STAGE STANDS, because the stage in a consumer's or a tenant's path is the
+  # unit's own and not the installation's: a prod installation also carries a customer's test stage
+  # (hostyour-manager#295), and the manager seeds that unit under test/. The breadth reaches nothing
+  # else: every installation has a Vault of its own, so a write under any other stage lands in an
+  # entry no policy of a workload reads. Writing out `<stage>` and test instead would double both
+  # shapes of this policy.
+  #
   # WRITE-ONLY ON EVERY CONSUMER AND TENANT LEAF, AND THAT IS WHAT MAKES CREATE-ONLY POSSIBLE. With
   # no read grant the manager cannot look before it writes, so its writes are create-only at the
   # call site — which is exactly the point: a second onboarding of something already running must
@@ -849,14 +875,14 @@ steps:
       path "secret/metadata/manager/cred/*" { capabilities = ["read", "delete", "list"] }
       path "secret/data/build/+/repo-pat" { capabilities = ["create", "update"] }
       path "secret/metadata/build/+/repo-pat" { capabilities = ["delete"] }
-      path "secret/data/<stage>/consumer/+/app" { capabilities = ["create", "update", "patch"] }
-      path "secret/metadata/<stage>/consumer/+/app" { capabilities = ["delete"] }
-      path "secret/data/<stage>/consumer/+/postgres" { capabilities = ["create", "update"] }
-      path "secret/metadata/<stage>/consumer/+/postgres" { capabilities = ["delete"] }
-      path "secret/data/<stage>/consumer/+/mongodb" { capabilities = ["create", "update"] }
-      path "secret/metadata/<stage>/consumer/+/mongodb" { capabilities = ["delete"] }
-      path "secret/data/<stage>/tenants/+" { capabilities = ["create", "update"] }
-      path "secret/metadata/<stage>/tenants/+" { capabilities = ["delete"] }
+      path "secret/data/+/consumer/+/app" { capabilities = ["create", "update", "patch"] }
+      path "secret/metadata/+/consumer/+/app" { capabilities = ["delete"] }
+      path "secret/data/+/consumer/+/postgres" { capabilities = ["create", "update"] }
+      path "secret/metadata/+/consumer/+/postgres" { capabilities = ["delete"] }
+      path "secret/data/+/consumer/+/mongodb" { capabilities = ["create", "update"] }
+      path "secret/metadata/+/consumer/+/mongodb" { capabilities = ["delete"] }
+      path "secret/data/+/tenants/+" { capabilities = ["create", "update"] }
+      path "secret/metadata/+/tenants/+" { capabilities = ["delete"] }
     when: [secret_store_enabled, build_plane_here_in_answers, books_here_in_answers]
     on_failure: exit
 
@@ -867,14 +893,14 @@ steps:
     rules: |
       path "secret/data/manager/cred/*" { capabilities = ["create", "read", "update", "delete", "list"] }
       path "secret/metadata/manager/cred/*" { capabilities = ["read", "delete", "list"] }
-      path "secret/data/<stage>/consumer/+/app" { capabilities = ["create", "update", "patch"] }
-      path "secret/metadata/<stage>/consumer/+/app" { capabilities = ["delete"] }
-      path "secret/data/<stage>/consumer/+/postgres" { capabilities = ["create", "update"] }
-      path "secret/metadata/<stage>/consumer/+/postgres" { capabilities = ["delete"] }
-      path "secret/data/<stage>/consumer/+/mongodb" { capabilities = ["create", "update"] }
-      path "secret/metadata/<stage>/consumer/+/mongodb" { capabilities = ["delete"] }
-      path "secret/data/<stage>/tenants/+" { capabilities = ["create", "update"] }
-      path "secret/metadata/<stage>/tenants/+" { capabilities = ["delete"] }
+      path "secret/data/+/consumer/+/app" { capabilities = ["create", "update", "patch"] }
+      path "secret/metadata/+/consumer/+/app" { capabilities = ["delete"] }
+      path "secret/data/+/consumer/+/postgres" { capabilities = ["create", "update"] }
+      path "secret/metadata/+/consumer/+/postgres" { capabilities = ["delete"] }
+      path "secret/data/+/consumer/+/mongodb" { capabilities = ["create", "update"] }
+      path "secret/metadata/+/consumer/+/mongodb" { capabilities = ["delete"] }
+      path "secret/data/+/tenants/+" { capabilities = ["create", "update"] }
+      path "secret/metadata/+/tenants/+" { capabilities = ["delete"] }
     when: [secret_store_enabled, build_plane_elsewhere_in_answers, books_here_in_answers]
     on_failure: exit
 
@@ -995,6 +1021,20 @@ steps:
       "bound_service_account_namespace_selector":"{\"matchLabels\":{\"platform/tenant-managed\":\"true\"}}",
       "token_policies":["<cluster>-tenant-read"],"ttl":"24h"}
     when: [secret_store_enabled, books_here_in_answers]
+    on_failure: exit
+
+  # The role a test tenant's charts log in with on a prod installation, bound like the one above.
+  - step: vault_auth_role
+    rests_on_an_earlier_step: true
+    repository: /srv/hostyour-cloud
+    mount: <kubernetes-mount>
+    role: tenant-eso-test
+    body: >-
+      {"bound_service_account_names":["external-secrets-sa"],
+      "bound_service_account_namespaces":[],
+      "bound_service_account_namespace_selector":"{\"matchLabels\":{\"platform/tenant-managed\":\"true\"}}",
+      "token_policies":["<cluster>-tenant-read-test"],"ttl":"24h"}
+    when: [secret_store_enabled, books_here_in_answers, stage_is_prod]
     on_failure: exit
 
   # The label this role binds carries its grant only because the build plane admits it nowhere else:

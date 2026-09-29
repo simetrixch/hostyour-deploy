@@ -93,9 +93,10 @@ steps:
     type: kubernetes
     on_failure: exit
 
-  # The three policies named after the slave — a policy left behind outlives the mount it scoped
-  # and reads as live. After the mount, as the shell this replaces ordered it: the policies are the
-  # last thing a still-working login could have resolved.
+  # The policies named after the slave — a policy left behind outlives the mount it scoped and reads
+  # as live. After the mount, as the shell this replaces ordered it: the policies are the last thing
+  # a still-working login could have resolved. The test tenants' policy stands only on a prod
+  # installation; removing an absent policy is recorded as absent, so its row needs no condition.
   - step: remove_vault_policy
     repository: /srv/hostyour-cloud
     name: <slave_cluster_name>-eso
@@ -109,6 +110,11 @@ steps:
   - step: remove_vault_policy
     repository: /srv/hostyour-cloud
     name: <slave_cluster_name>-tenant-read
+    on_failure: exit
+
+  - step: remove_vault_policy
+    repository: /srv/hostyour-cloud
+    name: <slave_cluster_name>-tenant-read-test
     on_failure: exit
 
   # NOTHING SHRINKS THE MASTER'S SECRET-READER ROLE HERE, because nothing widens it. That role binds

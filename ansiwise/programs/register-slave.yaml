@@ -130,6 +130,22 @@ steps:
       path "secret/data/<stage>/app/registry" { capabilities = ["read"] }
     on_failure: exit
 
+  # A customer's test stage on a prod installation, as on the master: the same read on the test tier,
+  # for the role tenant-eso-test below (hostyour-manager#295).
+  - step: vault_policy
+    rests_on_an_earlier_step: true
+    repository: /srv/hostyour-cloud
+    auth_mount: kubernetes-<slave_cluster_name>
+    name: <slave_cluster_name>-tenant-read-test
+    rules: |
+      path "secret/data/test/tenants/{{identity.entity.aliases.<accessor>.metadata.tenant}}" { capabilities = ["read"] }
+      path "secret/metadata/test/tenants/{{identity.entity.aliases.<accessor>.metadata.tenant}}" { capabilities = ["read", "list"] }
+      path "secret/data/test/tenants/{{identity.entity.aliases.<accessor>.metadata.tenant}}/*" { capabilities = ["read"] }
+      path "secret/metadata/test/tenants/{{identity.entity.aliases.<accessor>.metadata.tenant}}/*" { capabilities = ["read", "list"] }
+      path "secret/data/<stage>/app/registry" { capabilities = ["read"] }
+    when: [stage_is_prod]
+    on_failure: exit
+
   # --- the slave's roles on its own mount --------------------------------------------------------
   #
   # WHAT A NAMESPACE LEFT OUT COSTS, which is why this is a label and not a list. dbgate, mongodb,
@@ -185,6 +201,19 @@ steps:
       "bound_service_account_namespaces":[],
       "bound_service_account_namespace_selector":"{\"matchLabels\":{\"platform/tenant-managed\":\"true\"}}",
       "token_policies":["<slave_cluster_name>-tenant-read"],"ttl":"24h"}
+    on_failure: exit
+
+  - step: vault_auth_role
+    rests_on_an_earlier_step: true
+    repository: /srv/hostyour-cloud
+    mount: kubernetes-<slave_cluster_name>
+    role: tenant-eso-test
+    body: >-
+      {"bound_service_account_names":["external-secrets-sa"],
+      "bound_service_account_namespaces":[],
+      "bound_service_account_namespace_selector":"{\"matchLabels\":{\"platform/tenant-managed\":\"true\"}}",
+      "token_policies":["<slave_cluster_name>-tenant-read-test"],"ttl":"24h"}
+    when: [stage_is_prod]
     on_failure: exit
 
   # --- the proof, before anything consumes the wiring -------------------------------------------
