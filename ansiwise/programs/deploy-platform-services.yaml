@@ -906,7 +906,9 @@ steps:
   # writes it the same way and never reads it; it may list the key names of one tenant, because a
   # purge has to find the keys of apps it no longer knows, and listing names reads no value. THE
   # REVALIDATE SECRET OF EACH TENANT WEBSITE, which its engine signs a cache purge of its renderer
-  # with, stands beside it under revalidate-secret/<app> and takes the same grants.
+  # with, stands beside it under revalidate-secret/<app> and takes the same grants. So does THE FORM
+  # SIGNING KEY OF EACH TENANT WEBSITE, under form-signing-key/<app>, which its renderer signs each
+  # record form with.
   - step: vault_policy
     rests_on_an_earlier_step: true
     repository: /srv/hostyour-cloud
@@ -928,6 +930,8 @@ steps:
       path "secret/metadata/+/tenants/+/password-field-key/*" { capabilities = ["delete", "list"] }
       path "secret/data/+/tenants/+/revalidate-secret/+" { capabilities = ["create", "update"] }
       path "secret/metadata/+/tenants/+/revalidate-secret/*" { capabilities = ["delete", "list"] }
+      path "secret/data/+/tenants/+/form-signing-key/+" { capabilities = ["create", "update"] }
+      path "secret/metadata/+/tenants/+/form-signing-key/*" { capabilities = ["delete", "list"] }
     when: [secret_store_enabled, build_plane_here_in_answers, books_here_in_answers]
     on_failure: exit
 
@@ -950,6 +954,8 @@ steps:
       path "secret/metadata/+/tenants/+/password-field-key/*" { capabilities = ["delete", "list"] }
       path "secret/data/+/tenants/+/revalidate-secret/+" { capabilities = ["create", "update"] }
       path "secret/metadata/+/tenants/+/revalidate-secret/*" { capabilities = ["delete", "list"] }
+      path "secret/data/+/tenants/+/form-signing-key/+" { capabilities = ["create", "update"] }
+      path "secret/metadata/+/tenants/+/form-signing-key/*" { capabilities = ["delete", "list"] }
     when: [secret_store_enabled, build_plane_elsewhere_in_answers, books_here_in_answers]
     on_failure: exit
 
