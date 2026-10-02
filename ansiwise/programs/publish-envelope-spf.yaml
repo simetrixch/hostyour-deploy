@@ -1,0 +1,58 @@
+# Publishing the SPF of the name a mail transfer agent sends its envelope from (MAIL FROM): the one
+# TXT record that authorises the MTA's egress address for that name, through the DNS provider's API.
+#
+# A PROGRAM OF ITS OWN, NOT A ROW OF publish-mail-dns. The envelope name is the MTA's own name, for
+# example mail.<platform domain>. The domain above it may be the live mail domain of another
+# service, whose apex SPF, DKIM selectors and DMARC policy belong to that service and must stay as
+# they are. publish-mail-dns writes the apex SPF, a DKIM key and DMARC; this program writes the one
+# record at the envelope name and nothing else, so it can run where the apex must not be touched.
+#
+# AN OPERATION THE OPERATOR TRIGGERS, like publish-mail-dns: it touches a zone that is not part of
+# the machine, so it runs when a person decides, and a green dry run of the same answers admits it.
+#
+# THE TRAP IS THE SAME AS AT THE APEX: a name may carry exactly ONE v=spf1 record, and a second one is
+# a permanent error receivers fail the mail on. The step merges the address into a record that stands,
+# creates one only where none does, and refuses a name that already carries two.
+#
+# WHAT THIS PROGRAM DOES NOT DO. It writes no address record and no reverse DNS: the envelope name's
+# own A record and the PTR of the egress address are set where the address is rented.
+name: publish-envelope-spf
+roles: [master]
+
+defaults:
+  # The checkout this installation runs from, and under it the hand-filled input the DNS API token is
+  # typed into: the SAME variable publish-mail-dns and the cluster manager read, so the credential has
+  # one home. "<stage>" in the path stands for the answer named by run_answer.
+  repository: /srv/hostyour-cloud
+  secrets_path: secrets/secrets.<stage>
+  token_variable: CLOUDFLARE_DNS_API_TOKEN
+  run_answer: stage
+
+steps:
+  - step: cloudflare_spf_record
+    apex_answer: envelope_domain
+    address_answer: egress_address
+    on_failure: exit
+
+answers:
+  - name: stage
+    kind: text
+    allowed: [dev, test, prod]
+    describes: >-
+      Which of the product's three stages this installation runs. It names the hand-filled input
+      the API token is read out of.
+
+  - name: envelope_domain
+    kind: text
+    shape: hostname
+    describes: >-
+      The name the mail transfer agent sends its envelope from — the part after the @ of its MAIL
+      FROM, for example mail.<platform domain>. Its zone must be on the DNS account the token can
+      edit.
+
+  - name: egress_address
+    kind: text
+    describes: >-
+      The public IPv4 address the mail actually leaves from — the address of the machine the
+      sending MTA stands on. It is the ip4 mechanism the SPF names. Answer with the address, not a
+      name: an ip4 mechanism names one, and this program resolves nothing.
