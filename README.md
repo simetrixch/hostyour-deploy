@@ -40,6 +40,16 @@ Every program is run three times against a machine — `test`, then `dry`, then 
 reports one of proven, declared, skipped or ok. A row that cannot answer says so in a full sentence
 naming what it could not read, rather than failing on it.
 
+## Checks
+
+`bash scripts/check.sh` (or `pwsh scripts/check.ps1`) parses the program YAML locally.
+It names the registry binding suite as not run locally.
+
+GitHub Actions runs those checks and `bash scripts/test.sh` on every push and pull request.
+The test entry point runs `dart test test/checks/config_validity_test.dart` in the pinned
+sibling `ansiwise-cli` checkout, with `ANSIWISE_INSTALLATION` set to this tree. A skipped
+suite fails. `pwsh scripts/test.ps1` starts the same entry point. Run tests only on a remote runner.
+
 ## Licence
 
 Elastic License 2.0, the same as every other `hostyour-*` repository. See `LICENSE`.

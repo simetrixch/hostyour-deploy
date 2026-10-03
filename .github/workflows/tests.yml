@@ -1,0 +1,36 @@
+name: Tests
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  tests:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: hostyour-deploy
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: simetrixch/ansiwise-cli
+          ref: a1b75767d759ae6aac2ce92f3d5c46449cb68760
+          path: ansiwise-cli
+          persist-credentials: false
+      - uses: dart-lang/setup-dart@6afc89df92d6eb3834022f73cd65adc8cdfcb92d # v1.8.1
+        with:
+          sdk: '3.12.0'
+      - name: Resolve CLI dependencies
+        working-directory: ansiwise-cli
+        run: dart pub get
+      - name: Local checks
+        working-directory: hostyour-deploy
+        run: bash scripts/check.sh
+      - name: Registry binding suite
+        working-directory: hostyour-deploy
+        run: bash scripts/test.sh
