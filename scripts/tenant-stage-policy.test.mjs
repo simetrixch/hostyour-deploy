@@ -7,6 +7,7 @@ const stages = ['dev', 'test', 'prod'];
 const read = file => JSON.parse(execFileSync('yq', ['-o=json', '.', fileURLToPath(new URL('../' + file, import.meta.url))], {encoding: 'utf8'}));
 const conditions = read('ansiwise.yaml').conditions;
 const programs = ['register-slave', 'deploy-platform-services'].map(name => read(`ansiwise/programs/${name}.yaml`));
+const removal = read('ansiwise/programs/remove-slave.yaml');
 const active = (row, machine) => (row.when ?? []).every(name => !name.startsWith('stage_is_not_') || name !== `stage_is_not_${machine}`);
 const replace = (text, machine) => text.replaceAll('<stage>', machine);
 const stageRole = (body, stage) => {
@@ -70,4 +71,13 @@ test('planted missing stage fences, explicit namespace bypasses and foreign stag
     {bound_service_account_namespace_selector: JSON.stringify({matchLabels: {'platform/tenant-managed': 'true', 'platform/tenant-stage': 'prod'}})},
     {bound_service_account_names: ['*']},
   ]) assert.throws(() => stageRole({...safe, ...changed}, 'test'));
+});
+
+test('native slave removal deletes every policy provisioned for all machine stages', () => {
+  const inverse = removal.steps.filter(row => row.step === 'remove_vault_policy');
+  for (const machine of stages) {
+    for (const policy of programs[0].steps.filter(row => active(row, machine) && row.step === 'vault_policy' && row.name.includes('-tenant-read'))) {
+      assert.ok(inverse.some(row => row.name === policy.name && !(row.when ?? []).length), `${machine}: orphaned ${policy.name}`);
+    }
+  }
 });

@@ -2,7 +2,7 @@
 #
 # WHAT THIS REMOVES AND WHAT IT DELIBERATELY DOES NOT. Removed: the slave's private-network
 # membership at the coordinator, the three consumable entries in the slaves tier, the auth mount
-# kubernetes-<slave_cluster_name> with every role on it, the three policies named after the slave,
+# kubernetes-<slave_cluster_name> with every role on it, the policies named after the slave,
 # its namespace
 # in the master's own secret-reader role, and its reconciler project. NOT removed: the slave's
 # install branch and its cluster map — the map on the books branch is the GIT-side inverse, and
@@ -95,8 +95,8 @@ steps:
 
   # The policies named after the slave — a policy left behind outlives the mount it scoped and reads
   # as live. After the mount, as the shell this replaces ordered it: the policies are the last thing
-  # a still-working login could have resolved. The test tenants' policy stands only on a prod
-  # installation; removing an absent policy is recorded as absent, so its row needs no condition.
+  # a still-working login could have resolved. Every machine supports all three tenant stages;
+  # removing an absent policy is recorded as absent, so the stage rows need no condition.
   - step: remove_vault_policy
     repository: /srv/hostyour-cloud
     name: <slave_cluster_name>-eso
@@ -115,6 +115,16 @@ steps:
   - step: remove_vault_policy
     repository: /srv/hostyour-cloud
     name: <slave_cluster_name>-tenant-read-test
+    on_failure: exit
+
+  - step: remove_vault_policy
+    repository: /srv/hostyour-cloud
+    name: <slave_cluster_name>-tenant-read-dev
+    on_failure: exit
+
+  - step: remove_vault_policy
+    repository: /srv/hostyour-cloud
+    name: <slave_cluster_name>-tenant-read-prod
     on_failure: exit
 
   # NOTHING SHRINKS THE MASTER'S SECRET-READER ROLE HERE, because nothing widens it. That role binds
