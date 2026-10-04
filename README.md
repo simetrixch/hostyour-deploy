@@ -1,6 +1,6 @@
 # hostyour-deploy
 
-The programs that put a hostyour-cloud installation on a machine. Eighteen of them, read by
+The programs that put a hostyour-cloud installation on a machine. Read by
 `ansiwise` and by nothing else: they bring up the host, the cluster, the platform services, a
 slave's management plane, the private network, and the version stamps that tie the four together.
 
@@ -29,7 +29,7 @@ own settings files, never out of this tree.
 ## Reading one
 
 ```
-ansiwise/programs/          the eighteen, one file per program
+ansiwise/programs/          one file per program
 ansiwise/templates/         what a program renders and writes onto a machine
 ansiwise/boot-programs/     what runs before the platform is up — unsealing the secret store
 ansiwise.yaml               which plugins the engine loads for the programs
@@ -66,3 +66,16 @@ Only `--dry-run` is available. Execution and rollback must use the reviewed Mana
 ## Licence
 
 Elastic License 2.0, the same as every other `hostyour-*` repository. See `LICENSE`.
+
+## Refresh tenant stage access
+
+`refresh-tenant-stage-access` runs on the master against an existing active cluster map. Supply
+`fqdn` and its installation `stage` as answers. It uses the same Vault steps and exact tenant
+policies and role bindings as platform provisioning; it changes only those policies and roles.
+It requires the auth mount and its reviewer configuration to stand already. It never seeds secret
+values, updates an auth mount, deploys a service, or changes a cluster registration.
+
+Start with `--mode dry`, inspect the native run record, then use `--mode run`. Give the existing
+programs/config paths and pass the answer envelope through `--answers -`. This program uses no
+root command, so `--without-elevation-password` states that no elevation password is supplied.
+The existing Vault credential stays in the platform checkout and never enters the answer envelope.

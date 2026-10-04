@@ -6,7 +6,7 @@ import {fileURLToPath} from 'node:url';
 const stages = ['dev', 'test', 'prod'];
 const read = file => JSON.parse(execFileSync('yq', ['-o=json', '.', fileURLToPath(new URL('../' + file, import.meta.url))], {encoding: 'utf8'}));
 const conditions = read('ansiwise.yaml').conditions;
-const programs = ['register-slave', 'deploy-platform-services'].map(name => read(`ansiwise/programs/${name}.yaml`));
+const programs = ['register-slave', 'deploy-platform-services', 'refresh-tenant-stage-access'].map(name => read(`ansiwise/programs/${name}.yaml`));
 const removal = read('ansiwise/programs/remove-slave.yaml');
 const active = (row, machine) => (row.when ?? []).every(name => !name.startsWith('stage_is_not_') || name !== `stage_is_not_${machine}`);
 const replace = (text, machine) => text.replaceAll('<stage>', machine);
@@ -79,5 +79,32 @@ test('native slave removal deletes every policy provisioned for all machine stag
     for (const policy of programs[0].steps.filter(row => active(row, machine) && row.step === 'vault_policy' && row.name.includes('-tenant-read'))) {
       assert.ok(inverse.some(row => row.name === policy.name && !(row.when ?? []).length), `${machine}: orphaned ${policy.name}`);
     }
+  }
+});
+
+test('focused refresh uses the provisioning tenant rows and touches only tenant policies and roles', () => {
+  const [slave, bootstrap, refresh] = programs;
+  assert.deepEqual(refresh.roles, ['master']);
+  assert.deepEqual(refresh.answers.map(answer => answer.name), ['fqdn', 'stage']);
+  for (const [key, value] of Object.entries(refresh.defaults)) assert.deepEqual(value, bootstrap.defaults[key]);
+  const tenantRow = row => row.step === 'vault_policy' ? row.name.includes('-tenant-read') : row.step === 'vault_auth_role' && row.role.startsWith('tenant-eso-');
+  const writesOnlyTenantAccess = program => {
+    assert.equal(program.steps.length, 8);
+    for (const row of program.steps) {
+      assert.ok(tenantRow(row));
+      assert.equal(row.repository, '/srv/hostyour-cloud');
+      assert.equal(row.on_failure, 'exit');
+    }
+  };
+  writesOnlyTenantAccess(refresh);
+  assert.throws(() => writesOnlyTenantAccess({...refresh, steps: [...refresh.steps, {step: 'vault_kv_entry'}]}));
+  assert.throws(() => writesOnlyTenantAccess(slave));
+  for (const row of refresh.steps) {
+    const parent = bootstrap.steps.find(candidate => candidate.step === row.step && candidate.name === row.name && candidate.role === row.role);
+    assert.ok(parent);
+    const {when: _when, rests_on_an_earlier_step: _rests, ...definition} = row;
+    const {when: _parentWhen, rests_on_an_earlier_step: _parentRests, ...parentDefinition} = parent;
+    assert.deepEqual(definition, parentDefinition);
+    assert.deepEqual(row.when ?? [], (parent.when ?? []).filter(name => name.startsWith('stage_is_not_')));
   }
 });

@@ -1,0 +1,112 @@
+# Refresh the existing tenant policies and stage-role bindings without running platform bootstrap.
+# Auth mounts must already exist: no cluster, secret value, auth configuration or identity is seeded.
+name: refresh-tenant-stage-access
+roles:
+  - master
+defaults:
+  profile_path: clusters/active/<fqdn>.yaml
+  domain_answer: fqdn
+  vault_url_key: global.endpoints.vault.url
+  cluster_name_key: global.clusterName
+  kubernetes_auth_path_key: global.vaultKubernetesAuthPath
+  credentials_path: secrets/vault-<stage>.txt
+  run_answer: stage
+steps:
+  - step: vault_policy
+    repository: /srv/hostyour-cloud
+    auth_mount: <kubernetes-mount>
+    name: <cluster>-tenant-read
+    rules: |
+      path "secret/data/<stage>/tenants/{{identity.entity.aliases.<accessor>.metadata.tenant}}" { capabilities = ["read"] }
+      path "secret/metadata/<stage>/tenants/{{identity.entity.aliases.<accessor>.metadata.tenant}}" { capabilities = ["read", "list"] }
+      path "secret/data/<stage>/tenants/{{identity.entity.aliases.<accessor>.metadata.tenant}}/*" { capabilities = ["read"] }
+      path "secret/metadata/<stage>/tenants/{{identity.entity.aliases.<accessor>.metadata.tenant}}/*" { capabilities = ["read", "list"] }
+      path "secret/data/<stage>/app/registry" { capabilities = ["read"] }
+    on_failure: exit
+  - step: vault_policy
+    repository: /srv/hostyour-cloud
+    auth_mount: <kubernetes-mount>
+    name: <cluster>-tenant-read-dev
+    rules: |
+      path "secret/data/dev/tenants/{{identity.entity.aliases.<accessor>.metadata.tenant}}" { capabilities = ["read"] }
+      path "secret/metadata/dev/tenants/{{identity.entity.aliases.<accessor>.metadata.tenant}}" { capabilities = ["read", "list"] }
+      path "secret/data/dev/tenants/{{identity.entity.aliases.<accessor>.metadata.tenant}}/*" { capabilities = ["read"] }
+      path "secret/metadata/dev/tenants/{{identity.entity.aliases.<accessor>.metadata.tenant}}/*" { capabilities = ["read", "list"] }
+      path "secret/data/<stage>/app/registry" { capabilities = ["read"] }
+    when:
+      - stage_is_not_dev
+    on_failure: exit
+  - step: vault_policy
+    repository: /srv/hostyour-cloud
+    auth_mount: <kubernetes-mount>
+    name: <cluster>-tenant-read-test
+    rules: |
+      path "secret/data/test/tenants/{{identity.entity.aliases.<accessor>.metadata.tenant}}" { capabilities = ["read"] }
+      path "secret/metadata/test/tenants/{{identity.entity.aliases.<accessor>.metadata.tenant}}" { capabilities = ["read", "list"] }
+      path "secret/data/test/tenants/{{identity.entity.aliases.<accessor>.metadata.tenant}}/*" { capabilities = ["read"] }
+      path "secret/metadata/test/tenants/{{identity.entity.aliases.<accessor>.metadata.tenant}}/*" { capabilities = ["read", "list"] }
+      path "secret/data/<stage>/app/registry" { capabilities = ["read"] }
+    when:
+      - stage_is_not_test
+    on_failure: exit
+  - step: vault_policy
+    repository: /srv/hostyour-cloud
+    auth_mount: <kubernetes-mount>
+    name: <cluster>-tenant-read-prod
+    rules: |
+      path "secret/data/prod/tenants/{{identity.entity.aliases.<accessor>.metadata.tenant}}" { capabilities = ["read"] }
+      path "secret/metadata/prod/tenants/{{identity.entity.aliases.<accessor>.metadata.tenant}}" { capabilities = ["read", "list"] }
+      path "secret/data/prod/tenants/{{identity.entity.aliases.<accessor>.metadata.tenant}}/*" { capabilities = ["read"] }
+      path "secret/metadata/prod/tenants/{{identity.entity.aliases.<accessor>.metadata.tenant}}/*" { capabilities = ["read", "list"] }
+      path "secret/data/<stage>/app/registry" { capabilities = ["read"] }
+    when:
+      - stage_is_not_prod
+    on_failure: exit
+  - step: vault_auth_role
+    repository: /srv/hostyour-cloud
+    mount: <kubernetes-mount>
+    role: tenant-eso-<stage>
+    body: '{"bound_service_account_names":["external-secrets-sa"], "bound_service_account_namespaces":[], "bound_service_account_namespace_selector":"{\"matchLabels\":{\"platform/tenant-managed\":\"true\",\"platform/tenant-stage\":\"<stage>\"}}", "token_policies":["<cluster>-tenant-read"],"ttl":"24h"}'
+    on_failure: exit
+    rests_on_an_earlier_step: true
+  - step: vault_auth_role
+    repository: /srv/hostyour-cloud
+    mount: <kubernetes-mount>
+    role: tenant-eso-dev
+    body: '{"bound_service_account_names":["external-secrets-sa"], "bound_service_account_namespaces":[], "bound_service_account_namespace_selector":"{\"matchLabels\":{\"platform/tenant-managed\":\"true\",\"platform/tenant-stage\":\"dev\"}}", "token_policies":["<cluster>-tenant-read-dev"],"ttl":"24h"}'
+    when:
+      - stage_is_not_dev
+    on_failure: exit
+    rests_on_an_earlier_step: true
+  - step: vault_auth_role
+    repository: /srv/hostyour-cloud
+    mount: <kubernetes-mount>
+    role: tenant-eso-test
+    body: '{"bound_service_account_names":["external-secrets-sa"], "bound_service_account_namespaces":[], "bound_service_account_namespace_selector":"{\"matchLabels\":{\"platform/tenant-managed\":\"true\",\"platform/tenant-stage\":\"test\"}}", "token_policies":["<cluster>-tenant-read-test"],"ttl":"24h"}'
+    when:
+      - stage_is_not_test
+    on_failure: exit
+    rests_on_an_earlier_step: true
+  - step: vault_auth_role
+    repository: /srv/hostyour-cloud
+    mount: <kubernetes-mount>
+    role: tenant-eso-prod
+    body: '{"bound_service_account_names":["external-secrets-sa"], "bound_service_account_namespaces":[], "bound_service_account_namespace_selector":"{\"matchLabels\":{\"platform/tenant-managed\":\"true\",\"platform/tenant-stage\":\"prod\"}}", "token_policies":["<cluster>-tenant-read-prod"],"ttl":"24h"}'
+    when:
+      - stage_is_not_prod
+    on_failure: exit
+    rests_on_an_earlier_step: true
+answers:
+  - name: fqdn
+    kind: text
+    shape: hostname
+    required: true
+    describes: The existing cluster map to refresh, on the master; the master already holds all adopted cluster maps.
+  - name: stage
+    kind: text
+    allowed:
+      - dev
+      - test
+      - prod
+    required: true
+    describes: The installation stage of the existing cluster map; it selects the existing root credential and retains the machine-stage policy name.
