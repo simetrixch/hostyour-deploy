@@ -51,7 +51,10 @@ steps:
   # apps3, an app host carrying no tenant: the platform pods request 2,140m and 4,849,664 KiB (redis
   # 550m and 2.06 GiB, mongodb 800m and 1.56 GiB, the rest the cluster's own services). One tenant
   # shaped like simetrix at the XS size (four engines, three web fronts, four static fronts, auth,
-  # jobs and report) requests 290m and 1,474,560 KiB.
+  # jobs and report) requests 290m and 1,474,560 KiB. XS is the smallest of the six tenant sizes
+  # the Manager is introducing (xsmall to xxlarge), and no standing tenant has that shape yet:
+  # simetrix PROD requests 1,125m and 2,293,760 KiB today. The floor is the platform plus one XS tenant all the
+  # same, because XS is the smallest tenant a machine can be asked to carry.
   #   - vcpu: 2,140m + 290m = 2,430m, and `nproc` counts whole processors, so 3.
   #   - memory: the scheduler compares requests with the node's allocatable memory, which is
   #     `MemTotal` less the kubelet's 102,400 KiB hard-eviction reserve (apps3: 63,737,468 against
