@@ -1,5 +1,5 @@
 $ErrorActionPreference = 'Stop'
-$node = Get-Command node -CommandType Application -ErrorAction SilentlyContinue
+$node = Get-Command node -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
 if (-not $node) {
   [Console]::Error.Write("domain-move: node is required`n")
   exit 69
