@@ -1,0 +1,50 @@
+# Apply only the reporting identity on an existing installation. Re-running all
+# platform services would repeat unrelated deployment and identity operations.
+name: configure-tekton-reporter
+roles: [master]
+defaults:
+  profile_path: clusters/active/<fqdn>.yaml
+  domain_answer: fqdn
+  vault_url_key: global.endpoints.vault.url
+  cluster_name_key: global.clusterName
+  kubernetes_auth_path_key: global.vaultKubernetesAuthPath
+  credentials_path: secrets/vault-<stage>.txt
+  run_answer: stage
+steps:
+  # Reporting has its own reader. A suite's build role cannot obtain this leaf.
+  - step: vault_policy
+    repository: /srv/hostyour-cloud
+    name: <cluster>-tekton-reporter-read
+    rules: |
+      path "secret/data/<stage>/app/digita-tekton-reporter" { capabilities = ["read"] }
+    when: [secret_store_enabled, build_plane_here_in_answers, books_here_in_answers]
+    on_failure: exit
+
+  - step: vault_auth_role
+    repository: /srv/hostyour-cloud
+    mount: <kubernetes-mount>
+    role: tekton-reporter-eso
+    body: >-
+      {"bound_service_account_names":["tekton-reporter-eso"],
+      "bound_service_account_namespaces":["image-builder"],
+      "token_policies":["<cluster>-tekton-reporter-read"],"ttl":"1h"}
+    when: [secret_store_enabled, build_plane_here_in_answers, books_here_in_answers]
+    on_failure: exit
+
+answers:
+  - name: fqdn
+    kind: text
+    shape: hostname
+    describes: The installed cluster's domain, which selects its existing profile.
+  - name: stage
+    kind: text
+    allowed: [dev, test, prod]
+    describes: The existing installation stage, which selects the reporter entry.
+  - name: books_fqdn
+    kind: text
+    required: false
+    default_from: fqdn
+    describes: The existing Books cluster's domain; omitted means this cluster.
+  - name: build_plane_fqdn
+    kind: text
+    describes: The existing build-plane cluster's domain, with no inferred builder.

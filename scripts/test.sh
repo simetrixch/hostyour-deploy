@@ -64,4 +64,6 @@ case "$output" in
     fail "dart test $SUITE skipped its tests, so no program was bound to the shipped registry" ;;
 esac
 
+node --test "$ROOT/scripts/reporter-policy.test.mjs" || fail 'reporter Vault policy contract'
+
 echo 'test: OK — every check green'
