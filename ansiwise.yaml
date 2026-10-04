@@ -161,13 +161,23 @@ conditions:
     key: CLUSTER_ISSUER
     value: platform-acme
 
-  # WHETHER THIS INSTALLATION RUNS AT PROD, where a customer's test stage runs beside its prod one
-  # (hostyour-manager#295): a prod cluster also carries tenants at test, and needs the role their
-  # charts log in with. Read off the platform values of the run's own stage, whose `global.env` is
-  # that stage (clusters/platform/values-<stage>.yaml in the platform repository), because no
-  # registered comparison takes an answer and a literal word.
-  stage_is_prod:
-    predicate: yaml_key_has_value
+  # The machine-stage role retains its installed policy name; the other two are added.
+  stage_is_not_dev:
+    predicate: yaml_key_lacks_value
+    file: /srv/hostyour-cloud/clusters/platform/values-<stage>.yaml
+    run_answer: stage
+    key: global.env
+    value: dev
+
+  stage_is_not_test:
+    predicate: yaml_key_lacks_value
+    file: /srv/hostyour-cloud/clusters/platform/values-<stage>.yaml
+    run_answer: stage
+    key: global.env
+    value: test
+
+  stage_is_not_prod:
+    predicate: yaml_key_lacks_value
     file: /srv/hostyour-cloud/clusters/platform/values-<stage>.yaml
     run_answer: stage
     key: global.env

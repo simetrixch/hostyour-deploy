@@ -66,5 +66,6 @@ esac
 
 node --test "$ROOT/scripts/reporter-policy.test.mjs" || fail 'reporter Vault policy contract'
 node --test "$ROOT/scripts/move-machine.test.mjs" || fail 'paired machine move launchers'
+node --test "$ROOT/scripts/tenant-stage-policy.test.mjs" || fail 'tenant stage Vault policy contract'
 
 echo 'test: OK — every check green'

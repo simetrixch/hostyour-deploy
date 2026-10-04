@@ -802,11 +802,20 @@ steps:
     when: [secret_store_enabled, books_here_in_answers]
     on_failure: exit
 
-  # A CUSTOMER'S TEST STAGE ON A PROD INSTALLATION (hostyour-manager#295): the same read, on the
-  # test tier. A tenant's charts log in with the role named after the TENANT's stage, so a prod
-  # cluster carrying a test tenant needs tenant-eso-test beside tenant-eso-prod, and this is the
-  # policy that role grants. The registry leaf stays the installation's: every tenant workload pulls
-  # this platform's images, whatever its stage.
+  - step: vault_policy
+    rests_on_an_earlier_step: true
+    repository: /srv/hostyour-cloud
+    auth_mount: <kubernetes-mount>
+    name: <cluster>-tenant-read-dev
+    rules: |
+      path "secret/data/dev/tenants/{{identity.entity.aliases.<accessor>.metadata.tenant}}" { capabilities = ["read"] }
+      path "secret/metadata/dev/tenants/{{identity.entity.aliases.<accessor>.metadata.tenant}}" { capabilities = ["read", "list"] }
+      path "secret/data/dev/tenants/{{identity.entity.aliases.<accessor>.metadata.tenant}}/*" { capabilities = ["read"] }
+      path "secret/metadata/dev/tenants/{{identity.entity.aliases.<accessor>.metadata.tenant}}/*" { capabilities = ["read", "list"] }
+      path "secret/data/<stage>/app/registry" { capabilities = ["read"] }
+    when: [secret_store_enabled, books_here_in_answers, stage_is_not_dev]
+    on_failure: exit
+
   - step: vault_policy
     rests_on_an_earlier_step: true
     repository: /srv/hostyour-cloud
@@ -818,7 +827,21 @@ steps:
       path "secret/data/test/tenants/{{identity.entity.aliases.<accessor>.metadata.tenant}}/*" { capabilities = ["read"] }
       path "secret/metadata/test/tenants/{{identity.entity.aliases.<accessor>.metadata.tenant}}/*" { capabilities = ["read", "list"] }
       path "secret/data/<stage>/app/registry" { capabilities = ["read"] }
-    when: [secret_store_enabled, books_here_in_answers, stage_is_prod]
+    when: [secret_store_enabled, books_here_in_answers, stage_is_not_test]
+    on_failure: exit
+
+  - step: vault_policy
+    rests_on_an_earlier_step: true
+    repository: /srv/hostyour-cloud
+    auth_mount: <kubernetes-mount>
+    name: <cluster>-tenant-read-prod
+    rules: |
+      path "secret/data/prod/tenants/{{identity.entity.aliases.<accessor>.metadata.tenant}}" { capabilities = ["read"] }
+      path "secret/metadata/prod/tenants/{{identity.entity.aliases.<accessor>.metadata.tenant}}" { capabilities = ["read", "list"] }
+      path "secret/data/prod/tenants/{{identity.entity.aliases.<accessor>.metadata.tenant}}/*" { capabilities = ["read"] }
+      path "secret/metadata/prod/tenants/{{identity.entity.aliases.<accessor>.metadata.tenant}}/*" { capabilities = ["read", "list"] }
+      path "secret/data/<stage>/app/registry" { capabilities = ["read"] }
+    when: [secret_store_enabled, books_here_in_answers, stage_is_not_prod]
     on_failure: exit
 
   # Templated on the unit, which is what stops one build namespace reading a sibling's credential —
@@ -1073,12 +1096,24 @@ steps:
     body: >-
       {"bound_service_account_names":["external-secrets-sa"],
       "bound_service_account_namespaces":[],
-      "bound_service_account_namespace_selector":"{\"matchLabels\":{\"platform/tenant-managed\":\"true\"}}",
+      "bound_service_account_namespace_selector":"{\"matchLabels\":{\"platform/tenant-managed\":\"true\",\"platform/tenant-stage\":\"<stage>\"}}",
       "token_policies":["<cluster>-tenant-read"],"ttl":"24h"}
     when: [secret_store_enabled, books_here_in_answers]
     on_failure: exit
 
-  # The role a test tenant's charts log in with on a prod installation, bound like the one above.
+  - step: vault_auth_role
+    rests_on_an_earlier_step: true
+    repository: /srv/hostyour-cloud
+    mount: <kubernetes-mount>
+    role: tenant-eso-dev
+    body: >-
+      {"bound_service_account_names":["external-secrets-sa"],
+      "bound_service_account_namespaces":[],
+      "bound_service_account_namespace_selector":"{\"matchLabels\":{\"platform/tenant-managed\":\"true\",\"platform/tenant-stage\":\"dev\"}}",
+      "token_policies":["<cluster>-tenant-read-dev"],"ttl":"24h"}
+    when: [secret_store_enabled, books_here_in_answers, stage_is_not_dev]
+    on_failure: exit
+
   - step: vault_auth_role
     rests_on_an_earlier_step: true
     repository: /srv/hostyour-cloud
@@ -1087,9 +1122,22 @@ steps:
     body: >-
       {"bound_service_account_names":["external-secrets-sa"],
       "bound_service_account_namespaces":[],
-      "bound_service_account_namespace_selector":"{\"matchLabels\":{\"platform/tenant-managed\":\"true\"}}",
+      "bound_service_account_namespace_selector":"{\"matchLabels\":{\"platform/tenant-managed\":\"true\",\"platform/tenant-stage\":\"test\"}}",
       "token_policies":["<cluster>-tenant-read-test"],"ttl":"24h"}
-    when: [secret_store_enabled, books_here_in_answers, stage_is_prod]
+    when: [secret_store_enabled, books_here_in_answers, stage_is_not_test]
+    on_failure: exit
+
+  - step: vault_auth_role
+    rests_on_an_earlier_step: true
+    repository: /srv/hostyour-cloud
+    mount: <kubernetes-mount>
+    role: tenant-eso-prod
+    body: >-
+      {"bound_service_account_names":["external-secrets-sa"],
+      "bound_service_account_namespaces":[],
+      "bound_service_account_namespace_selector":"{\"matchLabels\":{\"platform/tenant-managed\":\"true\",\"platform/tenant-stage\":\"prod\"}}",
+      "token_policies":["<cluster>-tenant-read-prod"],"ttl":"24h"}
+    when: [secret_store_enabled, books_here_in_answers, stage_is_not_prod]
     on_failure: exit
 
   # The label this role binds carries its grant only because the build plane admits it nowhere else:
