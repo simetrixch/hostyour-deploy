@@ -68,4 +68,6 @@ node --test "$ROOT/scripts/reporter-policy.test.mjs" || fail 'reporter Vault pol
 node --test "$ROOT/scripts/move-machine.test.mjs" || fail 'paired machine move launchers'
 node --test "$ROOT/scripts/tenant-stage-policy.test.mjs" || fail 'tenant stage Vault policy contract'
 
+python3 "$ROOT/scripts/tenant-stage-proof.test.py" || fail 'tenant stage permission proof'
+
 echo 'test: OK — every check green'

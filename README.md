@@ -79,3 +79,26 @@ Start with `--mode dry`, inspect the native run record, then use `--mode run`. G
 programs/config paths and pass the answer envelope through `--answers -`. This program uses no
 root command, so `--without-elevation-password` states that no elevation password is supplied.
 The existing Vault credential stays in the platform checkout and never enters the answer envelope.
+
+## Verify tenant stage access
+
+Run the permission proof on the installed master host, with its existing `microk8s`
+access and cluster-slave credential. Supply the existing Vault HTTPS address and
+only the cluster name, tenant GUID and stage as arguments:
+
+```bash
+VAULT_ADDR=https://vault.example.test bash scripts/tenant-stage-proof.sh apps2 tenant000001 prod
+```
+
+PowerShell 7 uses `scripts/tenant-stage-proof.ps1` with the same arguments and
+`VAULT_ADDR` environment variable. Both launch the same Python 3 implementation.
+The host must support Linux memory file descriptors; no credential file is written.
+
+The proof reads namespace metadata, requests a ten-minute service-account token,
+logs in to that stage's Vault role and checks effective capabilities without reading
+secret values. It requires own-tenant data read and metadata read/list, denies
+foreign stages and GUIDs, and rejects the same identity at both other stage roles.
+The existing installation registry read leaf is reported separately. HTTP redirects are rejected without forwarding credentials. Every issued
+Vault token is revoked; a failed revoke fails the proof. JSON output contains only
+checks or the failing phase, exception class, subprocess exit and HTTP status.
+No namespace, role, policy, database or persistent credential is changed.

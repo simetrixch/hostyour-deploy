@@ -45,5 +45,9 @@ node --check "$ROOT/scripts/move-machine.test.mjs" || fail 'machine move check s
 bash -n "$ROOT/scripts/move-machine.sh" || fail 'machine move Bash syntax'
 echo 'check: NOT RUN locally — scripts/move-machine.test.mjs; runs in public GitHub Actions.'
 
+python3 -c 'import ast, pathlib, sys; [ast.parse(pathlib.Path(p).read_text()) for p in sys.argv[1:]]' "$ROOT/scripts/tenant-stage-proof.py" "$ROOT/scripts/tenant-stage-proof.test.py" || fail 'tenant stage proof Python syntax'
+bash -n "$ROOT/scripts/tenant-stage-proof.sh" || fail 'tenant stage proof Bash syntax'
+echo 'check: NOT RUN locally — scripts/tenant-stage-proof.test.py; public CI, except the explicit operator regression-first instruction.'
+
 echo 'check: NOT RUN locally — dart test test/checks/config_validity_test.dart; runs in GitHub Actions via scripts/test.sh.'
 echo 'check: OK — every local check green'
