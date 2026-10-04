@@ -50,6 +50,19 @@ The test entry point runs `dart test test/checks/config_validity_test.dart` in t
 sibling `ansiwise-cli` checkout, with `ANSIWISE_INSTALLATION` set to this tree. A skipped
 suite fails. `pwsh scripts/test.ps1` starts the same entry point. Run tests only on a remote runner.
 
+## Machine-move preparation
+
+```bash
+bash scripts/move-machine.sh --cloud-dir /path/to/hostyour-cloud --books-fqdn master.old.example --from-domain old.example --to-domain new.example --fqdn apps1.old.example --ssh-user operator --dry-run
+```
+
+The PowerShell twin `pwsh scripts/move-machine.ps1` takes the identical flags.
+Node, git, yq and ssh are required. The shared Cloud checkout must contain `plan-installation-domain.mjs`.
+
+Dry run inventories cluster maps and selected machine routes, probes old/new SSH with old-name existing trust, prints deterministic JSON and changes no remote state/current config. Exit 0 means report produced; `cutoverReady` remains false.
+
+Only `--dry-run` is available. Execution and rollback must use the reviewed Manager installation migration; existing slave rename rejects master and deletes old DNS. This repository continues to publish at master, without a version or tag.
+
 ## Licence
 
 Elastic License 2.0, the same as every other `hostyour-*` repository. See `LICENSE`.

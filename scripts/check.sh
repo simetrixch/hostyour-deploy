@@ -40,5 +40,10 @@ EOF
 [ "$broken" -eq 0 ] || fail "$broken of $parsed YAML file(s) do not parse"
 echo "check: $parsed YAML file(s) parse."
 
+node --check "$ROOT/scripts/move-machine.mjs" || fail 'machine move syntax'
+node --check "$ROOT/scripts/move-machine.test.mjs" || fail 'machine move check syntax'
+bash -n "$ROOT/scripts/move-machine.sh" || fail 'machine move Bash syntax'
+echo 'check: NOT RUN locally — scripts/move-machine.test.mjs; runs in public GitHub Actions.'
+
 echo 'check: NOT RUN locally — dart test test/checks/config_validity_test.dart; runs in GitHub Actions via scripts/test.sh.'
 echo 'check: OK — every local check green'

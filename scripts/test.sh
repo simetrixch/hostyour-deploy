@@ -65,5 +65,6 @@ case "$output" in
 esac
 
 node --test "$ROOT/scripts/reporter-policy.test.mjs" || fail 'reporter Vault policy contract'
+node --test "$ROOT/scripts/move-machine.test.mjs" || fail 'paired machine move launchers'
 
 echo 'test: OK — every check green'
