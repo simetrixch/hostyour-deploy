@@ -67,6 +67,7 @@ esac
 node --test "$ROOT/scripts/move-machine.test.mjs" || fail 'paired machine move launchers'
 node --test "$ROOT/scripts/tenant-stage-policy.test.mjs" || fail 'tenant stage Vault policy contract'
 node --test "$ROOT/scripts/host-admission-floor.test.mjs" || fail 'host admission floor'
+node --test "$ROOT/scripts/traefik-dashboard.test.mjs" || fail 'traefik dashboard off the web'
 
 python3 "$ROOT/scripts/tenant-stage-proof.test.py" || fail 'tenant stage permission proof'
 

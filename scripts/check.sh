@@ -47,6 +47,8 @@ echo 'check: NOT RUN locally — scripts/move-machine.test.mjs; runs in public G
 
 node --check "$ROOT/scripts/host-admission-floor.test.mjs" || fail 'host admission floor check syntax'
 echo 'check: NOT RUN locally — scripts/host-admission-floor.test.mjs; runs in public GitHub Actions.'
+node --check "$ROOT/scripts/traefik-dashboard.test.mjs" || fail 'traefik dashboard check syntax'
+echo 'check: NOT RUN locally — scripts/traefik-dashboard.test.mjs; runs in public GitHub Actions.'
 
 python3 -c 'import ast, pathlib, sys; [ast.parse(pathlib.Path(p).read_text()) for p in sys.argv[1:]]' "$ROOT/scripts/tenant-stage-proof.py" "$ROOT/scripts/tenant-stage-proof.test.py" || fail 'tenant stage proof Python syntax'
 bash -n "$ROOT/scripts/tenant-stage-proof.sh" || fail 'tenant stage proof Bash syntax'
