@@ -622,6 +622,28 @@ steps:
     ready_timeout_seconds: 300
     on_failure: continue
 
+  # IMAGES NO POD USED FOR 36 HOURS ARE COLLECTED, continuously. The kubelet otherwise keeps every
+  # image until its disk is 85 % full: a test cluster held 57.7G of them on a 123G system disk. The
+  # setting exists only in the kubelet's configuration file, so the file is written and named by
+  # --config; what it says and why it restates authorization.mode stands in the template. The age
+  # stands in the file's name, so a new age is a new flag and the row below restarts the kubelet.
+  - step: write_file_from_template
+    template: ansiwise/templates/kubelet-config.tpl
+    path: /var/snap/microk8s/current/args/kubelet-config-36h.yaml
+    file_mode: 384
+    on_failure: exit
+
+  - step: set_process_flags
+    rests_on_an_earlier_step: true
+    args_path: /var/snap/microk8s/current/args/kubelet
+    file_mode: 432
+    flags:
+      - '--config=/var/snap/microk8s/current/args/kubelet-config-36h.yaml'
+    restart_command: [snap, restart, microk8s.daemon-kubelite]
+    ready_command: [microk8s, kubectl, get, namespace]
+    ready_timeout_seconds: 300
+    on_failure: exit
+
   # The other half of the same wiring, and neither half works alone: the flags above make the API
   # server accept a token, this says what the person behind that token may do. With only the first,
   # every call after a successful login comes back forbidden — which reads as a broken dashboard and
