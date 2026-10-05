@@ -51,6 +51,8 @@ node --check "$ROOT/scripts/traefik-dashboard.test.mjs" || fail 'traefik dashboa
 echo 'check: NOT RUN locally — scripts/traefik-dashboard.test.mjs; runs in public GitHub Actions.'
 node --check "$ROOT/scripts/prune-unused-images.test.mjs" || fail 'prune unused images check syntax'
 echo 'check: NOT RUN locally — scripts/prune-unused-images.test.mjs; runs in public GitHub Actions.'
+node --check "$ROOT/scripts/kubelet-image-gc.test.mjs" || fail 'kubelet image gc check syntax'
+echo 'check: NOT RUN locally — scripts/kubelet-image-gc.test.mjs; runs in public GitHub Actions.'
 
 python3 -c 'import ast, pathlib, sys; [ast.parse(pathlib.Path(p).read_text()) for p in sys.argv[1:]]' "$ROOT/scripts/tenant-stage-proof.py" "$ROOT/scripts/tenant-stage-proof.test.py" || fail 'tenant stage proof Python syntax'
 bash -n "$ROOT/scripts/tenant-stage-proof.sh" || fail 'tenant stage proof Bash syntax'

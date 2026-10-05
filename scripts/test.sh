@@ -69,6 +69,7 @@ node --test "$ROOT/scripts/tenant-stage-policy.test.mjs" || fail 'tenant stage V
 node --test "$ROOT/scripts/host-admission-floor.test.mjs" || fail 'host admission floor'
 node --test "$ROOT/scripts/traefik-dashboard.test.mjs" || fail 'traefik dashboard off the web'
 node --test "$ROOT/scripts/prune-unused-images.test.mjs" || fail 'prune unused images before the free-disk check'
+node --test "$ROOT/scripts/kubelet-image-gc.test.mjs" || fail 'kubelet collects unused images'
 
 python3 "$ROOT/scripts/tenant-stage-proof.test.py" || fail 'tenant stage permission proof'
 
