@@ -124,3 +124,21 @@ test('the consumer-eso role admits each consumer store on the master and on ever
     assert.deepEqual(roles[0], consumerAccounts, name);
   }
 });
+
+// The manager seeds one Vault leaf per consumer part, create-only, and deletes it at an offboard or a
+// purge: <stage>/consumer/<name>/<leaf> (hostyour-manager server/adapters/vault/vault-self-seeder.ts).
+// Its policy must grant the write on the data and the delete on the metadata of each one, in both
+// shapes of the manager policy, or that part's onboarding fails at its seed step.
+const seededConsumerLeaves = ['app', 'postgres', 'mongodb', 'redis', 'mariadb'];
+const managerPolicies = program => program.steps.filter(step => step.step === 'vault_policy' && step.name === 'manager').map(step => step.rules);
+
+test('the manager policy writes and deletes every consumer leaf the manager seeds, in both shapes', () => {
+  const policies = managerPolicies(read('ansiwise/programs/deploy-platform-services.yaml'));
+  assert.equal(policies.length, 2, 'the manager policy no longer comes in two shapes');
+  for (const rules of policies) {
+    for (const leaf of seededConsumerLeaves) {
+      assert.match(rules, new RegExp(`path "secret/data/\\+/consumer/\\+/${leaf}" \\{ capabilities = \\["create", "update"`), `no write on consumer/${leaf}`);
+      assert.match(rules, new RegExp(`path "secret/metadata/\\+/consumer/\\+/${leaf}" \\{ capabilities = \\["delete"\\] \\}`), `no delete on consumer/${leaf}`);
+    }
+  }
+});

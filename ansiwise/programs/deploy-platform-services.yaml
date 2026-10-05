@@ -947,6 +947,10 @@ steps:
       path "secret/metadata/+/consumer/+/postgres" { capabilities = ["delete"] }
       path "secret/data/+/consumer/+/mongodb" { capabilities = ["create", "update"] }
       path "secret/metadata/+/consumer/+/mongodb" { capabilities = ["delete"] }
+      path "secret/data/+/consumer/+/redis" { capabilities = ["create", "update"] }
+      path "secret/metadata/+/consumer/+/redis" { capabilities = ["delete"] }
+      path "secret/data/+/consumer/+/mariadb" { capabilities = ["create", "update"] }
+      path "secret/metadata/+/consumer/+/mariadb" { capabilities = ["delete"] }
       path "secret/data/+/tenants/+" { capabilities = ["create", "update"] }
       path "secret/metadata/+/tenants/+" { capabilities = ["delete"] }
       path "secret/data/+/tenants/+/password-field-key/+" { capabilities = ["create", "update"] }
@@ -971,6 +975,10 @@ steps:
       path "secret/metadata/+/consumer/+/postgres" { capabilities = ["delete"] }
       path "secret/data/+/consumer/+/mongodb" { capabilities = ["create", "update"] }
       path "secret/metadata/+/consumer/+/mongodb" { capabilities = ["delete"] }
+      path "secret/data/+/consumer/+/redis" { capabilities = ["create", "update"] }
+      path "secret/metadata/+/consumer/+/redis" { capabilities = ["delete"] }
+      path "secret/data/+/consumer/+/mariadb" { capabilities = ["create", "update"] }
+      path "secret/metadata/+/consumer/+/mariadb" { capabilities = ["delete"] }
       path "secret/data/+/tenants/+" { capabilities = ["create", "update"] }
       path "secret/metadata/+/tenants/+" { capabilities = ["delete"] }
       path "secret/data/+/tenants/+/password-field-key/+" { capabilities = ["create", "update"] }
