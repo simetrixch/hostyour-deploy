@@ -60,8 +60,8 @@ steps:
   #     `MemTotal` less the kubelet's 102,400 KiB hard-eviction reserve (apps3: 63,737,468 against
   #     63,635,068), so 4,849,664 + 1,474,560 + 102,400 = 6,426,624.
   # The operating system and the cluster distribution's own processes use memory that no request
-  # counts, which is why this stays a minimum. A master carries more than an app host and is admitted
-  # by this same floor.
+  # counts, which is why this stays a minimum. A master carries more than an app host; it passes
+  # this floor here and is held to its own by the first row of deploy-branch, which only a master runs.
   #
   # THE MEMORY FLOOR IS WRITTEN IN `MemTotal`'S OWN TERMS AND NEVER AS ROUND GIBIBYTES. `MemTotal` is
   # what the kernel leaves after its own reservations and never the memory the machine was sold with:

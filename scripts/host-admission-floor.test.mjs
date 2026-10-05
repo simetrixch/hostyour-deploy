@@ -34,3 +34,36 @@ test('deploy-host admits a machine exactly at the platform-plus-XS floor and ref
     assert.ok(!admits(row, below), `a machine at ${below.processors} processors and ${below.memTotalKibibytes} KiB is admitted`);
   }
 });
+
+// THE MASTER'S OWN FLOOR, the first row of deploy-branch, which only a master runs. The owner's
+// masters are never below 8 processors and 16 GB. What a master schedules, by requests, measured on
+// master1 on 2026-10-05: its own pods (the slave part included), one release of the widest unit on
+// record (three image builds at once) and one XS tenant, plus the eviction reserve.
+const branch = JSON.parse(execFileSync('yq', ['-o=json', '.',
+  fileURLToPath(new URL('../ansiwise/programs/deploy-branch.yaml', import.meta.url))], {encoding: 'utf8'}));
+const masterNeed = {
+  millicores: 3270 + 2250 + xsTenant.millicores,
+  memTotalKibibytes: 8208384 + 4718592 + xsTenant.kibibytes + evictionReserveKibibytes,
+};
+
+test('deploy-branch refuses a master below 8 processors and 15,000,000 KiB, before its first other row', () => {
+  const [first] = branch.steps;
+  assert.equal(first.step, 'require_machine_size');
+  assert.equal(first.on_failure, 'exit');
+  assert.equal(first.when, undefined);
+  assert.equal(branch.steps.filter(row => row.step === 'require_machine_size').length, 1);
+  // master1 as measured: 32 processors and 62,416,164 KiB.
+  assert.ok(admits(first, {processors: 32, memTotalKibibytes: 62416164}), 'master1 is refused');
+  assert.ok(admits(first, {processors: 8, memTotalKibibytes: 15000000}), 'a machine at the floor is refused');
+  for (const below of [
+    {processors: 5, memTotalKibibytes: 62416164},
+    {processors: 7, memTotalKibibytes: 62416164},
+    {processors: 8, memTotalKibibytes: 14999999},
+    {processors: floor.processors, memTotalKibibytes: floor.memTotalKibibytes},
+  ]) {
+    assert.ok(!admits(first, below), `a master at ${below.processors} processors and ${below.memTotalKibibytes} KiB is admitted`);
+  }
+  // The floor stays above what a master schedules.
+  assert.ok(first.vcpu * 1000 >= masterNeed.millicores);
+  assert.ok(first.memory_kibibytes >= masterNeed.memTotalKibibytes);
+});
