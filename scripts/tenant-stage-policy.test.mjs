@@ -111,9 +111,9 @@ test('focused refresh uses the provisioning tenant rows and touches only tenant 
 
 // The consumer-eso role admits every account a consumer namespace reads its secrets with: the
 // consumer's own external-secrets-sa and the platform-named store of each data part hostyour-cloud
-// renders into it (clusters/units/postgresql, mongodb and redis). A name missing here refuses that
+// renders into it (clusters/units/postgresql, mongodb, redis and mariadb). A name missing here refuses that
 // part's login, so its credential never arrives and its pod never starts. Master and slaves alike.
-const consumerAccounts = ['external-secrets-sa', 'postgres-eso', 'mongodb-eso', 'redis-eso'];
+const consumerAccounts = ['external-secrets-sa', 'postgres-eso', 'mongodb-eso', 'redis-eso', 'mariadb-eso'];
 const consumerRoles = program => program.steps.filter(step => step.step === 'vault_auth_role' && step.role === 'consumer-eso')
   .map(step => JSON.parse(step.body).bound_service_account_names);
 

@@ -211,7 +211,7 @@ steps:
     mount: kubernetes-<slave_cluster_name>
     role: consumer-eso
     body: >-
-      {"bound_service_account_names":["external-secrets-sa","postgres-eso","mongodb-eso","redis-eso"],
+      {"bound_service_account_names":["external-secrets-sa","postgres-eso","mongodb-eso","redis-eso","mariadb-eso"],
       "bound_service_account_namespaces":[],
       "bound_service_account_namespace_selector":"{\"matchLabels\":{\"hostyour.cloud/consumer\":\"true\"}}",
       "token_policies":["<slave_cluster_name>-consumer-read"],"ttl":"24h"}
