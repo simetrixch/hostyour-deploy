@@ -10,7 +10,7 @@ const rows = program.steps.filter(row => row.step === 'require_machine_size');
 const admits = (row, machine) => machine.processors >= row.vcpu && machine.memTotalKibibytes >= row.memory_kibibytes;
 
 // What an app host must schedule, by requests, measured on apps3 on 2026-10-04: the platform's own pods,
-// one tenant shaped like simetrix at the XS size, and the kubelet's hard-eviction reserve that
+// one tenant shaped like the company tenant at the XS size, and the kubelet's hard-eviction reserve that
 // allocatable memory lacks against MemTotal.
 const platform = {millicores: 2140, kibibytes: 4849664};
 const xsTenant = {millicores: 290, kibibytes: 1474560};
