@@ -75,6 +75,18 @@ steps:
     memory_kibibytes: 6426624
     on_failure: exit
 
+  # IMAGES NO CONTAINER USES COME OFF FIRST, AND ONLY BELOW THE FLOOR. A cluster keeps every image it
+  # pulled until its runtime's own collection reaches its threshold, which sits above this floor: a
+  # test cluster that ran many releases held 57.7G of them on a 123G disk and refused the check
+  # below on every redeploy. At or above the floor nothing is pruned; where the runtime is not
+  # installed yet there is nothing to prune. A pod that needs a pruned image pulls it again.
+  - step: prune_unused_images
+    path: /
+    free_kibibytes: 40000000
+    prune_command: [microk8s, ctr, --namespace, k8s.io, images, prune, --all]
+    elevated: true
+    on_failure: exit
+
   # The OPERATING SYSTEM disk, which is what packages, snaps and the cluster distribution itself are
   # unpacked onto. It is not where the cluster's data goes: that is a separate filesystem this
   # machine either carries or does not, answered per machine and checked by deploy-cluster, which
