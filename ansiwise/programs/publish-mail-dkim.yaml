@@ -1,0 +1,67 @@
+# Publishing the DKIM key of a sender domain whose other mail records belong to another mail
+# service: the one TXT record under the signer's selector, through the DNS provider's API.
+#
+# A PROGRAM OF ITS OWN, NOT A ROW OF publish-mail-dns. The platform domain's mail runs on its own
+# mail service, which owns the apex SPF, the MX, its own DKIM selectors and the DMARC policy.
+# publish-mail-dns writes the apex SPF and DMARC as well, so it must not run there. The platform's
+# MTA still signs mail sent as that domain, under its own selector; this program writes that one
+# record and nothing else, so it can run where the apex must not be touched.
+#
+# AN OPERATION THE OPERATOR TRIGGERS, like publish-mail-dns: it touches a zone that is not part of
+# the machine, so it runs when a person decides, and a green dry run of the same answers admits it.
+#
+# THE KEY IS ANSWERED, NEVER READ FROM THE STORE. The relay's pair in the store signs other mail;
+# publishing it here would make receivers fail every message the platform's MTA signs. The caller
+# that holds the signer's pair answers its public half. A hand-run reads it from the hand-filled
+# input instead, and with neither the step publishes nothing and says so.
+name: publish-mail-dkim
+roles: [master]
+
+defaults:
+  # The checkout this installation runs from, and under it the hand-filled input the DNS API token is
+  # typed into: the SAME variable publish-mail-dns and the cluster manager read, so the credential has
+  # one home. "<stage>" in the path stands for the answer named by run_answer.
+  repository: /srv/hostyour-cloud
+  secrets_path: secrets/secrets.<stage>
+  token_variable: CLOUDFLARE_DNS_API_TOKEN
+  run_answer: stage
+
+steps:
+  - step: cloudflare_dkim_record
+    apex_answer: mail_domain
+    selector_answer: dkim_selector
+    public_key_answer: dkim_public_key
+    public_key_variable: MAIL_DOMAIN_DKIM_PUBLIC_KEY
+    on_failure: exit
+
+answers:
+  - name: stage
+    kind: text
+    allowed: [dev, test, prod]
+    describes: >-
+      Which of the product's three stages this installation runs. It names the hand-filled input
+      the API token is read out of.
+
+  - name: mail_domain
+    kind: text
+    shape: hostname
+    describes: >-
+      The domain mail is sent AS, whose key this publishes under <selector>._domainkey.<domain>.
+      Its zone must be on the DNS account the token can edit. Nothing else of the domain is
+      written.
+
+  - name: dkim_selector
+    kind: text
+    allowed: [dev, test, prod]
+    describes: >-
+      The DKIM selector the signer writes into its signatures: the stage of the MTA that signs,
+      which may differ from the stage of this installation. Receivers look the key up under it.
+
+  - name: dkim_public_key
+    kind: text
+    required: false
+    describes: >-
+      The public half of the key the signer signs this domain with, as the base64 a DKIM record
+      carries in p= — answered by the caller that holds the pair, for example the cluster manager
+      for the domain a unit with an SMTP entry sends as. Left empty, a hand-run reads it from
+      MAIL_DOMAIN_DKIM_PUBLIC_KEY in the hand-filled input.

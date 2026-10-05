@@ -71,6 +71,7 @@ node --test "$ROOT/scripts/traefik-dashboard.test.mjs" || fail 'traefik dashboar
 node --test "$ROOT/scripts/prune-unused-images.test.mjs" || fail 'prune unused images before the free-disk check'
 node --test "$ROOT/scripts/manager-tenant-key-grants.test.mjs" || fail 'manager grants every tenant app key kind'
 node --test "$ROOT/scripts/kubelet-image-gc.test.mjs" || fail 'kubelet collects unused images'
+node --test "$ROOT/scripts/publish-mail-dkim.test.mjs" || fail 'publish-mail-dkim writes only the DKIM record'
 
 python3 "$ROOT/scripts/tenant-stage-proof.test.py" || fail 'tenant stage permission proof'
 
