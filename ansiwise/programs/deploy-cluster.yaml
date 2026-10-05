@@ -546,6 +546,27 @@ steps:
     rollout_timeout_seconds: 90
     on_failure: continue
 
+  # THE ADDON'S DASHBOARD ROUTE COMES OFF, on every run. The addon installs Traefik with its dashboard
+  # on `web` under Host(dashboard.localhost), and a Host header is anybody's to send, so every cluster
+  # address served the dashboard and the whole routing table to anyone. The addon takes no value
+  # that switches it off, and an upgrade of an addon's own release is not the way in (see the patch
+  # above), so the route is taken off the running cluster instead. Absent, the removal reads its
+  # work done; carrying no addon label, it is refused, and the run ends red rather than leaving the
+  # dashboard on the web unnoticed.
+  - step: write_file_from_template
+    template: ansiwise/templates/traefik-dashboard-route.tpl
+    path: /tmp/ansiwise-traefik-dashboard-route.yaml
+    file_mode: 420
+    on_failure: exit
+
+  - step: remove_kubernetes_object
+    rests_on_an_earlier_step: true
+    repository: /tmp
+    manifest: ansiwise-traefik-dashboard-route.yaml
+    owner_label: app.kubernetes.io/instance
+    owner_label_value: traefik-ingress
+    on_failure: exit
+
   # NOTHING SWITCHES THE DISTRIBUTION'S OWN REGISTRY ADDON OFF HERE, AND A ROW THAT DID WOULD HAVE
   # NOTHING TO DO AND NO WAY TO PROVE IT.
   #
