@@ -762,8 +762,8 @@ steps:
   # Templated on the namespace or on this cluster's <stage>, the path names an entry nobody writes.
   #
   # THE CONTRACT WITH EVERY CONSUMER CHART. Every account a consumer namespace logs in with — the
-  # chart's own external-secrets-sa, and the platform's postgres-eso and mongodb-eso rendered by
-  # clusters/units/postgresql and clusters/units/mongodb — carries the two annotations
+  # chart's own external-secrets-sa, and the platform's postgres-eso, mongodb-eso and redis-eso rendered by
+  # clusters/units/postgresql, clusters/units/mongodb and clusters/units/redis — carries the two annotations
   # vault.hashicorp.com/alias-metadata-unit, the unit's name, and
   # vault.hashicorp.com/alias-metadata-stage, the unit's own stage (the chart's global.env). The
   # mount above lifts them into the login alias, and this policy reads them as metadata.unit and
@@ -1081,7 +1081,7 @@ steps:
     mount: <kubernetes-mount>
     role: consumer-eso
     body: >-
-      {"bound_service_account_names":["external-secrets-sa","postgres-eso","mongodb-eso"],
+      {"bound_service_account_names":["external-secrets-sa","postgres-eso","mongodb-eso","redis-eso"],
       "bound_service_account_namespaces":[],
       "bound_service_account_namespace_selector":"{\"matchLabels\":{\"hostyour.cloud/consumer\":\"true\"}}",
       "token_policies":["<cluster>-consumer-read"],"ttl":"24h"}
