@@ -91,7 +91,13 @@ steps:
   # unpacked onto. It is not where the cluster's data goes: that is a separate filesystem this
   # machine either carries or does not, answered per machine and checked by deploy-cluster, which
   # admits a machine that has none and leaves the cluster on its own default.
+  #
+  # IT RESTS ON THE PRUNE ABOVE IT. A dry run does not prune, so it would measure the disk as it was
+  # before and refuse the very room the real run frees; the gate then admits no real run at all.
+  # Resting, the check is declared in the dry run and measured in the real run, after the prune. A
+  # disk too small even after pruning is still refused there, before the first row that installs.
   - step: require_free_disk
+    rests_on_an_earlier_step: true
     path: /
     free_kibibytes: 40000000
     on_failure: exit

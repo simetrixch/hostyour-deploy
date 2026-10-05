@@ -22,6 +22,9 @@ function findings(steps) {
   if (JSON.stringify(p.prune_command) !== JSON.stringify(['microk8s', 'ctr', '--namespace', 'k8s.io', 'images', 'prune', '--all'])) found.push(`prunes with ${p.prune_command}`);
   if (p.elevated !== true) found.push('runs the runtime unelevated, which its socket refuses');
   if (p.when !== undefined) found.push('only on some machines');
+  // The dry run cannot see the prune's effect, so the check must rest on the prune or the dry run
+  // refuses what the real run would free (ansiwise-core step_execution.dart: declared in dry and plan).
+  if (c.rests_on_an_earlier_step !== true) found.push('the free-disk check does not rest on the prune, so the dry run measures the disk before it is pruned');
   return found;
 }
 
@@ -38,6 +41,7 @@ test('PLANTED DEFECT: each way out is found, and the program itself is not', () 
     'another path': rows => { rows[at(rows, 'prune_unused_images')].path = '/var'; },
     'all images, not the unused': rows => { rows[at(rows, 'prune_unused_images')].prune_command = ['microk8s', 'ctr', '--namespace', 'k8s.io', 'images', 'rm']; },
     'unelevated': rows => { rows[at(rows, 'prune_unused_images')].elevated = false; },
+    'the check measured in the dry run': rows => { delete rows[at(rows, 'require_free_disk')].rests_on_an_earlier_step; },
   };
   for (const [name, plant] of Object.entries(planted)) {
     const rows = structuredClone(program.steps);
