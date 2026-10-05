@@ -611,7 +611,8 @@ steps:
   # runs (`roles: [master]`), ahead of deploy-cluster on every master path, so a too-small master is
   # refused here, before the cluster distribution is installed. deploy-host HAS ALREADY RUN on such a
   # machine: its packages, the operator key, the clock settings and the programs checkout are on it,
-  # and an operator who gives the machine up undoes those, or reinstalls it.
+  # and an operator who gives the machine up undoes those, or reinstalls it. This program runs at
+  # every regeneration as well, so an installed master below the floor is no longer regenerated.
   #
   # The floor is the owner's: a master has at least 8 processors and 16 GB. What a master schedules,
   # by requests, measured on master1 on 2026-10-05, stays below it: its own pods, the slave part
@@ -619,16 +620,15 @@ steps:
   # at once, 2,250m and 4,718,592 KiB; one XS tenant, 290m and 1,474,560 KiB; and the kubelet's
   # 102,400 KiB hard-eviction reserve. That is 5,810m and 14,503,936 KiB.
   #
-  # 16 GB IS WRITTEN AS 15,000,000 KiB OF `MemTotal`, the figure require_machine_size itself names
-  # for a 16 GB machine (ansiwise-plugins ansiwise-host require_machine_size.dart). `MemTotal` is
-  # what the kernel leaves after its own reservations, and on this platform the shortfall is 5 to 7
-  # percent: apps3 and apps6 carry 67,108,864 KiB and report 63,737,468 and 63,737,472; master1
-  # reports 62,416,164 with its kernel's 2 GiB crash reserve. A 16 GiB machine at master1's 7 percent
-  # reports about 15,600,000 KiB, so 15,000,000 admits it with room for firmware that reserves more,
-  # stays 496,064 KiB above what a master schedules, and refuses a 12 GiB machine.
+  # 16 GB IS WRITTEN AS THE MEASURED NEED, 14,503,936 KiB OF `MemTotal`. `MemTotal` is what the
+  # kernel leaves after its own reservations, and on this platform the shortfall is 5 to 7 percent:
+  # apps3 and apps6 carry 67,108,864 KiB and report 63,737,468 and 63,737,472; master1 reports
+  # 62,416,164 with its kernel's 2 GiB crash reserve. A machine sold as 16 GB may carry 16 GiB, which
+  # at 7 percent reports about 15,600,000 KiB, or 16,000,000,000 bytes, which reports about 14,600,000
+  # to 14,900,000. The need admits both and refuses a 12 GB machine, which reports about 11,600,000.
   - step: require_machine_size
     vcpu: 8
-    memory_kibibytes: 15000000
+    memory_kibibytes: 14503936
     on_failure: exit
 
   # THE ONE TOOL THIS PROGRAM IS, ASKED FOR BEFORE ANYTHING USES IT. Every step below is git — the
