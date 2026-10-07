@@ -962,6 +962,7 @@ steps:
       path "secret/metadata/+/tenants/+/form-signing-key/*" { capabilities = ["delete", "list"] }
       path "secret/data/+/tenants/+/service-key/+" { capabilities = ["create", "update"] }
       path "secret/metadata/+/tenants/+/service-key/*" { capabilities = ["delete", "list"] }
+      path "secret/data/<stage>/idp/clients/post" { capabilities = ["read"] }
     when: [secret_store_enabled, build_plane_here_in_answers, books_here_in_answers]
     on_failure: exit
 
@@ -992,6 +993,7 @@ steps:
       path "secret/metadata/+/tenants/+/form-signing-key/*" { capabilities = ["delete", "list"] }
       path "secret/data/+/tenants/+/service-key/+" { capabilities = ["create", "update"] }
       path "secret/metadata/+/tenants/+/service-key/*" { capabilities = ["delete", "list"] }
+      path "secret/data/<stage>/idp/clients/post" { capabilities = ["read"] }
     when: [secret_store_enabled, build_plane_elsewhere_in_answers, books_here_in_answers]
     on_failure: exit
 
@@ -1639,6 +1641,24 @@ steps:
       - 'grafana-client-secret=IDP_GRAFANA_CLIENT_SECRET'
     copy_from:
       - 'grafana-client-secret=<stage>/idp/bootstrap:grafana-client-secret'
+    when: [secret_store_enabled, idp_enabled, books_here_in_answers]
+    on_failure: exit
+
+  # THE POST CLIENT'S SECRET, FOR THE MANAGER ALONE. digita-post logs operators in with the client
+  # post of the provider, and the Manager seeds that secret into post's own entry when it onboards a
+  # stage of post, so no operator copies it by hand. It stands under the
+  # provider's own subtree and not in the app tier, so no workload's reader reaches it; the manager
+  # policy reads this one entry and no other of the provider. Written FROM the minted value, as the
+  # two copies above: a second mint would be a secret the provider does not hold.
+  - step: vault_kv_entry
+    rests_on_an_earlier_step: true
+    repository: /srv/hostyour-cloud
+    mount: secret
+    path: <stage>/idp/clients/post
+    fields:
+      - 'client-secret=IDP_POST_CLIENT_SECRET'
+    copy_from:
+      - 'client-secret=<stage>/idp/bootstrap:post-client-secret'
     when: [secret_store_enabled, idp_enabled, books_here_in_answers]
     on_failure: exit
 
