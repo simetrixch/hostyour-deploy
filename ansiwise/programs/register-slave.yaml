@@ -91,11 +91,6 @@ steps:
     rules: |
       path "secret/data/<stage>/app/*" { capabilities = ["read"] }
       path "secret/metadata/<stage>/app/*" { capabilities = ["read", "list"] }
-      # THE ONE ENTRY OF THE IDENTITY TIER ANY CLUSTER READS, the master's own policy word for word:
-      # the client secret a person signs in to this cluster's reconciler with. Named as the single
-      # path and not as `idp/*` — everything else under that tier is the provider's own.
-      path "secret/data/<stage>/idp/bootstrap" { capabilities = ["read"] }
-      path "secret/metadata/<stage>/idp/bootstrap" { capabilities = ["read", "list"] }
     on_failure: exit
 
   # One templated policy covers every consumer the slave will ever host, and onboarding a consumer

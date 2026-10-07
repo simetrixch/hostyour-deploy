@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import {execFileSync} from 'node:child_process';
 import {test} from 'node:test';
+import {readdirSync} from 'node:fs';
 import {fileURLToPath} from 'node:url';
 
 // Argo CD's login reads its client secret through the cluster's secret reader from an entry in the
@@ -18,8 +19,11 @@ function reaches(glob, path) {
   return new RegExp(`^${body}$`).test(path);
 }
 
-const program = JSON.parse(execFileSync('yq', ['-o=json', '.',
-  fileURLToPath(new URL('../ansiwise/programs/deploy-platform-services.yaml', import.meta.url))], {encoding: 'utf8'}));
+const PROGRAMS = fileURLToPath(new URL('../ansiwise/programs/', import.meta.url));
+const read = file => JSON.parse(execFileSync('yq', ['-o=json', '.', `${PROGRAMS}${file}`], {encoding: 'utf8'}));
+const program = read('deploy-platform-services.yaml');
+// Every program writes policies: the master's own and each slave's (register-slave.yaml) alike.
+const programs = readdirSync(PROGRAMS).filter(file => file.endsWith('.yaml')).map(file => ({file, steps: read(file).steps ?? []}));
 
 /** Every way the program breaks the rule, named. */
 function findings(steps) {
@@ -41,6 +45,13 @@ function findings(steps) {
     found.push('the bootstrap entry no longer mints argocd-client-secret, the one value');
   }
 
+  found.push(...policyFindings(steps));
+  return found;
+}
+
+/** Every policy among `steps` that reaches the bootstrap entry, named. */
+function policyFindings(steps) {
+  const found = [];
   // The bootstrap entry is the installer's alone: no policy of the program reaches it, a workload's
   // reader or any other, so a grant planted on a policy no reader uses today is found as well. The one
   // exception is the operators' `admin` policy, which reaches everything by design and is handed only to
@@ -59,6 +70,17 @@ function findings(steps) {
 
 test('no cluster secret reader reads the identity provider bootstrap entry', () => {
   assert.deepEqual(findings(program.steps), []);
+});
+
+test('no policy of any program reaches the identity provider bootstrap entry', () => {
+  assert.ok(programs.some(({file}) => file === 'register-slave.yaml'), 'the slaves\' program is among those read');
+  assert.deepEqual(programs.flatMap(({file, steps}) => policyFindings(steps).map(finding => `${file}: ${finding}`)), []);
+});
+
+test('PLANTED DEFECT: a slave policy reading the bootstrap entry is found', () => {
+  const slave = structuredClone(programs.find(({file}) => file === 'register-slave.yaml').steps);
+  slave.find(row => row.step === 'vault_policy' && row.name === '<slave_cluster_name>-eso').rules += '\npath "secret/data/<stage>/idp/bootstrap" { capabilities = ["read"] }';
+  assert.notDeepEqual(policyFindings(slave), []);
 });
 
 test('PLANTED DEFECT: the removed policy line put back, a grant on the bootstrap entry, or a missing copy is found, and the program itself passes', () => {
