@@ -55,6 +55,8 @@ node --check "$ROOT/scripts/manager-tenant-key-grants.test.mjs" || fail 'manager
 echo 'check: NOT RUN locally — scripts/manager-tenant-key-grants.test.mjs; runs in public GitHub Actions.'
 node --check "$ROOT/scripts/manager-post-client-read.test.mjs" || fail 'manager post client read check syntax'
 echo 'check: NOT RUN locally — scripts/manager-post-client-read.test.mjs; runs in public GitHub Actions.'
+node --check "$ROOT/scripts/idp-bootstrap-read.test.mjs" || fail 'idp bootstrap read check syntax'
+echo 'check: NOT RUN locally — scripts/idp-bootstrap-read.test.mjs; runs in public GitHub Actions.'
 node --check "$ROOT/scripts/kubelet-image-gc.test.mjs" || fail 'kubelet image gc check syntax'
 echo 'check: NOT RUN locally — scripts/kubelet-image-gc.test.mjs; runs in public GitHub Actions.'
 

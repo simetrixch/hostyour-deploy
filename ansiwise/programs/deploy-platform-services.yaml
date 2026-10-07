@@ -733,11 +733,6 @@ steps:
     rules: |
       path "secret/data/<stage>/app/*" { capabilities = ["read"] }
       path "secret/metadata/<stage>/app/*" { capabilities = ["read", "list"] }
-      # THE ONE ENTRY OF THE IDENTITY TIER ANY CLUSTER READS: the client secret a person signs in to
-      # its reconciler with. Named as the single path and not as `idp/*` — everything else under
-      # that tier is the provider's own and is read by the provider alone.
-      path "secret/data/<stage>/idp/bootstrap" { capabilities = ["read"] }
-      path "secret/metadata/<stage>/idp/bootstrap" { capabilities = ["read", "list"] }
       path "secret/data/<stage>/slaves/*" { capabilities = ["read"] }
       path "secret/metadata/<stage>/slaves/*" { capabilities = ["read", "list"] }
     when: [secret_store_enabled, books_here_in_answers]
@@ -1644,6 +1639,20 @@ steps:
     when: [secret_store_enabled, idp_enabled, books_here_in_answers]
     on_failure: exit
 
+  # Argo CD's login reads its client secret here through the cluster's secret reader;
+  # see the explanation above the Manager's copy for why each workload gets its own copy.
+  - step: vault_kv_entry
+    rests_on_an_earlier_step: true
+    repository: /srv/hostyour-cloud
+    mount: secret
+    path: <stage>/app/argocd
+    fields:
+      - 'client-secret=IDP_ARGOCD_CLIENT_SECRET'
+    copy_from:
+      - 'client-secret=<stage>/idp/bootstrap:argocd-client-secret'
+    when: [secret_store_enabled, idp_enabled, books_here_in_answers]
+    on_failure: exit
+
   # THE POST CLIENT'S SECRET, FOR THE MANAGER ALONE. digita-post logs operators in with the client
   # post of the provider, and the Manager seeds that secret into post's own entry when it onboards a
   # stage of post, so no operator copies it by hand. It stands under the
@@ -2353,7 +2362,7 @@ steps:
   #
   # It arrives the way every other secret on every cluster does: clusters/inventories/argocd-secrets
   # renders a SecretStore and an ExternalSecret into the reconciler's namespace, and this cluster's
-  # own ESO reads the entry at <stage>/idp/bootstrap with this cluster's own policy. One mechanism
+  # own ESO reads the entry at <stage>/app/argocd with this cluster's own policy. One mechanism
   # instead of two, and the object is a resource of a GitOps Application — visible in the reconciler
   # it belongs to rather than applied past it.
   #
