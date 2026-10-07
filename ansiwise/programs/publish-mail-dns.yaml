@@ -58,7 +58,8 @@ steps:
   # the domain, expressed as order rather than as a per-domain abort list.
   - step: cloudflare_spf_record
     apex_answer: mail_domain
-    address_answer: egress_address
+    host_answer: egress_host
+    replaces_address_answer: egress_address
     on_failure: exit
 
   # THE KEY THE RELAY SIGNS WITH, read out of the store. The pair is minted where the store is
@@ -109,12 +110,20 @@ answers:
       the SPF merge preserves what that service published, and two existing v=spf1 records refuse
       the whole domain rather than guess.
 
+  - name: egress_host
+    kind: text
+    shape: hostname
+    describes: >-
+      The host name the mail leaves by: the name the reverse DNS of the egress address gives, which
+      resolves back to that address. The SPF names this host (`a:<host>`, or the bare `a` where it
+      is the record's own name), so a change of the egress address never touches the SPF.
+
   - name: egress_address
     kind: text
     describes: >-
-      The public IPv4 address the mail actually leaves from — the address of the machine the
-      sending MTA stands on. It is the ip4 mechanism the SPF merge adds. Answer with the address,
-      not a name: an ip4 mechanism names one, and this program resolves nothing.
+      The public IPv4 address the mail left from when the SPF still named an address. The SPF merge
+      replaces an `ip4` mechanism of exactly this address by the host's mechanism. No new `ip4` is
+      ever written.
 
   - name: dkim_selector
     kind: text

@@ -1,5 +1,5 @@
 # Publishing the SPF of the name a mail transfer agent sends its envelope from (MAIL FROM): the one
-# TXT record that authorises the MTA's egress address for that name, through the DNS provider's API.
+# TXT record that authorises the MTA's egress host for that name, through the DNS provider's API.
 #
 # A PROGRAM OF ITS OWN, NOT A ROW OF publish-mail-dns. The envelope name is the MTA's own name, for
 # example mail.<platform domain>. The domain above it may be the live mail domain of another
@@ -11,7 +11,7 @@
 # the machine, so it runs when a person decides, and a green dry run of the same answers admits it.
 #
 # THE TRAP IS THE SAME AS AT THE APEX: a name may carry exactly ONE v=spf1 record, and a second one is
-# a permanent error receivers fail the mail on. The step merges the address into a record that stands,
+# a permanent error receivers fail the mail on. The step merges the host into a record that stands,
 # creates one only where none does, and refuses a name that already carries two.
 #
 # WHAT THIS PROGRAM DOES NOT DO. It writes no address record and no reverse DNS: the envelope name's
@@ -31,7 +31,8 @@ defaults:
 steps:
   - step: cloudflare_spf_record
     apex_answer: envelope_domain
-    address_answer: egress_address
+    host_answer: egress_host
+    replaces_address_answer: egress_address
     on_failure: exit
 
 answers:
@@ -50,9 +51,17 @@ answers:
       FROM, for example mail.<platform domain>. Its zone must be on the DNS account the token can
       edit.
 
+  - name: egress_host
+    kind: text
+    shape: hostname
+    describes: >-
+      The host name the mail leaves by: the name the reverse DNS of the egress address gives, which
+      resolves back to that address. The SPF names this host (`a:<host>`, or the bare `a` where it
+      is the record's own name), so a change of the egress address never touches the SPF.
+
   - name: egress_address
     kind: text
     describes: >-
-      The public IPv4 address the mail actually leaves from — the address of the machine the
-      sending MTA stands on. It is the ip4 mechanism the SPF names. Answer with the address, not a
-      name: an ip4 mechanism names one, and this program resolves nothing.
+      The public IPv4 address the mail left from when the SPF still named an address. The SPF merge
+      replaces an `ip4` mechanism of exactly this address by the host's mechanism. No new `ip4` is
+      ever written.
