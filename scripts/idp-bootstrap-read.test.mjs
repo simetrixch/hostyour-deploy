@@ -6,9 +6,10 @@ import {fileURLToPath} from 'node:url';
 // Argo CD's login reads its client secret through the cluster's secret reader from an entry in the
 // application tier, <stage>/app/argocd, which this program writes FROM the one minted value in
 // <stage>/idp/bootstrap and never mints again. No cluster's secret reader policy reaches the bootstrap
-// entry itself, so no workload secret reader can access another workload's credentials or platform tokens.
+// entry itself, and no other policy of the program does either: the entry is the installer's alone.
 const LEAF = '<stage>/app/argocd';
 const TARGETS = ['secret/data/<stage>/idp/bootstrap', 'secret/data/prod/idp/bootstrap'];
+const OPERATORS = 'admin';
 
 // reaches is kept here because scripts/manager-post-client-read.test.mjs does not export it.
 /** Whether a Vault policy path reaches `path`: `+` stands for one segment, a trailing `*` for any rest. */
@@ -40,22 +41,11 @@ function findings(steps) {
     found.push('the bootstrap entry no longer mints argocd-client-secret, the one value');
   }
 
-  const policyNames = new Set(['<cluster>-eso']);
-  const readerRoles = steps.filter(step =>
-    step.step === 'vault_auth_role' && (
-      step.role === 'external-secrets' ||
-      step.role.endsWith('-eso') ||
-      step.role.includes('consumer')
-    )
-  );
-  for (const roleStep of readerRoles) {
-    const body = typeof roleStep.body === 'string' ? JSON.parse(roleStep.body) : roleStep.body;
-    for (const name of body.token_policies ?? []) {
-      policyNames.add(name);
-    }
-  }
-
-  const policies = steps.filter(step => step.step === 'vault_policy' && policyNames.has(step.name));
+  // The bootstrap entry is the installer's alone: no policy of the program reaches it, a workload's
+  // reader or any other, so a grant planted on a policy no reader uses today is found as well. The one
+  // exception is the operators' `admin` policy, which reaches everything by design and is handed only to
+  // a person in the provider's `admins` group.
+  const policies = steps.filter(step => step.step === 'vault_policy' && step.name !== OPERATORS);
   for (const policy of policies) {
     const globs = [...(policy.rules ?? '').matchAll(/path "([^"]+)"/g)].map(match => match[1]);
     const wide = globs.filter(glob => TARGETS.some(target => reaches(glob, target)));
@@ -85,8 +75,14 @@ test('PLANTED DEFECT: the removed policy line put back, a grant on the bootstrap
     'the eso policy reads all stage secrets': rows => {
       esoPolicy(rows).rules += '\npath "secret/data/<stage>/*" { capabilities = ["read"] }';
     },
+    'the manager policy reads idp bootstrap': rows => {
+      rows.find(row => row.step === 'vault_policy' && /manager/.test(row.name)).rules += '\npath "secret/data/<stage>/idp/bootstrap" { capabilities = ["read"] }';
+    },
     'a consumer policy reads idp bootstrap': rows => {
       consumerPolicy(rows).rules += '\npath "secret/data/<stage>/idp/bootstrap" { capabilities = ["read"] }';
+    },
+    'another policy reads everything as the operators do': rows => {
+      rows.push({ step: 'vault_policy', name: 'admin-copy', rules: 'path "*" { capabilities = ["read"] }' });
     },
     'the argocd entry mints': rows => {
       at(rows).mint = ['client-secret'];
