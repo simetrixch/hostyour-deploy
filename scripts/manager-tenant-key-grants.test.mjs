@@ -6,7 +6,7 @@ import {fileURLToPath} from 'node:url';
 // The Manager writes one key per tenant app and kind, create-only, and purges them with the tenant
 // (hostyour-manager TENANT_APP_KEY_KINDS). Each shape of its policy grants every kind the same way,
 // so a kind the Manager writes is never refused by the Vault it writes to.
-const KINDS = ['password-field-key', 'revalidate-secret', 'form-signing-key', 'service-key'];
+const KINDS = ['password-field-key', 'revalidate-secret', 'form-signing-key', 'service-key', 'google-translation'];
 const program = JSON.parse(execFileSync('yq', ['-o=json', '.',
   fileURLToPath(new URL('../ansiwise/programs/deploy-platform-services.yaml', import.meta.url))], {encoding: 'utf8'}));
 
