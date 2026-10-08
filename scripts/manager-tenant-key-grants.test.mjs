@@ -20,7 +20,10 @@ function findings(steps) {
       if (!shape.rules.includes(`path "secret/data/+/tenants/+/${kind}/+" { capabilities = ["create", "update"] }`)) found.push(`shape ${i + 1} writes no ${kind}`);
       if (!shape.rules.includes(`path "secret/metadata/+/tenants/+/${kind}/*" { capabilities = ["delete", "list"] }`)) found.push(`shape ${i + 1} purges no ${kind}`);
     }
-    if (/tenants\/\+\/[a-z-]+\/\+" \{ capabilities = \[[^\]]*"read"/.test(shape.rules)) found.push(`shape ${i + 1} reads a tenant app key`);
+    // The Google translation settings are one entry per tenant, written and purged like a key.
+    if (!shape.rules.includes('path "secret/data/+/tenants/+/google-translation" { capabilities = ["create", "update"] }')) found.push(`shape ${i + 1} writes no tenant google-translation`);
+    if (!shape.rules.includes('path "secret/metadata/+/tenants/+/google-translation" { capabilities = ["delete"] }')) found.push(`shape ${i + 1} purges no tenant google-translation`);
+    if (/tenants\/\+\/[a-z-]+(\/\+)?" \{ capabilities = \[[^\]]*"read"/.test(shape.rules)) found.push(`shape ${i + 1} reads a tenant app key`);
   }
   return found;
 }
@@ -34,6 +37,9 @@ test('PLANTED DEFECT: a kind missing from one shape, or a read grant, is found, 
   const planted = {
     'no service-key write in shape 2': rows => { const s = managerShapes(rows)[1]; s.rules = s.rules.replace('path "secret/data/+/tenants/+/service-key/+" { capabilities = ["create", "update"] }', ''); },
     'no service-key purge in shape 1': rows => { const s = managerShapes(rows)[0]; s.rules = s.rules.replace('path "secret/metadata/+/tenants/+/service-key/*" { capabilities = ["delete", "list"] }', ''); },
+    'no tenant google-translation write in shape 2': rows => { const s = managerShapes(rows)[1]; s.rules = s.rules.replace('path "secret/data/+/tenants/+/google-translation" { capabilities = ["create", "update"] }', ''); },
+    'no tenant google-translation purge in shape 1': rows => { const s = managerShapes(rows)[0]; s.rules = s.rules.replace('path "secret/metadata/+/tenants/+/google-translation" { capabilities = ["delete"] }', ''); },
+    'a read grant on the tenant google-translation': rows => { const s = managerShapes(rows)[0]; s.rules = s.rules.replace('google-translation" { capabilities = ["create", "update"]', 'google-translation" { capabilities = ["create", "read", "update"]'); },
     'a read grant on a key': rows => { const s = managerShapes(rows)[0]; s.rules = s.rules.replace('service-key/+" { capabilities = ["create", "update"]', 'service-key/+" { capabilities = ["create", "read", "update"]'); },
   };
   for (const [name, plant] of Object.entries(planted)) {

@@ -927,11 +927,14 @@ steps:
   # with, stands beside it under revalidate-secret/<app> and takes the same grants. So does THE FORM
   # SIGNING KEY OF EACH TENANT WEBSITE, under form-signing-key/<app>, which its renderer signs each
   # record form with. So does THE SERVICE KEY OF EACH TENANT APP, under service-key/<app>, which its
-  # engine proves itself with to its tenant's identity provider for a mail token. So do THE GOOGLE
-  # TRANSLATION SETTINGS OF EACH TENANT APP, under google-translation/<app>, which its localization
-  # plugin translates with: the manager first writes them empty, because the app's ExternalSecret
-  # fails its sync on a missing entry, and replaces them with what an operator types; it never reads
-  # them back.
+  # engine proves itself with to its tenant's identity provider for a mail token.
+  #
+  # THE GOOGLE TRANSLATION SETTINGS OF EACH TENANT stand in one entry beside the key folders,
+  # google-translation, which the localization plugin of every app of the tenant translates with: the
+  # manager first writes it empty, because the apps' ExternalSecret fails its sync on a missing entry,
+  # and replaces it with what an operator types; it never reads it back. The grants on
+  # google-translation/<app> remain only for the per-app entries an earlier manager wrote, until they
+  # are deleted.
   - step: vault_policy
     rests_on_an_earlier_step: true
     repository: /srv/hostyour-cloud
@@ -963,6 +966,8 @@ steps:
       path "secret/metadata/+/tenants/+/service-key/*" { capabilities = ["delete", "list"] }
       path "secret/data/+/tenants/+/google-translation/+" { capabilities = ["create", "update"] }
       path "secret/metadata/+/tenants/+/google-translation/*" { capabilities = ["delete", "list"] }
+      path "secret/data/+/tenants/+/google-translation" { capabilities = ["create", "update"] }
+      path "secret/metadata/+/tenants/+/google-translation" { capabilities = ["delete"] }
       path "secret/data/<stage>/idp/clients/post" { capabilities = ["read"] }
     when: [secret_store_enabled, build_plane_here_in_answers, books_here_in_answers]
     on_failure: exit
@@ -996,6 +1001,8 @@ steps:
       path "secret/metadata/+/tenants/+/service-key/*" { capabilities = ["delete", "list"] }
       path "secret/data/+/tenants/+/google-translation/+" { capabilities = ["create", "update"] }
       path "secret/metadata/+/tenants/+/google-translation/*" { capabilities = ["delete", "list"] }
+      path "secret/data/+/tenants/+/google-translation" { capabilities = ["create", "update"] }
+      path "secret/metadata/+/tenants/+/google-translation" { capabilities = ["delete"] }
       path "secret/data/<stage>/idp/clients/post" { capabilities = ["read"] }
     when: [secret_store_enabled, build_plane_elsewhere_in_answers, books_here_in_answers]
     on_failure: exit
