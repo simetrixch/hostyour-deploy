@@ -932,9 +932,7 @@ steps:
   # THE GOOGLE TRANSLATION SETTINGS OF EACH TENANT stand in one entry beside the key folders,
   # google-translation, which the localization plugin of every app of the tenant translates with: the
   # manager first writes it empty, because the apps' ExternalSecret fails its sync on a missing entry,
-  # and replaces it with what an operator types; it never reads it back. The grants on
-  # google-translation/<app> remain only for the per-app entries an earlier manager wrote, until they
-  # are deleted.
+  # and replaces it with what an operator types; it never reads it back.
   - step: vault_policy
     rests_on_an_earlier_step: true
     repository: /srv/hostyour-cloud
@@ -964,8 +962,6 @@ steps:
       path "secret/metadata/+/tenants/+/form-signing-key/*" { capabilities = ["delete", "list"] }
       path "secret/data/+/tenants/+/service-key/+" { capabilities = ["create", "update"] }
       path "secret/metadata/+/tenants/+/service-key/*" { capabilities = ["delete", "list"] }
-      path "secret/data/+/tenants/+/google-translation/+" { capabilities = ["create", "update"] }
-      path "secret/metadata/+/tenants/+/google-translation/*" { capabilities = ["delete", "list"] }
       path "secret/data/+/tenants/+/google-translation" { capabilities = ["create", "update"] }
       path "secret/metadata/+/tenants/+/google-translation" { capabilities = ["delete"] }
       path "secret/data/<stage>/idp/clients/post" { capabilities = ["read"] }
@@ -999,8 +995,6 @@ steps:
       path "secret/metadata/+/tenants/+/form-signing-key/*" { capabilities = ["delete", "list"] }
       path "secret/data/+/tenants/+/service-key/+" { capabilities = ["create", "update"] }
       path "secret/metadata/+/tenants/+/service-key/*" { capabilities = ["delete", "list"] }
-      path "secret/data/+/tenants/+/google-translation/+" { capabilities = ["create", "update"] }
-      path "secret/metadata/+/tenants/+/google-translation/*" { capabilities = ["delete", "list"] }
       path "secret/data/+/tenants/+/google-translation" { capabilities = ["create", "update"] }
       path "secret/metadata/+/tenants/+/google-translation" { capabilities = ["delete"] }
       path "secret/data/<stage>/idp/clients/post" { capabilities = ["read"] }

@@ -6,7 +6,7 @@ import {fileURLToPath} from 'node:url';
 // The Manager writes one key per tenant app and kind, create-only, and purges them with the tenant
 // (hostyour-manager TENANT_APP_KEY_KINDS). Each shape of its policy grants every kind the same way,
 // so a kind the Manager writes is never refused by the Vault it writes to.
-const KINDS = ['password-field-key', 'revalidate-secret', 'form-signing-key', 'service-key', 'google-translation'];
+const KINDS = ['password-field-key', 'revalidate-secret', 'form-signing-key', 'service-key'];
 const program = JSON.parse(execFileSync('yq', ['-o=json', '.',
   fileURLToPath(new URL('../ansiwise/programs/deploy-platform-services.yaml', import.meta.url))], {encoding: 'utf8'}));
 
@@ -23,6 +23,8 @@ function findings(steps) {
     // The Google translation settings are one entry per tenant, written and purged like a key.
     if (!shape.rules.includes('path "secret/data/+/tenants/+/google-translation" { capabilities = ["create", "update"] }')) found.push(`shape ${i + 1} writes no tenant google-translation`);
     if (!shape.rules.includes('path "secret/metadata/+/tenants/+/google-translation" { capabilities = ["delete"] }')) found.push(`shape ${i + 1} purges no tenant google-translation`);
+    // Nothing below it: the Manager writes no per-app Google translation entry.
+    if (shape.rules.includes('tenants/+/google-translation/')) found.push(`shape ${i + 1} grants a per-app google-translation entry`);
     if (/tenants\/\+\/[a-z-]+(\/\+)?" \{ capabilities = \[[^\]]*"read"/.test(shape.rules)) found.push(`shape ${i + 1} reads a tenant app key`);
   }
   return found;
@@ -40,6 +42,7 @@ test('PLANTED DEFECT: a kind missing from one shape, or a read grant, is found, 
     'no tenant google-translation write in shape 2': rows => { const s = managerShapes(rows)[1]; s.rules = s.rules.replace('path "secret/data/+/tenants/+/google-translation" { capabilities = ["create", "update"] }', ''); },
     'no tenant google-translation purge in shape 1': rows => { const s = managerShapes(rows)[0]; s.rules = s.rules.replace('path "secret/metadata/+/tenants/+/google-translation" { capabilities = ["delete"] }', ''); },
     'a read grant on the tenant google-translation': rows => { const s = managerShapes(rows)[0]; s.rules = s.rules.replace('google-translation" { capabilities = ["create", "update"]', 'google-translation" { capabilities = ["create", "read", "update"]'); },
+    'a per-app google-translation grant in shape 2': rows => { const s = managerShapes(rows)[1]; s.rules += 'path "secret/data/+/tenants/+/google-translation/+" { capabilities = ["create", "update"] }\n'; },
     'a read grant on a key': rows => { const s = managerShapes(rows)[0]; s.rules = s.rules.replace('service-key/+" { capabilities = ["create", "update"]', 'service-key/+" { capabilities = ["create", "read", "update"]'); },
   };
   for (const [name, plant] of Object.entries(planted)) {
