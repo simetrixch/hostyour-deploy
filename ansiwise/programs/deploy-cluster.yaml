@@ -633,12 +633,18 @@ steps:
     file_mode: 384
     on_failure: exit
 
+  # 250 PODS ON THE NODE, not the kubelet's default 110. A master at rest already runs about 104, so
+  # a burst of ci runs filled the node, and the scheduler then preempted a running ci pod (the lowest
+  # priority) for every short-lived pod of the default priority, which turned a green run red. CPU
+  # and memory had room; the count did not. The pod network gives a node another 64 addresses each
+  # time it needs them (Calico, a /16 pool in /26 blocks, no per-host cap), so 250 fit.
   - step: set_process_flags
     rests_on_an_earlier_step: true
     args_path: /var/snap/microk8s/current/args/kubelet
     file_mode: 432
     flags:
       - '--config=/var/snap/microk8s/current/args/kubelet-config-36h.yaml'
+      - '--max-pods=250'
     restart_command: [snap, restart, microk8s.daemon-kubelite]
     ready_command: [microk8s, kubectl, get, namespace]
     ready_timeout_seconds: 300
