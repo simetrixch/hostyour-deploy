@@ -1259,6 +1259,37 @@ steps:
     when: [secret_store_enabled, books_here_in_answers]
     on_failure: exit
 
+  # The E2E runner's own reader (hostyour-cloud clusters/inventories/e2e-runner). Its namespace
+  # holds the passwords of the tenants' E2E accounts, which the Manager writes to
+  # <stage>/tenants/<guid>/e2e, so it gets a role of its own: the role every workload namespace
+  # logs in under reads the application tier and must not reach these, and this one reads these
+  # and nothing else. One master serves the tenants of every stage from its one Vault, so the stage
+  # segment is `+`, as in the Manager's grant that writes them. No `list`: a run names its target,
+  # so nothing needs to enumerate the tenants.
+  #
+  # As with the manager-host rows, the names are the reader's: the e2e-runner chart renders the
+  # store that logs in under this role, as the account below, in that namespace.
+  - step: vault_policy
+    rests_on_an_earlier_step: true
+    repository: /srv/hostyour-cloud
+    name: e2e-runner
+    rules: |
+      path "secret/data/+/tenants/+/e2e" { capabilities = ["read"] }
+    when: [secret_store_enabled, books_here_in_answers]
+    on_failure: exit
+
+  - step: vault_auth_role
+    rests_on_an_earlier_step: true
+    repository: /srv/hostyour-cloud
+    mount: <kubernetes-mount>
+    role: e2e-runner
+    body: >-
+      {"bound_service_account_names":["e2e-runner-eso"],
+      "bound_service_account_namespaces":["e2e-runner"],
+      "token_policies":["e2e-runner"],"ttl":"24h"}
+    when: [secret_store_enabled, books_here_in_answers]
+    on_failure: exit
+
   # --- the values ------------------------------------------------------------------------------
   #
   # No value is in this file. Each field names the variable of the hand-filled input that holds it,
