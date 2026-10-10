@@ -964,6 +964,8 @@ steps:
       path "secret/metadata/+/tenants/+/service-key/*" { capabilities = ["delete", "list"] }
       path "secret/data/+/tenants/+/google-translation" { capabilities = ["create", "update"] }
       path "secret/metadata/+/tenants/+/google-translation" { capabilities = ["delete"] }
+      path "secret/data/+/tenants/+/e2e" { capabilities = ["create", "update"] }
+      path "secret/metadata/+/tenants/+/e2e" { capabilities = ["delete"] }
       path "secret/data/<stage>/idp/clients/post" { capabilities = ["read"] }
     when: [secret_store_enabled, build_plane_here_in_answers, books_here_in_answers]
     on_failure: exit
@@ -997,6 +999,8 @@ steps:
       path "secret/metadata/+/tenants/+/service-key/*" { capabilities = ["delete", "list"] }
       path "secret/data/+/tenants/+/google-translation" { capabilities = ["create", "update"] }
       path "secret/metadata/+/tenants/+/google-translation" { capabilities = ["delete"] }
+      path "secret/data/+/tenants/+/e2e" { capabilities = ["create", "update"] }
+      path "secret/metadata/+/tenants/+/e2e" { capabilities = ["delete"] }
       path "secret/data/<stage>/idp/clients/post" { capabilities = ["read"] }
     when: [secret_store_enabled, build_plane_elsewhere_in_answers, books_here_in_answers]
     on_failure: exit
