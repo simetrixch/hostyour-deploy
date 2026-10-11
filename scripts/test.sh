@@ -75,6 +75,7 @@ node --test "$ROOT/scripts/e2e-runner-read.test.mjs" || fail 'the e2e runner rea
 node --test "$ROOT/scripts/idp-bootstrap-read.test.mjs" || fail 'no cluster secret reader reads idp bootstrap'
 node --test "$ROOT/scripts/kubelet-image-gc.test.mjs" || fail 'kubelet collects unused images'
 node --test "$ROOT/scripts/publish-mail-dkim.test.mjs" || fail 'publish-mail-dkim writes only the DKIM record'
+node --test "$ROOT/scripts/cert-manager-installs.test.mjs" || fail 'cert-manager installed only where none stands, never the addon'
 
 python3 "$ROOT/scripts/tenant-stage-proof.test.py" || fail 'tenant stage permission proof'
 
