@@ -300,6 +300,14 @@ steps:
     file_mode: 420
     on_failure: exit
 
+  # THE NAMESPACE ALL FOUR RELEASES BELOW LAND IN, which the microk8s addon created and nothing else
+  # does now: helm_release is not told to create one, as the store's release below is not. Under no
+  # condition, because each release has a guard of its own; where the namespace stands, this row
+  # passes over it and puts nothing into it.
+  - step: kubernetes_namespace
+    namespace: cert-manager
+    on_failure: exit
+
   # A CHART DIRECTORY, whose Chart.yaml pins the upstream chart Argo CD renders; the release builds
   # that dependency before it installs.
   - step: helm_release

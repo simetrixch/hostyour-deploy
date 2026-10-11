@@ -72,6 +72,10 @@ function findings({programs, conditions, templates}) {
       if (row.chart !== `${INVENTORY}/${name}`) found.push(`${where} installs ${row.chart}`);
       if (row.chart_version !== undefined) found.push(`${where} pins a version beside its Chart.yaml`);
       if (row.values !== wanted.values) found.push(`${where} is given ${row.values}`);
+      // helm is not asked to create the namespace, and the addon that did is gone: a row creates it
+      // first, under no condition the install does not carry.
+      if (!steps.slice(0, i).some(each => each.step === 'kubernetes_namespace' && each.namespace === row.namespace
+        && (each.when ?? []).every(w => (row.when ?? []).includes(w)))) found.push(`${where} lands in ${row.namespace}, which no row before it creates`);
       const guard = (row.when ?? []).map(w => absenceOf(conditions, w)).find(object => wanted.absent.some(each => same(each, object)));
       if (!guard) {
         found.push(`${where} runs without the absence of its own object`);
@@ -193,6 +197,19 @@ const PLANTED = {
     const rows = p.programs['deploy-platform-services'];
     const row = rows[at(rows, release('trust-manager'))];
     p.conditions[row.when[0]] = {predicate: 'key_has_value', file: '/x', key: 'K', value: 'v'};
+  },
+  'the namespace created by nothing': p => {
+    const rows = p.programs['deploy-platform-services'];
+    rows.splice(at(rows, r => r.step === 'kubernetes_namespace' && r.namespace === 'cert-manager'), 1);
+  },
+  'the namespace created after cert-manager': p => {
+    const rows = p.programs['deploy-platform-services'];
+    const [row] = rows.splice(at(rows, r => r.step === 'kubernetes_namespace' && r.namespace === 'cert-manager'), 1);
+    rows.splice(at(rows, release('cert-manager')) + 1, 0, row);
+  },
+  'the namespace created only where cert-manager is absent': p => {
+    const rows = p.programs['deploy-platform-services'];
+    rows[at(rows, r => r.step === 'kubernetes_namespace' && r.namespace === 'cert-manager')].when = [...rows[at(rows, release('cert-manager'))].when];
   },
   'the issuers before cert-manager': p => {
     const rows = p.programs['deploy-platform-services'];
