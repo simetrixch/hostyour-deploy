@@ -6,6 +6,9 @@ import {fileURLToPath} from 'node:url';
 // The Manager writes one key per tenant app and kind, create-only, and purges them with the tenant
 // (hostyour-manager TENANT_APP_KEY_KINDS). Each shape of its policy grants every kind the same way,
 // so a kind the Manager writes is never refused by the Vault it writes to.
+// The tenant entry itself is written create-only at onboarding; the signing-key rotation then patches
+// two of its properties with check-and-set, so it reads the entry's metadata (its current version,
+// no value) and patches the data path, which it never reads.
 const KINDS = ['password-field-key', 'revalidate-secret', 'form-signing-key', 'service-key'];
 const program = JSON.parse(execFileSync('yq', ['-o=json', '.',
   fileURLToPath(new URL('../ansiwise/programs/deploy-platform-services.yaml', import.meta.url))], {encoding: 'utf8'}));
@@ -26,15 +29,18 @@ function findings(steps) {
     // Nothing below it: the Manager writes no per-app Google translation entry.
     if (shape.rules.includes('tenants/+/google-translation/')) found.push(`shape ${i + 1} grants a per-app google-translation entry`);
     if (/tenants\/\+\/[a-z-]+(\/\+)?" \{ capabilities = \[[^\]]*"read"/.test(shape.rules)) found.push(`shape ${i + 1} reads a tenant app key`);
+    if (!shape.rules.includes('path "secret/data/+/tenants/+" { capabilities = ["create", "update", "patch"] }')) found.push(`shape ${i + 1} patches no tenant entry`);
+    if (!shape.rules.includes('path "secret/metadata/+/tenants/+" { capabilities = ["read", "delete"] }')) found.push(`shape ${i + 1} reads no tenant entry version`);
+    if (/"secret\/data\/\+\/tenants\/\+" \{ capabilities = \[[^\]]*"read"/.test(shape.rules)) found.push(`shape ${i + 1} reads the tenant entry's values`);
   }
   return found;
 }
 
-test('both shapes of the manager policy write and purge every tenant app key kind, and read none', () => {
+test('both shapes of the manager policy write and purge every tenant app key kind, patch the tenant entry, and read no value', () => {
   assert.deepEqual(findings(program.steps), []);
 });
 
-test('PLANTED DEFECT: a kind missing from one shape, or a read grant, is found, and the program itself is not', () => {
+test('PLANTED DEFECT: a kind or an entry grant missing from one shape, or a read grant, is found, and the program itself is not', () => {
   const managerShapes = rows => rows.filter(row => row.step === 'vault_policy' && row.name === 'manager');
   const planted = {
     'no service-key write in shape 2': rows => { const s = managerShapes(rows)[1]; s.rules = s.rules.replace('path "secret/data/+/tenants/+/service-key/+" { capabilities = ["create", "update"] }', ''); },
@@ -44,6 +50,9 @@ test('PLANTED DEFECT: a kind missing from one shape, or a read grant, is found, 
     'a read grant on the tenant google-translation': rows => { const s = managerShapes(rows)[0]; s.rules = s.rules.replace('google-translation" { capabilities = ["create", "update"]', 'google-translation" { capabilities = ["create", "read", "update"]'); },
     'a per-app google-translation grant in shape 2': rows => { const s = managerShapes(rows)[1]; s.rules += 'path "secret/data/+/tenants/+/google-translation/+" { capabilities = ["create", "update"] }\n'; },
     'a read grant on a key': rows => { const s = managerShapes(rows)[0]; s.rules = s.rules.replace('service-key/+" { capabilities = ["create", "update"]', 'service-key/+" { capabilities = ["create", "read", "update"]'); },
+    'no tenant entry patch in shape 2': rows => { const s = managerShapes(rows)[1]; s.rules = s.rules.replace('path "secret/data/+/tenants/+" { capabilities = ["create", "update", "patch"] }', 'path "secret/data/+/tenants/+" { capabilities = ["create", "update"] }'); },
+    'no tenant entry metadata read in shape 1': rows => { const s = managerShapes(rows)[0]; s.rules = s.rules.replace('path "secret/metadata/+/tenants/+" { capabilities = ["read", "delete"] }', 'path "secret/metadata/+/tenants/+" { capabilities = ["delete"] }'); },
+    'a read grant on the tenant entry values in shape 2': rows => { const s = managerShapes(rows)[1]; s.rules += 'path "secret/data/+/tenants/+" { capabilities = ["read"] }\n'; },
   };
   for (const [name, plant] of Object.entries(planted)) {
     const rows = structuredClone(program.steps);

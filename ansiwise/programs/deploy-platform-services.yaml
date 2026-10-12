@@ -1015,10 +1015,13 @@ steps:
   # fail loudly rather than rotate the keys a pod read once at container start, or the password a
   # database was initialized with.
   #
-  # `patch` ON THE CONSUMER APPLICATION LEAF ALONE, and it is a write, not a read: Vault merges the
+  # `patch` ON THE CONSUMER APPLICATION LEAF AND THE TENANT ENTRY ALONE, and it is a write, not a read: Vault merges the
   # keys it is handed into the stored entry and answers the new version, so the manager changes one
   # declared secret of a standing consumer (hostyour-manager#245 consumer-set-secrets) without ever
-  # holding the values it did not change. Without the read grant beside it, the leaf stays one the
+  # holding the values it did not change, and replaces the identity provider's signing key pair of a
+  # standing tenant (tenant-rotate-signing-key) the same way. The tenant entry's patch is a
+  # check-and-set on the version the manager reads from the entry's metadata, which holds no value.
+  # Without the read grant on the data, the leaf stays one the
   # manager can write and cannot look at — which is why the database leaves keep create and update
   # alone: a password a database was initialized with is not a value to merge into. The delete is on the metadata and not on the data, because a data
   # delete is soft and leaves version history that create-only refuses to write over; and it is a
@@ -1058,8 +1061,8 @@ steps:
       path "secret/metadata/+/consumer/+/redis" { capabilities = ["delete"] }
       path "secret/data/+/consumer/+/mariadb" { capabilities = ["create", "update"] }
       path "secret/metadata/+/consumer/+/mariadb" { capabilities = ["delete"] }
-      path "secret/data/+/tenants/+" { capabilities = ["create", "update"] }
-      path "secret/metadata/+/tenants/+" { capabilities = ["delete"] }
+      path "secret/data/+/tenants/+" { capabilities = ["create", "update", "patch"] }
+      path "secret/metadata/+/tenants/+" { capabilities = ["read", "delete"] }
       path "secret/data/+/tenants/+/password-field-key/+" { capabilities = ["create", "update"] }
       path "secret/metadata/+/tenants/+/password-field-key/*" { capabilities = ["delete", "list"] }
       path "secret/data/+/tenants/+/revalidate-secret/+" { capabilities = ["create", "update"] }
@@ -1093,8 +1096,8 @@ steps:
       path "secret/metadata/+/consumer/+/redis" { capabilities = ["delete"] }
       path "secret/data/+/consumer/+/mariadb" { capabilities = ["create", "update"] }
       path "secret/metadata/+/consumer/+/mariadb" { capabilities = ["delete"] }
-      path "secret/data/+/tenants/+" { capabilities = ["create", "update"] }
-      path "secret/metadata/+/tenants/+" { capabilities = ["delete"] }
+      path "secret/data/+/tenants/+" { capabilities = ["create", "update", "patch"] }
+      path "secret/metadata/+/tenants/+" { capabilities = ["read", "delete"] }
       path "secret/data/+/tenants/+/password-field-key/+" { capabilities = ["create", "update"] }
       path "secret/metadata/+/tenants/+/password-field-key/*" { capabilities = ["delete", "list"] }
       path "secret/data/+/tenants/+/revalidate-secret/+" { capabilities = ["create", "update"] }
