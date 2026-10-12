@@ -19,7 +19,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: simetrixch/ansiwise-cli
-          ref: a4ce914e5268e20770704d1f4a528dd4f84701b7
+          ref: c12912a0b52732d23a84bf5f6aad633c30341134
           path: ansiwise-cli
           persist-credentials: false
       - uses: dart-lang/setup-dart@6afc89df92d6eb3834022f73cd65adc8cdfcb92d # v1.8.1
