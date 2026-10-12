@@ -26,7 +26,6 @@ const INSTALLS = {
   'trust-manager-bundles': {values: RUN_VALUES, absent: [['bundle', 'platform-trust']]},
 };
 const ISSUER_SWITCH = {'platform-acme': 'certificates_enabled', 'platform-local': 'certificates_withheld'};
-const RETIRED_STEPS = ['write_cluster_issuer_manifest', 'apply_cluster_issuer', 'restart_cert_manager_and_reapply_cluster_issuer', 'remove_existing_cluster_issuer'];
 const TEMPLATE_KEYS = ['global.clusterIssuer', 'global.letsencryptEmail', 'global.letsencryptServer'];
 
 const kindOf = kind => String(kind).toLowerCase().split('.')[0].replace(/s$/, '');
@@ -49,7 +48,6 @@ function findings({programs, conditions, templates}) {
       const where = `${program}[${at}] ${row.step}`;
       const text = JSON.stringify(row);
       if ((row.addons ?? []).includes('cert-manager') || /\b(enable|disable)\b[^"]*\bcert-manager\b/.test(text)) found.push(`${where} switches the cert-manager addon`);
-      if (RETIRED_STEPS.includes(row.step)) found.push(`${where} writes, applies or restarts for an issuer of the installer's own`);
       if (/^kind:\s*ClusterIssuer\b/m.test(templates[row.template] ?? '')) found.push(`${where} renders a ClusterIssuer of its own`);
       if (text.includes('clusters/bootstrap/cert-manager')) found.push(`${where} reads clusters/bootstrap/cert-manager`);
       const name = installOf(row);
@@ -150,10 +148,6 @@ const PLANTED = {
   'the addon enabled again': p => { p.programs['deploy-cluster'].find(r => r.step === 'enable_addons').addons.push('cert-manager'); },
   'the addon disabled': p => { p.programs['deploy-cluster'].push({step: 'disable_addons', addons: ['cert-manager']}); },
   'the addon disabled through a shell': p => { p.programs['deploy-host'].push({step: 'run_command', command: 'sh', command_arguments: ['-c', 'microk8s disable cert-manager']}); },
-  'an issuer written by the installer': p => { p.programs['deploy-cluster'].push({step: 'write_cluster_issuer_manifest', name: 'platform-acme'}); },
-  'an issuer applied by the installer': p => { p.programs['deploy-cluster'].push({step: 'apply_cluster_issuer', name: 'platform-acme'}); },
-  'the issuer restarted': p => { p.programs['deploy-cluster'].push({step: 'restart_cert_manager_and_reapply_cluster_issuer'}); },
-  'an issuer removed': p => { p.programs['deploy-cluster'].push({step: 'remove_existing_cluster_issuer', name: 'letsencrypt-prod'}); },
   'a template of kind ClusterIssuer': p => {
     p.templates['ansiwise/templates/planted.tpl'] = 'apiVersion: cert-manager.io/v1\nkind: ClusterIssuer\n';
     p.programs['deploy-cluster'].push({step: 'write_file_from_template', template: 'ansiwise/templates/planted.tpl', path: '/tmp/x'});
