@@ -191,8 +191,8 @@ steps:
   #
   # WHY A UNIT AND NOT A ROW THAT MAKES A DIRECTORY. Because no step takes a path, an owner, a group
   # and a mode and makes that directory — which is not the same as saying nothing creates a directory.
-  # Seven steps do: export_kubeconfig, install_authorized_key, kubernetes_configmap_from_directory,
-  # write_cluster_issuer_manifest, kubernetes_secret_from_vault and file_from_vault each make the
+  # Five steps do: export_kubeconfig, install_authorized_key, kubernetes_configmap_from_directory,
+  # kubernetes_secret_from_vault and file_from_vault each make the
   # PARENT of a file they are about to write, as a by-product of writing it, and none of them takes an
   # owner. create_storage_directory is the only one whose purpose IS a directory, and it makes exactly
   # one — the directory on the data disk it measures — with a mode and no owner either. Until a step
