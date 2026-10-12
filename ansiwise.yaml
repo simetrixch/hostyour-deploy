@@ -161,6 +161,47 @@ conditions:
     key: CLUSTER_ISSUER
     value: platform-acme
 
+  # WHERE THE CERTIFICATE SERVICE AND ITS TRUST STAND ALREADY, so the installer installs them only on
+  # a cluster that has none. Argo CD holds them once it runs, and a rerun that installed over them
+  # would fight it for the same objects. Each names the one object its install brings; a kind the
+  # cluster does not serve yet counts as absent, and an API that does not answer stops the run.
+  cert_manager_absent:
+    predicate: kubernetes_object_absent
+    kind: deployments.apps
+    name: cert-manager
+    namespace: cert-manager
+    kubectl: [microk8s, kubectl]
+    kubectl_needs_root: true
+
+  platform_acme_absent:
+    predicate: kubernetes_object_absent
+    kind: clusterissuers.cert-manager.io
+    name: platform-acme
+    kubectl: [microk8s, kubectl]
+    kubectl_needs_root: true
+
+  platform_local_absent:
+    predicate: kubernetes_object_absent
+    kind: clusterissuers.cert-manager.io
+    name: platform-local
+    kubectl: [microk8s, kubectl]
+    kubectl_needs_root: true
+
+  trust_manager_absent:
+    predicate: kubernetes_object_absent
+    kind: deployments.apps
+    name: trust-manager
+    namespace: cert-manager
+    kubectl: [microk8s, kubectl]
+    kubectl_needs_root: true
+
+  platform_trust_absent:
+    predicate: kubernetes_object_absent
+    kind: bundles.trust.cert-manager.io
+    name: platform-trust
+    kubectl: [microk8s, kubectl]
+    kubectl_needs_root: true
+
   # The machine-stage role retains its installed policy name; the other two are added.
   stage_is_not_dev:
     predicate: yaml_key_lacks_value

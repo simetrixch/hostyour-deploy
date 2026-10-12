@@ -86,9 +86,6 @@ defaults:
   mark: '0x1000'
   table: 100
   priority: 10100
-  # The file the certificate issuer is rendered into, read by the step that writes it and by the two
-  # that apply it. cert-manager mandates no name for it, so the tool package carries none.
-  issuer_manifest_path: /var/snap/microk8s/common/hostyour/clusterissuer.yaml
   # The shapes the release tags below are written with, taken off a pin before it is held against
   # what a tool answers: one project writes v4.53.3, another writes jq-1.8.2. At most one comes off
   # any one pin.
@@ -428,14 +425,18 @@ steps:
   # is given its servers by editing the object it installed, which is the row further down, because
   # arguments given here are only taken on a FIRST switch-on and a re-run would silently keep
   # whatever the first one set.
+  #
+  # cert-manager IS NOT AMONG THEM, and no row switches it off either. Argo CD holds it, and
+  # deploy-platform-services installs it from the same chart where none stands. Switching the addon
+  # off uninstalls its CRDs, and with them every Certificate and Issuer on the cluster.
   - step: enable_addons
     rests_on_an_earlier_step: true
-    addons: [rbac, dns, hostpath-storage, ingress, cert-manager, metrics-server]
+    addons: [rbac, dns, hostpath-storage, ingress, metrics-server]
     on_failure: exit
 
   - step: wait_for_addons_enabled
     rests_on_an_earlier_step: true
-    addons: [rbac, dns, hostpath-storage, ingress, cert-manager, metrics-server]
+    addons: [rbac, dns, hostpath-storage, ingress, metrics-server]
     timeout_seconds: 300
     interval_seconds: 5
     on_failure: continue
@@ -747,268 +748,6 @@ steps:
     on_failure: continue
 
   # ---------------------------------------------------------------------------------------------
-  # Certificates. Recorded rather than fatal: the rest of the cluster converges without them, and a
-  # run that ended green without saying so would send the operator on to the deployment with every
-  # certificate hanging.
-  # ---------------------------------------------------------------------------------------------
-  # The last part of the certificate service to come up is the one that admits certificate objects,
-  # so it is what readiness is decided on: while it is not running, applying an issuer is refused by
-  # the API server with a message about a webhook rather than about certificates.
-  #
-  # WHY THIS DEADLINE CAN BE REACHED ON A HEALTHY CLUSTER, and why that is correct: some versions of
-  # the certificate service do not label their admission part `app=webhook`, so this row finds
-  # nothing and waits out its budget. The run is meant to continue — the failure is recorded and
-  # `on_failure: continue` carries it. The plausible wrong repair is to loosen the row until it
-  # passes, and that would make "ready" mean less on the version this platform actually pins.
-  - step: wait_for_command_output
-    rests_on_an_earlier_step: true
-    waiting_for: the part of the certificate service that admits certificate objects to be running
-    command: microk8s
-    command_arguments:
-      - kubectl
-      - -n
-      - cert-manager
-      - get
-      - pods
-      - -l
-      - app=webhook
-      - -o
-      - 'jsonpath={range .items[*]}{.status.phase}{"\n"}{end}'
-    answer: Running
-    # As root: the snap refuses the question to an account outside its group, and a group is
-    # read at login so the row that adds the account cannot help a process already running.
-    elevated: true
-    timeout_seconds: 300
-    interval_seconds: 5
-    on_failure: continue
-
-  # ---------------------------------------------------------------------------------------------
-  # The issuer every certificate on this cluster is issued by, and there are TWO of them because the
-  # name IS the choice.
-  #
-  # `platform-acme` is the public authority; `platform-local` is one this cluster mints for itself.
-  # Exactly one exists at a time, and which one every manifest references is written by deploy-branch
-  # out of the cluster_issuer answer, into this cluster's own map and into the base layer's
-  # certificate. The map stands LAST in every values chain, so it decides for every chart;
-  # clusters/platform/values-common.yaml carries the product default at the head of the chain and no
-  # run rewrites it.
-  #
-  # WHY NOT ONE NAME FOR BOTH FORMS. The certificate service watches the name a certificate is issued
-  # BY and never the specification behind it. With one name, turning the authority over rewrites the
-  # object and re-issues NOTHING: the object goes from `ca:` to `acme:`, the cluster's own chain is
-  # deleted, and every certificate goes on being served signed by that deleted root while every
-  # application reports itself healthy. Two names make the flip change what a certificate references,
-  # and the service issues them all again by itself.
-  #
-  # The same rule holds one level down: a name like `letsencrypt-prod` standing beside a staging
-  # directory is the half that is false. A name that says `acme` over a `ca:` spec is the same
-  # mistake; a name that IS the authority cannot make it.
-  # ---------------------------------------------------------------------------------------------
-  - step: remove_existing_cluster_issuer
-    name: platform-acme
-    force: false
-    on_failure: continue
-
-  # AND THE PUBLIC AUTHORITY TAKEN OFF where this installation names the other one. Its counterpart is
-  # the row further down that removes the cluster's own chain where the public one is named. Two names
-  # need two removals, or a cluster ends up holding both and answers the question of what issues its
-  # certificates twice.
-  #
-  # `force: true`, because this is the deliberate act of changing authority rather than a rebuild
-  # finding its own issuer already there. The ACME account key in the secret of the same name stays
-  # behind, which is that step's own rule: the registration it belongs to is not recoverable once it
-  # is gone, and coming back to the public authority should not have to register again.
-  - step: remove_existing_cluster_issuer
-    rests_on_an_earlier_step: true
-    when: [certificates_withheld]
-    name: platform-acme
-    force: true
-    on_failure: continue
-
-  # THE OTHER FORM OF THE SAME OBJECT, for an installation that is not spending an issuance at the
-  # public authority yet. The switch does not decide whether this cluster has an authority — nothing
-  # installs without one, because the store mounts its certificate as a volume and a pod whose
-  # volume names a missing Secret never starts. It decides WHICH authority, and this is the one the
-  # cluster mints for itself. The manifest says the rest.
-  - step: kubernetes_object_reversible
-    rests_on_an_earlier_step: true
-    when: [certificates_withheld]
-    repository: /srv/hostyour-cloud
-    manifest: clusters/bootstrap/cert-manager/platform-authority.yaml
-    # The mark this program puts on what it owns, carried by the manifest itself. It is what lets
-    # the removal row below delete these objects and refuse anything else standing under the same
-    # name — a name collision must not hand somebody else's object to our removal.
-    owner_label: hostyour.cloud/platform-authority
-    owner_label_value: 'true'
-    on_failure: exit
-
-  # The object every certificate names, in its withheld form. Its own file, because the chain above
-  # is REMOVED when the switch goes on while this one is REPLACED by the public form — two lives,
-  # and a manifest is what a removal names its objects by.
-  #
-  # NO OWNERSHIP PAIR HERE, unlike the row above, and that is what keeps the switch turnable BOTH
-  # ways. Stated, this row would refuse a live object of the same name not carrying the mark — and
-  # after a flip to on, `platform-acme` is exactly that: the public form, applied by the rows below,
-  # which carry no such label. An installation turned back off would then stop here instead of
-  # rewriting the object it is meant to rewrite. Nothing removes this one by manifest, so the mark
-  # buys nothing to set against that.
-  - step: kubernetes_object_reversible
-    rests_on_an_earlier_step: true
-    when: [certificates_withheld]
-    repository: /srv/hostyour-cloud
-    manifest: clusters/bootstrap/cert-manager/platform-authority-issuer.yaml
-    on_failure: exit
-
-  # Minting a root the cluster signs itself is immediate, so this window is short and its whole job
-  # is to stand between applying the chain and reading the root out of it.
-  - step: wait_for_command_output
-    rests_on_an_earlier_step: true
-    when: [certificates_withheld]
-    waiting_for: the authority this cluster mints for itself to be issued
-    command: microk8s
-    command_arguments:
-      - kubectl
-      - -n
-      - cert-manager
-      - get
-      - certificate
-      - platform-ca
-      - -o
-      - 'jsonpath={.status.conditions[?(@.type=="Ready")].status}'
-    answer: 'True'
-    elevated: true
-    timeout_seconds: 120
-    interval_seconds: 5
-    on_failure: exit
-
-  # AND THEN THE MACHINE HAS TO TRUST IT, or nothing else in this installation works. Every later
-  # program reaches this cluster's own addresses over https with verification on — the store's
-  # roughly fifty rows, the identity provider's discovery documents — and a root the machine does
-  # not have is a refusal on every one of them. Against a certificate signed by an authority present
-  # nowhere but this cluster the answer is `exit 1, 0 proven`; with the same authority in the
-  # machine's bundle and nothing else changed, `exit 0, 1 proven`.
-  #
-  # It is NOT done where the switch is on: the public authority's root is in the machine's store
-  # already, and a cluster that mints nothing has nothing here to trust.
-  - step: trust_cluster_authority
-    rests_on_an_earlier_step: true
-    when: [certificates_withheld]
-    namespace: cert-manager
-    secret: platform-ca
-    field: ca.crt
-    path: /usr/local/share/ca-certificates/platform-ca.crt
-    refresh: [update-ca-certificates]
-    bundle: /etc/ssl/certs/ca-certificates.crt
-    on_failure: exit
-
-  - step: write_cluster_issuer_manifest
-    rests_on_an_earlier_step: true
-    when: [certificates_enabled]
-    template: ansiwise/templates/cluster-issuer-manifest.tpl
-    name: platform-acme
-    # WHICH answer holds the authority, for the same reason the mailbox below is one: a provider
-    # whose authority is not this one's names its own directory, and a single address written here
-    # would be that provider's installation registering with somebody else's service. WHAT MAY BE
-    # ANSWERED is bounded by the gate at the head of this program: a staging directory is refused
-    # there, because its root is in no machine's trust store and every later step that speaks https
-    # to this installation's own address fails on it.
-    acme_server_answer: letsencrypt_server
-    ingress_class: public
-    # WHICH answer holds the mailbox. A step that knew the name would put one certificate authority's
-    # word inside a package that must serve any product — and the authority is already named on the
-    # row above, so such a step is neutral everywhere except in the one word it cannot help writing.
-    # The resolver refuses a row naming an answer this program does not declare.
-    email_answer: letsencrypt_email
-    on_failure: continue
-
-  - step: apply_cluster_issuer
-    rests_on_an_earlier_step: true
-    when: [certificates_enabled]
-    name: platform-acme
-    on_failure: continue
-
-  # The first wait is warned rather than recorded, because the step after it is the one recovery
-  # this gets and it can still make the issuer register. That step is where the budget ends.
-  # Until the account is registered, no certificate on this cluster can be issued.
-  #
-  # AND ONLY WHERE THIS INSTALLATION ASKS FOR CERTIFICATES AT ALL, the same condition the three
-  # rows around it carry. A wait is as conditional as the act it waits for: with the switch off no
-  # issuer is written and none is applied, so an unconditional wait sits out its window against an
-  # object that is absent by design and then records the absence as a fault. Its `on_failure:
-  # continue` does not soften that — the program still ends at exit 2 and stops the installation
-  # four steps from the end of a cluster that is otherwise built.
-  - step: wait_for_command_output
-    rests_on_an_earlier_step: true
-    when: [certificates_enabled]
-    waiting_for: platform-acme to report that its account is registered
-    command: microk8s
-    command_arguments:
-      - kubectl
-      - get
-      - clusterissuer
-      - platform-acme
-      - -o
-      - 'jsonpath={.status.conditions[?(@.type=="Ready")].status}'
-    answer: 'True'
-    # As root: the snap refuses the question to an account outside its group, and a group is
-    # read at login so the row that adds the account cannot help a process already running.
-    elevated: true
-    timeout_seconds: 60
-    interval_seconds: 10
-    on_failure: continue
-
-  # The deployments are named because the release that installed the certificate service is what
-  # gave them these names. A release under another name gives its deployments that name, and a
-  # restart of one that is not there returns zero while nothing is rolled.
-  - step: restart_cert_manager_and_reapply_cluster_issuer
-    rests_on_an_earlier_step: true
-    when: [certificates_enabled]
-    name: platform-acme
-    namespace: cert-manager
-    deployments: [cert-manager, cert-manager-webhook, cert-manager-cainjector]
-    settle_seconds: 15
-    wait_seconds: 60
-    interval_seconds: 10
-    on_failure: continue
-
-  # AND THE AUTHORITY THIS CLUSTER MINTED FOR ITSELF, taken off once it issues from the public one.
-  #
-  # AFTER the rows above and not before: with the switch off `platform-acme` IS this chain, and
-  # taking the chain away first would leave the cluster with an issuer pointing at a root that
-  # is gone. The rows above have replaced that object with the public form by the time this runs, so
-  # what stands here has no job left — and a cluster holding an authority nothing issues from
-  # answers the question of what signs its certificates twice.
-  #
-  # The root itself stays in the machine's trust store, and taking it out again is not yet built:
-  # hostyour-cloud#153 carries that. It signs nothing after this row, so what it costs is
-  # a machine trusting an authority with no work rather than a wrong certificate being accepted.
-  - step: remove_kubernetes_object
-    rests_on_an_earlier_step: true
-    when: [certificates_enabled]
-    repository: /srv/hostyour-cloud
-    manifest: clusters/bootstrap/cert-manager/platform-authority.yaml
-    owner_label: hostyour.cloud/platform-authority
-    owner_label_value: 'true'
-    on_failure: continue
-
-  # THE NAME `letsencrypt-prod`, taken off a cluster that still holds an issuer under it.
-  #
-  # Once this run has stamped `platform-acme` into the values every later manifest reads, nothing
-  # references an object under that name, and a cluster left holding both answers the question of
-  # what issues its certificates twice. `force: true` is what makes this row act at all; on a cluster
-  # that carries no issuer under that name it finds nothing and is satisfied without touching
-  # anything.
-  #
-  # The account key in the secret of the same name stays behind, which is this step's own rule: the
-  # registration it belongs to is not recoverable once it is gone, and the new name registers an
-  # account of its own.
-  - step: remove_existing_cluster_issuer
-    rests_on_an_earlier_step: true
-    name: letsencrypt-prod
-    force: true
-    on_failure: continue
-
-  # ---------------------------------------------------------------------------------------------
   # The tools an operator uses on this machine. Recorded rather than fatal — the cluster itself does
   # not need them — but a machine that quietly ends up with other versions than the platform pins is
   # the divergence the pins exist to stop.
@@ -1095,7 +834,7 @@ steps:
   # with no entry here is refused rather than passed over, so the two lists cannot drift apart.
   - step: require_cli_tool_versions
     tools:
-      - ansiwise=0.8.309-stable-20261007221526
+      - ansiwise=0.8.310-stable-20261011221742
       - argocd=v3.4.5
       - vault=v2.0.3
       - yq=v4.53.3

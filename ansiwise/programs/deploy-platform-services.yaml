@@ -261,97 +261,203 @@ steps:
   # at rest, so while this is down or sealed no workload materializes a secret. That is why its
   # steps end the run rather than let it carry on.
   # ---------------------------------------------------------------------------------------------
-  # THE OTHER HALF OF TLS, which nothing else on the cluster does.
+  # THE CERTIFICATE SERVICE AND THE OTHER HALF OF TLS, installed only where none stands.
   #
-  # Issuing — proving "I am vault.<domain>" — is the certificate service's job and this platform has
-  # always had it. TRUSTING — the list of authorities a client believes — is otherwise left to
-  # whatever each container image happens to ship with. That is invisible while every certificate
-  # comes from a public authority, because every image carries those roots. It stops being invisible
-  # the moment an installation issues from one it mints itself: the store answers `400 error checking
-  # oidc discovery URL` — Vault fetching the identity provider's discovery document from inside its
-  # own container, against a root that container has never met.
+  # Argo CD holds cert-manager, the cluster's issuer, trust-manager and the trust bundle, from the
+  # inventory charts of hostyour-cloud under clusters/inventories. But the store below needs a
+  # certificate from the issuer and the bundle in its namespace, and Argo CD is the last thing this
+  # program installs. So where none stands, a new cluster, these rows install each from the same
+  # chart Argo CD renders, and Argo CD adopts them at the handoff. Where one stands, the condition on
+  # its row passes over it, and a rerun changes nothing Argo CD holds. These conditions are measured
+  # before this program's first row, which is why they stand here and not in deploy-cluster: there
+  # the cluster itself is installed in the same run.
   #
-  # WHY IT STANDS BEFORE THE STORE. Every row below this one is a workload that either speaks to one
-  # of this installation's own addresses or is spoken to over one, and the first of them mounts the
-  # bundle as a FILE. A ConfigMap that arrives after the pod does is a pod that never leaves
-  # ContainerCreating, which is the same shape as the certificate this program already waits for.
-  #
-  # WHY IT IS INSTALLED HERE RATHER THAN RECONCILED. A reconciled component arrives when the
-  # reconciler does, and the reconciler is the LAST thing this program installs — long after the row
-  # that first needs the trust. So it stands where the store and the identity provider stand.
-  #
-  # UNCONDITIONAL, AND THAT IS THE DESIGN. The bundle exists in both states of the certificate
-  # switch; only its CONTENTS differ, by which of the two manifests below is applied. A consumer
-  # therefore mounts one name, always finds a complete trust store, and is never touched when the
-  # switch is flipped.
+  # Issuing — proving "I am vault.<domain>" — is the certificate service's job. TRUSTING — the list
+  # of authorities a client believes — is otherwise left to whatever each container image ships
+  # with. That is invisible while every certificate comes from a public authority, and stops being
+  # invisible the moment an installation issues from one it mints itself: the store answers `400
+  # error checking oidc discovery URL` against a root its container has never met. The bundle exists
+  # under both issuers; only its contents differ, so a consumer mounts one name and is never touched
+  # when the issuer is turned over.
   # ---------------------------------------------------------------------------------------------
-  - step: helm_repository
-    name: jetstack
-    url: https://charts.jetstack.io
+  # The values the issuers and the bundle are rendered with, as Argo CD renders them from the cluster's
+  # map: which issuer, and for the public one its contact and directory. Written on every run,
+  # because the admission waits below render with it on every run.
+  - step: write_file_from_template
+    when: [certificates_enabled]
+    template: ansiwise/templates/certificate-values-platform-acme.tpl
+    path: /tmp/ansiwise-certificate-values.yaml
+    file_mode: 420
+    values:
+      letsencrypt-email: { answer: letsencrypt_email }
+      letsencrypt-server: { answer: letsencrypt_server }
     on_failure: exit
 
-  - step: helm_release
-    release: trust-manager
-    chart: jetstack/trust-manager
-    chart_version: 'v0.24.0'
-    # THE CERTIFICATE SERVICE'S OWN NAMESPACE, because that is where this reads its SOURCES from —
-    # `app.trust.namespace` in the values — and the authority a cluster mints for itself already
-    # lives there as the Secret `platform-ca`.
+  - step: write_file_from_template
+    when: [certificates_withheld]
+    template: ansiwise/templates/certificate-values-platform-local.tpl
+    path: /tmp/ansiwise-certificate-values.yaml
+    file_mode: 420
+    on_failure: exit
+
+  # THE NAMESPACE ALL FOUR RELEASES BELOW LAND IN, which the microk8s addon created and nothing else
+  # does now: helm_release is not told to create one, as the store's release below is not. Under no
+  # condition, because each release has a guard of its own; where the namespace stands, this row
+  # passes over it and puts nothing into it.
+  - step: kubernetes_namespace
     namespace: cert-manager
-    values: /srv/hostyour-cloud/clusters/bootstrap/cert-manager/trust-manager-values.yaml
     on_failure: exit
 
-  # THE ADMISSION ITSELF, because nothing that stands beside it means the same thing. A Bundle applied
-  # against a controller that is not serving yet is refused by the webhook this chart brings, and that
-  # webhook is the last part of the release to answer.
-  #
-  # WAITING FOR THE DEPLOYMENT'S `Available` CONDITION IS NOT THAT, and the gap is measurable rather
-  # than theoretical: the container serves the webhook on 6443 and is probed for readiness on 6060,
-  # the Service maps 443 to 6443, and the condition turns True as soon as the pod is Ready - which is
-  # a statement about 6060. The API server dialling 6443 inside that window is answered
-  # `connection refused`, and because the webhook declares `failurePolicy: Fail` the window is not a
-  # delay but a refused object and a stopped run.
-  #
-  # SO THIS ASKS FOR THE ONE THING THE NEXT ROW NEEDS: that a Bundle is admitted. A server-side dry run
-  # writes nothing and is refused by exactly what would refuse the real apply, so this cannot pass
-  # while the webhook is unreachable - and it keeps holding when the chart moves a port, renames the
-  # Service or changes what it probes.
-  #
-  # IT PROBES WITH THE PUBLIC FORM WHATEVER THE INSTALLATION USES, because the two forms are one object
-  # under one name and both are admitted by the same webhook. The public one is the self-contained one:
-  # it names the default authorities and the `kube-root-ca.crt` every namespace already carries, so it
-  # cannot fail for a reason that has nothing to do with admission.
+  # A CHART DIRECTORY, whose Chart.yaml pins the upstream chart Argo CD renders; the release builds
+  # that dependency before it installs.
+  - step: helm_release
+    when: [cert_manager_absent]
+    release: cert-manager
+    chart: /srv/hostyour-cloud/clusters/inventories/cert-manager
+    namespace: cert-manager
+    values: /srv/hostyour-cloud/clusters/inventories/cert-manager/values-common.yaml
+    on_failure: exit
+
+  # THE ADMISSION ITSELF, because nothing that stands beside it means the same thing. cert-manager's
+  # webhook refuses while it does not answer (`failurePolicy: Fail`), and a Running pod does not say
+  # that it answers. A server-side dry run of the issuers writes nothing and is refused by exactly
+  # what would refuse the release, so this cannot pass while the webhook is unreachable. On a cluster
+  # where cert-manager stands, its first look answers.
   #
   # `&& echo` and not the apply's own words: the step takes an answer that is a WHOLE LINE, and the
-  # line kubectl writes carries the object's name and the verb it chose. Both move without this row
-  # being wrong, so the row does not read them.
+  # line kubectl writes carries the object's name and the verb it chose.
   - step: wait_for_command_output
     rests_on_an_earlier_step: true
-    waiting_for: the admission webhook to admit a Bundle
+    waiting_for: the certificate service to admit the issuers
     command: sh
     command_arguments:
       - -c
-      - 'microk8s kubectl apply --dry-run=server -f /srv/hostyour-cloud/clusters/bootstrap/cert-manager/trust-bundle-public.yaml >/dev/null 2>&1 && echo admitted'
+      - 'microk8s helm3 template cert-manager-issuers /srv/hostyour-cloud/clusters/inventories/cert-manager-issuers --namespace cert-manager -f /tmp/ansiwise-certificate-values.yaml | microk8s kubectl apply --dry-run=server -f - >/dev/null 2>&1 && echo admitted'
     answer: 'admitted'
     elevated: true
     timeout_seconds: 300
     interval_seconds: 5
     on_failure: exit
 
-  # The two forms of one object. Whichever is applied writes the same ConfigMap under the same name
-  # into every namespace, so flipping the switch changes the CONTENTS of one file and nothing else.
-  - step: kubernetes_object_reversible
-    rests_on_an_earlier_step: true
-    when: [certificates_enabled]
-    repository: /srv/hostyour-cloud
-    manifest: clusters/bootstrap/cert-manager/trust-bundle-public.yaml
+  # The two forms of one release: `platform-acme` is the public authority, `platform-local` one this
+  # cluster mints for itself. Each is installed where its own issuer does not stand.
+  - step: helm_release
+    when: [certificates_enabled, platform_acme_absent]
+    release: cert-manager-issuers
+    chart: /srv/hostyour-cloud/clusters/inventories/cert-manager-issuers
+    namespace: cert-manager
+    values: /tmp/ansiwise-certificate-values.yaml
     on_failure: exit
 
-  - step: kubernetes_object_reversible
+  - step: helm_release
+    when: [certificates_withheld, platform_local_absent]
+    release: cert-manager-issuers
+    chart: /srv/hostyour-cloud/clusters/inventories/cert-manager-issuers
+    namespace: cert-manager
+    values: /tmp/ansiwise-certificate-values.yaml
+    on_failure: exit
+
+  # Minting a root the cluster signs itself is immediate, so this window is short and its whole job
+  # is to stand between applying the chain and reading the root out of it.
+  - step: wait_for_command_output
     rests_on_an_earlier_step: true
     when: [certificates_withheld]
-    repository: /srv/hostyour-cloud
-    manifest: clusters/bootstrap/cert-manager/trust-bundle-with-platform-authority.yaml
+    waiting_for: the authority this cluster mints for itself to be issued
+    command: microk8s
+    command_arguments:
+      - kubectl
+      - -n
+      - cert-manager
+      - get
+      - certificate
+      - platform-ca
+      - -o
+      - 'jsonpath={.status.conditions[?(@.type=="Ready")].status}'
+    answer: 'True'
+    elevated: true
+    timeout_seconds: 120
+    interval_seconds: 5
+    on_failure: exit
+
+  # AND THEN THE MACHINE HAS TO TRUST IT, or nothing else in this installation works. Every later
+  # program reaches this cluster's own addresses over https with verification on — the store's
+  # roughly fifty rows, the identity provider's discovery documents — and a root the machine does
+  # not have is a refusal on every one of them. Against a certificate signed by an authority present
+  # nowhere but this cluster the answer is `exit 1, 0 proven`; with the same authority in the
+  # machine's bundle and nothing else changed, `exit 0, 1 proven`.
+  #
+  # It is NOT done where the switch is on: the public authority's root is in the machine's store
+  # already, and a cluster that mints nothing has nothing here to trust.
+  - step: trust_cluster_authority
+    rests_on_an_earlier_step: true
+    when: [certificates_withheld]
+    namespace: cert-manager
+    secret: platform-ca
+    field: ca.crt
+    path: /usr/local/share/ca-certificates/platform-ca.crt
+    refresh: [update-ca-certificates]
+    bundle: /etc/ssl/certs/ca-certificates.crt
+    on_failure: exit
+
+  # Until the account is registered, no certificate on this cluster can be issued. Recorded rather
+  # than fatal, and only where this installation asks the public authority at all.
+  - step: wait_for_command_output
+    rests_on_an_earlier_step: true
+    when: [certificates_enabled]
+    waiting_for: platform-acme to report that its account is registered
+    command: microk8s
+    command_arguments:
+      - kubectl
+      - get
+      - clusterissuer
+      - platform-acme
+      - -o
+      - 'jsonpath={.status.conditions[?(@.type=="Ready")].status}'
+    answer: 'True'
+    # As root: the snap refuses the question to an account outside its group, and a group is
+    # read at login so the row that adds the account cannot help a process already running.
+    elevated: true
+    timeout_seconds: 60
+    interval_seconds: 10
+    on_failure: continue
+
+  # trust-manager reads its sources from the certificate service's namespace, where the authority a
+  # cluster mints for itself stands as the Secret `platform-ca`. Its chart renders no Bundle: a
+  # release holding the Bundle's CRD and a Bundle cannot install on a new cluster, so the Bundle is a
+  # release of its own after this one.
+  - step: helm_release
+    when: [trust_manager_absent]
+    release: trust-manager
+    chart: /srv/hostyour-cloud/clusters/inventories/trust-manager
+    namespace: cert-manager
+    values: /srv/hostyour-cloud/clusters/inventories/trust-manager/values-common.yaml
+    on_failure: exit
+
+  # THE ADMISSION OF A BUNDLE, for the same reason as the issuers': the webhook trust-manager brings
+  # is the last part of its release to answer, its readiness probe speaks of another port, and it
+  # refuses while it does not answer.
+  - step: wait_for_command_output
+    rests_on_an_earlier_step: true
+    waiting_for: the admission webhook to admit a Bundle
+    command: sh
+    command_arguments:
+      - -c
+      - 'microk8s helm3 template trust-manager-bundles /srv/hostyour-cloud/clusters/inventories/trust-manager-bundles --namespace cert-manager -f /tmp/ansiwise-certificate-values.yaml | microk8s kubectl apply --dry-run=server -f - >/dev/null 2>&1 && echo admitted'
+    answer: 'admitted'
+    elevated: true
+    timeout_seconds: 300
+    interval_seconds: 5
+    on_failure: exit
+
+  # The bundle, whose form follows the issuer: the public authorities, the cluster's own root
+  # certificate, and under `platform-local` the cluster's authority too. Whichever form stands writes
+  # the same ConfigMap under the same name into every namespace.
+  - step: helm_release
+    when: [platform_trust_absent]
+    release: trust-manager-bundles
+    chart: /srv/hostyour-cloud/clusters/inventories/trust-manager-bundles
+    namespace: cert-manager
+    values: /tmp/ansiwise-certificate-values.yaml
     on_failure: exit
 
   - step: helm_repository
@@ -2580,3 +2686,37 @@ answers:
       Write this cluster's own domain unless another machine carries the build plane, in which case
       write that machine's. Nothing derives it: a cluster that silently made itself the build plane
       would start building images nobody asked it to build.
+
+  # The public authority's contact and directory, which the run's values file gives the issuers when
+  # this installation's certificates come from it. Declared as deploy-cluster declares them, and the
+  # same answers reach both programs.
+  - name: letsencrypt_email
+    kind: text
+    describes: >-
+      The mailbox the certificate authority writes to before a certificate expires. Nothing here
+      judges the address — it is yours, and a rule that recognised an example would refuse an
+      operator whose own mailbox reads like one. The authority itself refuses some: a mailbox at a
+      domain reserved for documentation comes back as "contact email has forbidden domain", which is
+      what an address ending in example.com, test.com or localhost will do.
+
+  - name: letsencrypt_server
+    kind: text
+    describes: >-
+      The certificate authority this installation registers with, written as the address of its
+      directory. Every installation of this platform answers
+      https://acme-v02.api.letsencrypt.org/directory; a provider whose authority is a different one
+      names that instead, which is the only reason this is an answer rather than a line of the
+      program.
+
+      NEVER A STAGING SERVICE, and the first step of deploy-cluster refuses one rather than leaving
+      it to be discovered later. Its certificates are signed by a root no machine carries, so an
+      installation that answers one cannot reach its own secret store: the certificate issues, and
+      the run dies one step later on CERTIFICATE_VERIFY_FAILED, at vault_init. An installation that
+      cannot talk to itself proves nothing, which is the whole of what a staging service is answered
+      for.
+
+      TWO LIMITS TO LIVE WITH, and the second is the one that bites. Fifty certificates per
+      registered domain per week, and FIVE for one exact set of names. A machine reinstalled to be
+      proven spends one of those five per hostname per attempt, so the fifth rebuild in a week is
+      refused with 429 and the wait runs to a week after the first of them. Nothing here raises it:
+      what avoids it is an installation that does not throw its certificates away when it is rebuilt.
