@@ -1049,6 +1049,9 @@ steps:
     rules: |
       path "secret/data/manager/cred/*" { capabilities = ["create", "read", "update", "delete", "list"] }
       path "secret/metadata/manager/cred/*" { capabilities = ["read", "delete", "list"] }
+      path "secret/data/manager/tenant-tls/*" { capabilities = ["create", "read", "update"] }
+      path "secret/metadata/manager/tenant-tls/*" { capabilities = ["list", "read", "update", "delete"] }
+      path "secret/metadata/manager/tenant-tls" { capabilities = ["list"] }
       path "secret/data/build/+/repo-pat" { capabilities = ["create", "update"] }
       path "secret/metadata/build/+/repo-pat" { capabilities = ["delete"] }
       path "secret/data/+/consumer/+/app" { capabilities = ["create", "update", "patch"] }
@@ -1086,6 +1089,9 @@ steps:
     rules: |
       path "secret/data/manager/cred/*" { capabilities = ["create", "read", "update", "delete", "list"] }
       path "secret/metadata/manager/cred/*" { capabilities = ["read", "delete", "list"] }
+      path "secret/data/manager/tenant-tls/*" { capabilities = ["create", "read", "update"] }
+      path "secret/metadata/manager/tenant-tls/*" { capabilities = ["list", "read", "update", "delete"] }
+      path "secret/metadata/manager/tenant-tls" { capabilities = ["list"] }
       path "secret/data/+/consumer/+/app" { capabilities = ["create", "update", "patch"] }
       path "secret/metadata/+/consumer/+/app" { capabilities = ["delete"] }
       path "secret/data/+/consumer/+/postgres" { capabilities = ["create", "update"] }

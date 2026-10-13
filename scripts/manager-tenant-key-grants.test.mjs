@@ -61,3 +61,119 @@ test('PLANTED DEFECT: a kind or an entry grant missing from one shape, or a read
   }
   assert.deepEqual(findings(structuredClone(program.steps)), [], 'the planted innocent: the program as it is');
 });
+
+const policyRule = (path, capabilities) => `path "${path}" { capabilities = [${capabilities.map(capability => `"${capability}"`).join(', ')}] }`;
+const TLS_GRANTS = [
+  ['secret/data/manager/tenant-tls/*', ['create', 'read', 'update']],
+  ['secret/metadata/manager/tenant-tls/*', ['list', 'read', 'update', 'delete']],
+  ['secret/metadata/manager/tenant-tls', ['list']],
+];
+const TLS_RULES = TLS_GRANTS.map(([path, capabilities]) => policyRule(path, capabilities));
+const EXISTING_RULES = [
+  policyRule('secret/data/manager/cred/*', ['create', 'read', 'update', 'delete', 'list']),
+  policyRule('secret/metadata/manager/cred/*', ['read', 'delete', 'list']),
+  ...['app', 'postgres', 'mongodb', 'redis', 'mariadb'].flatMap(leaf => [
+    policyRule(`secret/data/+/consumer/+/${leaf}`, leaf === 'app' ? ['create', 'update', 'patch'] : ['create', 'update']),
+    policyRule(`secret/metadata/+/consumer/+/${leaf}`, ['delete']),
+  ]),
+  policyRule('secret/data/+/tenants/+', ['create', 'update', 'patch']),
+  policyRule('secret/metadata/+/tenants/+', ['read', 'delete']),
+  ...KINDS.flatMap(kind => [
+    policyRule(`secret/data/+/tenants/+/${kind}/+`, ['create', 'update']),
+    policyRule(`secret/metadata/+/tenants/+/${kind}/*`, ['delete', 'list']),
+  ]),
+  ...['google-translation', 'e2e'].flatMap(leaf => [
+    policyRule(`secret/data/+/tenants/+/${leaf}`, ['create', 'update']),
+    policyRule(`secret/metadata/+/tenants/+/${leaf}`, ['delete']),
+  ]),
+  policyRule('secret/data/<stage>/idp/clients/post', ['read']),
+];
+const BUILD_RULES = [
+  policyRule('secret/data/build/+/repo-pat', ['create', 'update']),
+  policyRule('secret/metadata/build/+/repo-pat', ['delete']),
+];
+
+// An exact rule census catches additional broad grants even when all required narrow grants remain.
+function retentionFindings(steps) {
+  const shapes = steps.filter(row => row.step === 'vault_policy' && row.name === 'manager');
+  if (shapes.length !== 2) return [`${shapes.length} shapes of the manager policy, not 2`];
+  const found = [];
+  for (const [i, shape] of shapes.entries()) {
+    const expected = [...EXISTING_RULES, ...TLS_RULES, ...(i === 0 ? BUILD_RULES : [])];
+    const actual = shape.rules.trim().split('\n').map(rule => rule.trim());
+    for (const rule of expected) {
+      if (!actual.includes(rule)) found.push(`shape ${i + 1} lacks ${rule}`);
+    }
+    for (const rule of actual) {
+      if (!expected.includes(rule)) found.push(`shape ${i + 1} has an unexpected grant: ${rule}`);
+    }
+    if (new Set(actual).size !== actual.length) found.push(`shape ${i + 1} has duplicate grants`);
+  }
+  return found;
+}
+
+test('both Manager shapes grant only retained TLS access and preserve every existing policy rule', () => {
+  assert.deepEqual(retentionFindings(program.steps), []);
+});
+
+test('PLANTED DEFECT: retained TLS missing rights, wider paths and excess grants are refused in either shape', async t => {
+  assert.deepEqual(retentionFindings(program.steps), []);
+  const shapes = rows => rows.filter(row => row.step === 'vault_policy' && row.name === 'manager');
+  const planted = [];
+  for (const [path, capabilities] of TLS_GRANTS) {
+    const rule = policyRule(path, capabilities);
+    planted.push([`missing ${path}`, shape => { shape.rules = shape.rules.replace(rule, ''); }]);
+    for (const capability of capabilities) {
+      planted.push([`${path} lacks ${capability}`, shape => {
+        shape.rules = shape.rules.replace(rule, policyRule(path, capabilities.filter(right => right !== capability)));
+      }]);
+    }
+    planted.push([`${path} grants sudo`, shape => {
+      shape.rules = shape.rules.replace(rule, policyRule(path, [...capabilities, 'sudo']));
+    }]);
+    planted.push([`${path} uses the wrong prefix`, shape => {
+      shape.rules = shape.rules.replace(rule, policyRule(path.replace('tenant-tls', 'tenant-tls-other'), capabilities));
+    }]);
+    planted.push([`${path} widens to manager`, shape => {
+      shape.rules = shape.rules.replace(rule, policyRule(path.replace(/tenant-tls(?:\/\*)?$/, '*'), capabilities));
+    }]);
+  }
+  for (const rule of [
+    policyRule('secret/data/manager/*', ['read']),
+    policyRule('secret/metadata/manager/*', ['list']),
+    policyRule('secret/data/*', ['read']),
+    policyRule('secret/metadata/*', ['list']),
+    policyRule('secret/data/manager/tenant-tls-other/*', ['read']),
+    policyRule('secret/metadata/manager/tenant-tls-other/*', ['list']),
+    policyRule('secret/metadata/manager/tenant-tls', ['read']),
+    policyRule('secret/data/manager/tenant-tls/*', ['delete']),
+    policyRule('secret/metadata/manager/tenant-tls/*', ['create']),
+    ...TLS_RULES,
+    policyRule('secret/data/+/tenants/+', ['read']),
+    ...KINDS.map(kind => policyRule(`secret/data/+/tenants/+/${kind}/+`, ['read'])),
+    ...['google-translation', 'e2e'].map(leaf => policyRule(`secret/data/+/tenants/+/${leaf}`, ['read'])),
+  ]) {
+    planted.push([`additional ${rule}`, shape => { shape.rules += `${rule}\n`; }]);
+  }
+  for (const rule of EXISTING_RULES) {
+    planted.push([`missing existing ${rule}`, shape => { shape.rules = shape.rules.replace(rule, ''); }]);
+  }
+  for (const [i] of shapes(program.steps).entries()) {
+    const cases = [...planted, ...(i === 0 ? BUILD_RULES.map(rule => [
+      `missing existing ${rule}`, shape => { shape.rules = shape.rules.replace(rule, ''); },
+    ]) : [])];
+    for (const [name, plant] of cases) {
+      await t.test(`shape ${i + 1}: ${name}`, () => {
+        const rows = structuredClone(program.steps);
+        plant(shapes(rows)[i]);
+        assert.notDeepEqual(retentionFindings(rows), [], name);
+      });
+    }
+  }
+});
+
+test('PLANTED INNOCENT: clean retained TLS grants keep the tenant write-only and old-reader policies valid', () => {
+  const rows = structuredClone(program.steps);
+  assert.deepEqual(retentionFindings(rows), []);
+  assert.deepEqual(findings(rows), []);
+});
