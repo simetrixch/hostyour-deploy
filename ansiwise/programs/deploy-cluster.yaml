@@ -150,32 +150,27 @@ steps:
   # The one answer this program cannot carry out every value of, refused before anything is read or
   # written.
   #
-  # A staging authority signs with a root that is in no machine's trust store. Its certificates
-  # ISSUE — the certificate service reports them Ready — and then every step that speaks https to
-  # this installation's own address fails on them: deploy-platform-services dies one step later at
-  # vault_init on CERTIFICATE_VERIFY_FAILED. Nothing in an installation puts that root into the
-  # machine's store, so an installation on a staging authority cannot reach its own secret store at
-  # all.
+  # ONE DIRECTORY, Google Trust Services' production one. Every cluster of every installation binds
+  # platform-acme to the one ACME account registered there with the installation's External Account
+  # Binding (hostyour-cloud cert-manager-issuers). Any other directory knows no such account: a Let's
+  # Encrypt one registers nothing the binding admits, and a test directory signs with a root that is
+  # in no machine's trust store, so deploy-platform-services would die at vault_init on
+  # CERTIFICATE_VERIFY_FAILED, one step after the certificate has issued.
   #
   # WHY IT IS REFUSED HERE and not left to the step it breaks: this row reads an answer and touches
   # nothing, so a run that cannot end is stopped before a snap is installed, a network is converted
   # and a certificate is spent. Where it breaks is step 13 of deploy-platform-services, the
   # program that runs after this one.
-  #
-  # WHAT THE PATTERN READS is https and the word `staging` in the host, and nothing else. An
-  # authority whose root this machine does not carry, named without that word, passes this row and
-  # fails at that same step: this refuses the staging directory by name, not every root a machine
-  # is missing.
   # ---------------------------------------------------------------------------------------------
   - step: require_answer_matches
     answer: letsencrypt_server
-    pattern: '^https://(?![^/]*staging)[^/]+/[^\s]*$'
+    pattern: '^https://dv\.acme-v02\.api\.pki\.goog/directory$'
     refusal: >-
-      the certificate authority's directory is answered over https and is never a staging one. A
-      staging authority signs with a root that is in no machine's trust store, so every later step
-      that speaks https to this installation's own address fails on it — vault_init dies on
-      CERTIFICATE_VERIFY_FAILED, one step after the certificate has issued. Answer the authority's
-      production directory.
+      the certificate authority's directory is https://dv.acme-v02.api.pki.goog/directory, Google
+      Trust Services' production directory, and no other: every cluster of this installation binds
+      the one ACME account registered there. A Let's Encrypt directory knows no such account, and a
+      test directory signs with a root that is in no machine's trust store, so vault_init would die
+      on CERTIFICATE_VERIFY_FAILED. Answer the Google Trust Services production directory.
     on_failure: exit
 
   # ---------------------------------------------------------------------------------------------
@@ -952,23 +947,11 @@ answers:
     kind: text
     describes: >-
       The certificate authority this installation registers with, written as the address of its
-      directory. Every installation of this platform answers
-      https://acme-v02.api.letsencrypt.org/directory; a provider whose authority is a different one
-      names that instead, which is the only reason this is an answer rather than a line of the
-      program.
-
-      NEVER A STAGING SERVICE, and the first step of this program refuses one rather than leaving
-      it to be discovered later. Its certificates are signed by a root no machine carries, so an
-      installation that answers one cannot reach its own secret store: the certificate issues, and
-      the run dies one step later on CERTIFICATE_VERIFY_FAILED, at vault_init. An installation that
-      cannot talk to itself proves nothing, which is the whole of what a staging service is answered
-      for.
-
-      TWO LIMITS TO LIVE WITH, and the second is the one that bites. Fifty certificates per
-      registered domain per week, and FIVE for one exact set of names. A machine reinstalled to be
-      proven spends one of those five per hostname per attempt, so the fifth rebuild in a week is
-      refused with 429 and the wait runs to a week after the first of them. Nothing here raises it:
-      what avoids it is an installation that does not throw its certificates away when it is rebuilt.
+      directory. Every installation of this platform answers Google Trust Services,
+      https://dv.acme-v02.api.pki.goog/directory, and the first step of this program refuses every
+      other: the installation's one ACME account is registered there. Never a test directory: its
+      certificates are signed by a root no machine carries, so an installation that answers one
+      cannot reach its own secret store.
 
   - name: lan_cidr
     kind: text

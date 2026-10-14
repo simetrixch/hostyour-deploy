@@ -394,8 +394,8 @@ answers:
       answers one cannot reach its own secret store.
 
   # THE ONE ACME ACCOUNT, asked here for the reason the authority is: the map is where a machine
-  # added later reads it. Optional, because a map without it keeps the issuer form that binds no
-  # account, and an installation is switched to the account one machine at a time.
+  # added later reads it. A map without it is refused by name where the issuer renders
+  # (hostyour-cloud cert-manager-issuers).
   - name: acme_eab_key_id
     kind: text
     required: false
