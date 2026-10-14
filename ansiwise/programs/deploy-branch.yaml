@@ -92,10 +92,10 @@ defaults:
   # and not a prefix, so a chart's templates/ several levels down is excluded like one at the top.
   excluded_segments: [docs, scripts, templates]
   excluded_names: []
-  # The suffixes of the scripts that carry no first line to recognise them by. A script is never
+  # The suffix of a script that carries no first line to recognise it by. A script is never
   # stamped whatever it is called: the placeholder inside one is a guard, a fixture or a comment,
   # and rewriting it made a script refuse the very domain it was being installed for.
-  script_suffixes: [.sh, .ps1]
+  script_suffixes: [.sh]
 
 answers:
   # ── what this installation is ───────────────────────────────────────────────

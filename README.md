@@ -42,13 +42,13 @@ naming what it could not read, rather than failing on it.
 
 ## Checks
 
-`bash scripts/check.sh` (or `pwsh scripts/check.ps1`) parses the program YAML locally.
+`bash scripts/check.sh` parses the program YAML locally.
 It names the registry binding suite as not run locally.
 
 GitHub Actions runs those checks and `bash scripts/test.sh` on every push and pull request.
 The test entry point runs `dart test test/checks/config_validity_test.dart` in the pinned
 sibling `ansiwise-cli` checkout, with `ANSIWISE_INSTALLATION` set to this tree. A skipped
-suite fails. `pwsh scripts/test.ps1` starts the same entry point. Run tests only on a remote runner.
+suite fails. Run tests only on a remote runner.
 
 ## Machine-move preparation
 
@@ -56,7 +56,6 @@ suite fails. `pwsh scripts/test.ps1` starts the same entry point. Run tests only
 bash scripts/move-machine.sh --cloud-dir /path/to/hostyour-cloud --books-fqdn master.old.example --from-domain old.example --to-domain new.example --fqdn apps1.old.example --ssh-user operator --dry-run
 ```
 
-The PowerShell twin `pwsh scripts/move-machine.ps1` takes the identical flags.
 Node, git, yq and ssh are required. The shared Cloud checkout must contain `plan-installation-domain.mjs`.
 
 Dry run inventories cluster maps and selected machine routes, probes old/new SSH with old-name existing trust, prints deterministic JSON and changes no remote state/current config. Exit 0 means report produced; `cutoverReady` remains false.
@@ -90,8 +89,7 @@ only the cluster name, tenant GUID and stage as arguments:
 VAULT_ADDR=https://vault.example.test bash scripts/tenant-stage-proof.sh apps2 tenant000001 prod
 ```
 
-PowerShell 7 uses `scripts/tenant-stage-proof.ps1` with the same arguments and
-`VAULT_ADDR` environment variable. Both launch the same Python 3 implementation.
+The launcher starts the Python 3 implementation, `scripts/tenant-stage-proof.py`.
 The host must support Linux memory file descriptors; no credential file is written.
 
 The proof reads namespace metadata, requests a ten-minute service-account token,
