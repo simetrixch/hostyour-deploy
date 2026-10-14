@@ -77,6 +77,8 @@ node --check "$ROOT/scripts/forgejo.test.mjs" || fail 'Forgejo client secret and
 echo 'check: NOT RUN locally — scripts/forgejo.test.mjs; runs in the ci of the master via scripts/test.sh.'
 node --check "$ROOT/scripts/plane.test.mjs" || fail 'Plane secrets and values check syntax'
 echo 'check: NOT RUN locally — scripts/plane.test.mjs; runs in the ci of the master via scripts/test.sh.'
+node --check "$ROOT/scripts/forgejo-webhook.test.mjs" || fail 'Forgejo webhook key check syntax'
+echo 'check: NOT RUN locally — scripts/forgejo-webhook.test.mjs; runs in the ci of the master via scripts/test.sh.'
 
 python3 -c 'import ast, pathlib, sys; [ast.parse(pathlib.Path(p).read_text()) for p in sys.argv[1:]]' "$ROOT/scripts/tenant-stage-proof.py" "$ROOT/scripts/tenant-stage-proof.test.py" || fail 'tenant stage proof Python syntax'
 bash -n "$ROOT/scripts/tenant-stage-proof.sh" || fail 'tenant stage proof Bash syntax'

@@ -1919,6 +1919,22 @@ steps:
     when: [secret_store_enabled, build_plane_here_in_answers, books_here_in_answers]
     on_failure: exit
 
+  # THE KEY FORGEJO SIGNS ITS DELIVERIES WITH, which the build plane's Forgejo Triggers check before
+  # they believe one. Minted here and typed into the webhook of a Forgejo repository from Vault, so no
+  # operator invents it. An entry of its own and not a field beside GitHub's: the release that makes
+  # the build plane read it reaches the cluster before this row mints it, and its reader treats a
+  # missing entry as no error but a missing field of an entry that exists as one.
+  - step: vault_kv_entry
+    rests_on_an_earlier_step: true
+    repository: /srv/hostyour-cloud
+    mount: secret
+    path: <stage>/app/forgejo-webhook
+    fields:
+      - 'forgejo-webhook-secret=FORGEJO_WEBHOOK_SECRET'
+    mint: [forgejo-webhook-secret]
+    when: [secret_store_enabled, build_plane_here_in_answers, books_here_in_answers]
+    on_failure: exit
+
   # THE PLATFORM'S TWO BUMP CREDENTIALS ARE NOT A UNIT'S ENTRY, which is why they stand on a tier of
   # their own, build-platform/, and why this program seeds one of them and never build/<unit>/repo-pat.
   # A unit's entry is the Manager's alone, written whole when it onboards that unit and on every tick
