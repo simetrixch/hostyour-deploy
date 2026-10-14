@@ -1867,6 +1867,26 @@ steps:
     when: [secret_store_enabled, idp_enabled, books_here_in_answers]
     on_failure: exit
 
+  # PLANE'S ENTRY: its two signing keys and the passwords of the PostgreSQL, RabbitMQ and MinIO that
+  # run beside it, all minted, because nobody types them and nothing outside Plane's namespace reads
+  # them. One row for all six: this step rewrites the whole entry and keeps only the minted fields of
+  # its own row, so a second row on this path would erase what the first one wrote.
+  - step: vault_kv_entry
+    rests_on_an_earlier_step: true
+    repository: /srv/hostyour-cloud
+    mount: secret
+    path: <stage>/app/plane
+    fields:
+      - 'secret-key=PLANE_SECRET_KEY'
+      - 'live-server-secret-key=PLANE_LIVE_SERVER_SECRET_KEY'
+      - 'pgdb-password=PLANE_PGDB_PASSWORD'
+      - 'rabbitmq-password=PLANE_RABBITMQ_PASSWORD'
+      - 'minio-access-key=PLANE_MINIO_ACCESS_KEY'
+      - 'minio-secret-key=PLANE_MINIO_SECRET_KEY'
+    mint: [secret-key, live-server-secret-key, pgdb-password, rabbitmq-password, minio-access-key, minio-secret-key]
+    when: [secret_store_enabled, books_here_in_answers]
+    on_failure: exit
+
   # THE POST CLIENT'S SECRET, FOR THE MANAGER ALONE. digita-post logs operators in with the client
   # post of the provider, and the Manager seeds that secret into post's own entry when it onboards a
   # stage of post, so no operator copies it by hand. It stands under the

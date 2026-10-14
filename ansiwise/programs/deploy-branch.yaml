@@ -1242,6 +1242,20 @@ steps:
       forgejo-ssh-port: { answer: forgejo_ssh_port }
     on_failure: exit
 
+  # WHAT PLANE IS TOLD ABOUT THIS INSTALLATION: its address, from which it also builds the web address
+  # it hands out, and the issuer of its certificate. The chart writes its host and its Ingress
+  # annotations without tpl, so neither can be composed from the cluster map at render time. Inert on
+  # a cluster without the master part, like Forgejo's file above.
+  - step: write_file_from_template
+    template: ansiwise/templates/plane-values.tpl
+    path: /srv/hostyour-cloud/installation/values/plane.yaml
+    # 420 — the reconciler's render reads this file.
+    file_mode: 420
+    values:
+      fqdn: { answer: fqdn }
+      cluster-issuer: { answer: cluster_issuer }
+    on_failure: exit
+
   # WHAT THIS RUN WROTE, RECORDED. Without it the program ends exit 0 having produced files that
   # exist in one working tree on one machine — every step right about itself, and the installation
   # branch not existing.
