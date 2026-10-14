@@ -860,17 +860,6 @@ steps:
     when: [secret_store_enabled, books_here_in_answers]
     on_failure: exit
 
-  # One literal leaf and nothing else under the build tier. It exists only where the build plane
-  # runs, because a build is stage-free and its credentials live on exactly one secret store.
-  - step: vault_policy
-    rests_on_an_earlier_step: true
-    repository: /srv/hostyour-cloud
-    name: <cluster>-deploy-pat-read
-    rules: |
-      path "secret/data/build/deploy/repo-pat" { capabilities = ["read"] }
-    when: [secret_store_enabled, books_here_in_answers]
-    on_failure: exit
-
   # One templated policy and one label-bound role cover every consumer there will ever be, and
   # onboarding a consumer needs no write to the secret store at all. The path interpolates the UNIT
   # and the STAGE the calling account is annotated with, never its namespace and never this
@@ -962,8 +951,10 @@ steps:
     on_failure: exit
 
   # Templated on the unit, which is what stops one build namespace reading a sibling's credential —
-  # and some units belong to external parties. The two literal leaves are the platform repositories
-  # a release bump pushes to.
+  # and some units belong to external parties. The two literal leaves are the credentials of the
+  # platform repositories a release bump pushes to, on a tier of their own: build/<unit>/ is a unit's,
+  # and a unit named hostyour-cloud or deploy reads and owns build/hostyour-cloud/ or build/deploy/
+  # whole, so no platform credential may stand there.
   - step: vault_policy
     rests_on_an_earlier_step: true
     repository: /srv/hostyour-cloud
@@ -972,8 +963,8 @@ steps:
     rules: |
       path "secret/data/build/{{identity.entity.aliases.<accessor>.metadata.unit}}/*" { capabilities = ["read"] }
       path "secret/metadata/build/{{identity.entity.aliases.<accessor>.metadata.unit}}/*" { capabilities = ["read", "list"] }
-      path "secret/data/build/hostyour-cloud/repo-pat" { capabilities = ["read"] }
-      path "secret/data/build/deploy/repo-pat" { capabilities = ["read"] }
+      path "secret/data/build-platform/hostyour-cloud/repo-pat" { capabilities = ["read"] }
+      path "secret/data/build-platform/deploy/repo-pat" { capabilities = ["read"] }
       path "secret/data/<stage>/app/registry" { capabilities = ["read"] }
     when: [secret_store_enabled, build_plane_here_in_answers, books_here_in_answers]
     on_failure: exit
@@ -1058,6 +1049,11 @@ steps:
   # google-translation, which the localization plugin of every app of the tenant translates with: the
   # manager first writes it empty, because the apps' ExternalSecret fails its sync on a missing entry,
   # and replaces it with what an operator types; it never reads it back.
+  #
+  # THE DEPLOY REPOSITORY'S BUMP CREDENTIAL, build-platform/deploy/repo-pat, is the one leaf of the
+  # platform tier the manager writes, and only where the build plane runs: it rewrites it from the
+  # platform's GitHub App on the timer that refreshes every unit's build/<unit>/repo-pat, because a
+  # token GitHub issues for an hour cannot be seeded once. One literal leaf, write-only like the units'.
   - step: vault_policy
     rests_on_an_earlier_step: true
     repository: /srv/hostyour-cloud
@@ -1067,6 +1063,7 @@ steps:
       path "secret/metadata/manager/cred/*" { capabilities = ["read", "delete", "list"] }
       path "secret/data/build/+/repo-pat" { capabilities = ["create", "update"] }
       path "secret/metadata/build/+/repo-pat" { capabilities = ["delete"] }
+      path "secret/data/build-platform/deploy/repo-pat" { capabilities = ["create", "update"] }
       path "secret/data/+/consumer/+/app" { capabilities = ["create", "update", "patch"] }
       path "secret/metadata/+/consumer/+/app" { capabilities = ["delete"] }
       path "secret/data/+/consumer/+/postgres" { capabilities = ["create", "update"] }
@@ -1190,7 +1187,7 @@ steps:
       {"bound_service_account_names":["external-secrets-sa"],
       "bound_service_account_namespaces":[],
       "bound_service_account_namespace_selector":"{\"matchLabels\":{\"hostyour.cloud/workload\":\"true\"}}",
-      "token_policies":["<cluster>-eso","<cluster>-deploy-pat-read"],"ttl":"24h"}
+      "token_policies":["<cluster>-eso"],"ttl":"24h"}
     when: [secret_store_enabled, build_plane_here_in_answers, books_here_in_answers]
     on_failure: exit
 
@@ -1204,7 +1201,7 @@ steps:
       {"bound_service_account_names":["external-secrets-sa"],
       "bound_service_account_namespaces":[],
       "bound_service_account_namespace_selector":"{\"matchLabels\":{\"hostyour.cloud/workload\":\"true\"}}",
-      "token_policies":["<cluster>-eso","<cluster>-deploy-pat-read"],"ttl":"24h"}
+      "token_policies":["<cluster>-eso"],"ttl":"24h"}
     when: [secret_store_enabled, build_plane_elsewhere_in_answers, books_here_in_answers]
     on_failure: exit
 
@@ -1883,14 +1880,17 @@ steps:
     when: [secret_store_enabled, build_plane_here_in_answers, books_here_in_answers]
     on_failure: exit
 
-  # NEITHER OF THE TWO IS A UNIT'S OWN ENTRY, which is why these are seeded and build/<unit>/repo-pat
-  # is not. A unit's credential is written by the Manager when it onboards that unit, and nothing
-  # can read it earlier: the entry is read by the ExternalSecrets the build fan-out renders from
-  # registrations/<unit>/build.yaml, and the Manager commits that registration one step before it
-  # writes the entry. The Manager's own image is built the same way, through
-  # ansiwise/programs/onboard-manager.yaml. The two below are the platform repositories every unit's
-  # bump pushes to — the two literal leaves of <cluster>-build-read above — and no onboarding writes
-  # them.
+  # THE PLATFORM'S TWO BUMP CREDENTIALS ARE NOT A UNIT'S ENTRY, which is why they stand on a tier of
+  # their own, build-platform/, and why this program seeds one of them and never build/<unit>/repo-pat.
+  # A unit's entry is the Manager's alone, written whole when it onboards that unit and on every tick
+  # after, and nothing can read it earlier: the entry is read by the ExternalSecrets the build fan-out
+  # renders from registrations/<unit>/build.yaml, and the Manager commits that registration one step
+  # before it writes the entry. The Manager's own image is built the same way, through
+  # ansiwise/programs/onboard-manager.yaml. A platform repository onboarded as a unit — hostyour-cloud
+  # as a CI-only unit — therefore owns build/hostyour-cloud/repo-pat whole, with every property its
+  # build namespace reads, beside the bump credential below. The two leaves
+  # under build-platform/ are what every unit's bump pushes the platform repositories with — the two
+  # literal leaves of <cluster>-build-read above.
   #
   # Stage-free by construction: a release is one image and never one per stage, so each of the two
   # platform repositories has one credential on one secret store. Required and not optional — the
@@ -1905,15 +1905,15 @@ steps:
     rests_on_an_earlier_step: true
     repository: /srv/hostyour-cloud
     mount: secret
-    path: build/hostyour-cloud/repo-pat
+    path: build-platform/hostyour-cloud/repo-pat
     fields: ['pat=BUILD_HOSTYOUR_CLOUD_REPO_PAT']
     when: [secret_store_enabled, build_plane_here_in_answers, books_here_in_answers]
     on_failure: exit
 
-  # The deploy repository's own entry, build/deploy/repo-pat, is NOT seeded here: the platform's
-  # GitHub App is its identity, and the Manager writes that entry from the App's token on the timer
-  # that refreshes every unit's (hostyour-manager#197) — a token GitHub issues for an hour cannot
-  # be seeded once by an installer. The policies above grant its read.
+  # The deploy repository's bump credential, build-platform/deploy/repo-pat, is NOT seeded here: the
+  # platform's GitHub App is its identity, and the Manager writes that entry from the App's token on
+  # the timer that refreshes every unit's — a token GitHub issues for an hour
+  # cannot be seeded once by an installer. The policies above grant its write and its read.
 
   # --- the identity provider ------------------------------------------------------------------
   #
