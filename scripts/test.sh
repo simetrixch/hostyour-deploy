@@ -18,7 +18,7 @@ fail() { echo "test: FAIL — $1"; exit 1; }
 common="$(git -C "$ROOT" rev-parse --git-common-dir)" \
   || fail 'this is not a git checkout, and the CLI checkout that holds the binding suite is found beside the main one'
 case "$common" in
-  /*|[A-Za-z]:*) ;;
+  /*) ;;
   *) common="$ROOT/$common" ;;
 esac
 main_checkout="$(cd "$common/.." && pwd)"
@@ -40,17 +40,10 @@ command -v dart >/dev/null 2>&1 \
 # one. That search takes the one directory near the CLI checkout that holds ansiwise/programs, and
 # it refuses where a machine carries two. Naming this checkout makes the suite read the tree this
 # check is about, on every machine.
-#
-# Dart reads a path the operating system understands. Under Git Bash the shell's own /d/... form is
-# not that path, and the suite handed it would find no tree and skip.
-installation="$ROOT"
-if command -v cygpath >/dev/null 2>&1; then
-  installation="$(cygpath -w "$ROOT")"
-fi
 
 # The output is captured so a SKIPPED suite can be told from a green one, then printed whole.
 # Standard error is not captured and reaches the screen while the suite runs.
-output="$(cd "$cli" && ANSIWISE_INSTALLATION="$installation" dart test "$SUITE")"
+output="$(cd "$cli" && ANSIWISE_INSTALLATION="$ROOT" dart test "$SUITE")"
 status=$?
 printf '%s\n' "$output"
 [ "$status" -eq 0 ] || fail "dart test $SUITE in $cli"
