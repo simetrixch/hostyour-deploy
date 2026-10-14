@@ -46,7 +46,7 @@
 # by the run.
 name: deploy-platform-services
 # BOTH PARTS, because a cluster that keeps no books runs this too — and the file already knew. Of the
-# rows below, 78 are gated on `books_here_in_answers` and 63 on `secret_store_enabled`: gates that
+# rows below, 105 are gated on `books_here_in_answers` and 82 on `secret_store_enabled`: gates that
 # would be pointless if only the books cluster ever reached them. What a slave gets is what is left
 # when they skip. The line said `master` alone from the time before there were slaves, and no slave
 # ever tripped over it because every slave reached this program claiming to be a master — the
@@ -327,15 +327,23 @@ steps:
   #
   # `&& echo` and not the apply's own words: the step takes an answer that is a WHOLE LINE, and the
   # line kubectl writes carries the object's name and the verb it chose.
+  #
+  # `test -r` first, because a dry run writes no values file and helm's refusal of the missing file
+  # read as an error inside a row that passed. Where the file is not there, the probe says why it
+  # cannot measure, and a dry run declares the row with that sentence; a real run wrote it above or
+  # ended there. `keep_output`, because the engine records the output of a command that answered 0
+  # only where the row asks: without it the sentence reaches no record and the dry run reads as a
+  # probe that measured.
   - step: wait_for_command_output
     rests_on_an_earlier_step: true
     waiting_for: the certificate service to admit the issuers
     command: sh
     command_arguments:
       - -c
-      - 'microk8s helm3 template cert-manager-issuers /srv/hostyour-cloud/clusters/inventories/cert-manager-issuers --namespace cert-manager -f /tmp/ansiwise-certificate-values.yaml | microk8s kubectl apply --dry-run=server -f - >/dev/null 2>&1 && echo admitted'
+      - 'test -r /tmp/ansiwise-certificate-values.yaml || { echo "the values are written by a real run, at the rows above; a dry run writes none"; exit 0; }; microk8s helm3 template cert-manager-issuers /srv/hostyour-cloud/clusters/inventories/cert-manager-issuers --namespace cert-manager -f /tmp/ansiwise-certificate-values.yaml | microk8s kubectl apply --dry-run=server -f - >/dev/null 2>&1 && echo admitted'
     answer: 'admitted'
     elevated: true
+    keep_output: true
     timeout_seconds: 300
     interval_seconds: 5
     on_failure: exit
@@ -414,16 +422,18 @@ steps:
 
   # THE ADMISSION OF A BUNDLE, for the same reason as the issuers': the webhook trust-manager brings
   # is the last part of its release to answer, its readiness probe speaks of another port, and it
-  # refuses while it does not answer.
+  # refuses while it does not answer. It opens with the issuers' `test -r` and keeps its output, for
+  # the same reasons.
   - step: wait_for_command_output
     rests_on_an_earlier_step: true
     waiting_for: the admission webhook to admit a Bundle
     command: sh
     command_arguments:
       - -c
-      - 'microk8s helm3 template trust-manager-bundles /srv/hostyour-cloud/clusters/inventories/trust-manager-bundles --namespace cert-manager -f /tmp/ansiwise-certificate-values.yaml | microk8s kubectl apply --dry-run=server -f - >/dev/null 2>&1 && echo admitted'
+      - 'test -r /tmp/ansiwise-certificate-values.yaml || { echo "the values are written by a real run, at the rows above; a dry run writes none"; exit 0; }; microk8s helm3 template trust-manager-bundles /srv/hostyour-cloud/clusters/inventories/trust-manager-bundles --namespace cert-manager -f /tmp/ansiwise-certificate-values.yaml | microk8s kubectl apply --dry-run=server -f - >/dev/null 2>&1 && echo admitted'
     answer: 'admitted'
     elevated: true
+    keep_output: true
     timeout_seconds: 300
     interval_seconds: 5
     on_failure: exit
@@ -761,6 +771,33 @@ steps:
   # instead is the journal, because the timer fires the service a second after this row arms it.
   - step: enable_service
     unit: hostyour-vault-unseal.timer
+    when: [secret_store_enabled, books_here_in_answers]
+    on_failure: exit
+
+  # THE STORE'S LISTENER TAKES A RENEWED LEAF ONLY WHEN IT IS TOLD TO. Its pair renews on disk with
+  # the Secret, but the server keeps the leaf it loaded until SIGHUP, so a daily timer sends it; the
+  # two templates say why daily and why nothing more. The same three rows as the unsealer's, after
+  # the store's release, on the cluster that runs the store.
+  - step: write_file_from_template
+    template: ansiwise/templates/vault-reload-service.tpl
+    path: /etc/systemd/system/hostyour-vault-reload.service
+    file_mode: 420
+    elevated: true
+    values:
+      operator-user: { answer: operator_user }
+    when: [secret_store_enabled, books_here_in_answers]
+    on_failure: exit
+
+  - step: write_file_from_template
+    template: ansiwise/templates/vault-reload-timer.tpl
+    path: /etc/systemd/system/hostyour-vault-reload.timer
+    file_mode: 420
+    elevated: true
+    when: [secret_store_enabled, books_here_in_answers]
+    on_failure: exit
+
+  - step: enable_service
+    unit: hostyour-vault-reload.timer
     when: [secret_store_enabled, books_here_in_answers]
     on_failure: exit
 
@@ -2598,9 +2635,14 @@ steps:
   # TEN MINUTES, because the delivery is not immediate: the secret store's reader retries a failed
   # read with a growing pause, and on master1 the Secret came 168 seconds after the seeds. Where the
   # account is registered already, the first look answers.
+  #
+  # ONLY ON THE CLUSTER THAT KEEPS THE BOOKS, because only there does this run deliver the account. A
+  # slave's Secret comes from the books cluster's Argo CD after register-slave, which runs after this
+  # program, so a new slave born on the public authority waited ten minutes for nothing; there the
+  # issuer turns Ready by GitOps, where Argo CD's health of cert-manager-issuers shows it.
   - step: wait_for_command_output
     rests_on_an_earlier_step: true
-    when: [certificates_enabled]
+    when: [certificates_enabled, books_here_in_answers]
     waiting_for: platform-acme to report that its account is registered
     command: microk8s
     command_arguments:
