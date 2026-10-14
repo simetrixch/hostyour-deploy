@@ -327,13 +327,18 @@ steps:
   #
   # `&& echo` and not the apply's own words: the step takes an answer that is a WHOLE LINE, and the
   # line kubectl writes carries the object's name and the verb it chose.
+  #
+  # `test -r` first, because a dry run writes no values file and helm's refusal of the missing file
+  # read as an error inside a row that passed. Where the file is not there, the probe says why it
+  # cannot measure, and a dry run declares the row with that sentence; a real run wrote it above or
+  # ended there.
   - step: wait_for_command_output
     rests_on_an_earlier_step: true
     waiting_for: the certificate service to admit the issuers
     command: sh
     command_arguments:
       - -c
-      - 'microk8s helm3 template cert-manager-issuers /srv/hostyour-cloud/clusters/inventories/cert-manager-issuers --namespace cert-manager -f /tmp/ansiwise-certificate-values.yaml | microk8s kubectl apply --dry-run=server -f - >/dev/null 2>&1 && echo admitted'
+      - 'test -r /tmp/ansiwise-certificate-values.yaml || { echo "the values are written by a real run, at the rows above; a dry run writes none"; exit 0; }; microk8s helm3 template cert-manager-issuers /srv/hostyour-cloud/clusters/inventories/cert-manager-issuers --namespace cert-manager -f /tmp/ansiwise-certificate-values.yaml | microk8s kubectl apply --dry-run=server -f - >/dev/null 2>&1 && echo admitted'
     answer: 'admitted'
     elevated: true
     timeout_seconds: 300
@@ -414,14 +419,14 @@ steps:
 
   # THE ADMISSION OF A BUNDLE, for the same reason as the issuers': the webhook trust-manager brings
   # is the last part of its release to answer, its readiness probe speaks of another port, and it
-  # refuses while it does not answer.
+  # refuses while it does not answer. It opens with the issuers' `test -r`, for the same reason.
   - step: wait_for_command_output
     rests_on_an_earlier_step: true
     waiting_for: the admission webhook to admit a Bundle
     command: sh
     command_arguments:
       - -c
-      - 'microk8s helm3 template trust-manager-bundles /srv/hostyour-cloud/clusters/inventories/trust-manager-bundles --namespace cert-manager -f /tmp/ansiwise-certificate-values.yaml | microk8s kubectl apply --dry-run=server -f - >/dev/null 2>&1 && echo admitted'
+      - 'test -r /tmp/ansiwise-certificate-values.yaml || { echo "the values are written by a real run, at the rows above; a dry run writes none"; exit 0; }; microk8s helm3 template trust-manager-bundles /srv/hostyour-cloud/clusters/inventories/trust-manager-bundles --namespace cert-manager -f /tmp/ansiwise-certificate-values.yaml | microk8s kubectl apply --dry-run=server -f - >/dev/null 2>&1 && echo admitted'
     answer: 'admitted'
     elevated: true
     timeout_seconds: 300

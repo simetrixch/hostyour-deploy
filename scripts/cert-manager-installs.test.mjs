@@ -20,6 +20,9 @@ const templates = Object.fromEntries(readdirSync(`${root}ansiwise/templates`)
 
 const INVENTORY = '/srv/hostyour-cloud/clusters/inventories';
 const RUN_VALUES = '/tmp/ansiwise-certificate-values.yaml';
+// A dry run writes no values file, so a probe that renders with it asks first and, where it is not
+// there, says why it cannot measure instead of printing helm's refusal of the missing file.
+const DRY_GUARD = new RegExp(`^test -r ${RUN_VALUES.replace(/\./g, '\\.')} \\|\\| \\{ echo "[^"]+"; exit 0; \\}; `);
 // Each install, the values it is given, and the one object whose absence lets it run.
 const INSTALLS = {
   'cert-manager': {values: `${INVENTORY}/cert-manager/values-common.yaml`, absent: [['deployment', 'cert-manager', 'cert-manager']]},
@@ -112,6 +115,7 @@ function findings({programs, conditions, templates, answers}) {
     if (!issuer) found.push(`${where} is written under ${JSON.stringify(row.when)}`);
     const readers = steps.flatMap((each, j) => JSON.stringify(each).includes(RUN_VALUES) && !writes.some(([, w]) => w === each) ? [j] : []);
     if (readers.some(j => j < i)) found.push(`${where} is written after a row reads it`);
+    if (row.on_failure !== 'exit') found.push(`${where} lets the run go on without its values`);
     let values;
     try {
       values = yq(['.'], (templates[row.template] ?? '').replace(/<([a-z-]+)\??>/g, '__$1__'));
@@ -136,6 +140,14 @@ function findings({programs, conditions, templates, answers}) {
       if (bound[held['global.letsencryptServer']] !== 'letsencrypt_server') found.push(`${where} takes the ACME directory from ${held['global.letsencryptServer']}`);
       if (bound[held['global.acmeEabKeyId']] !== 'acme_eab_key_id') found.push(`${where} takes the ACME account binding from ${held['global.acmeEabKeyId']}`);
     }
+  }
+
+  for (const [program, rows] of Object.entries(programs)) {
+    rows.forEach((row, i) => {
+      if (row.step !== 'wait_for_command_output' || !JSON.stringify(row).includes(RUN_VALUES)) return;
+      const [flag, script] = row.command_arguments ?? [];
+      if (row.command !== 'sh' || flag !== '-c' || !DRY_GUARD.test(script ?? '')) found.push(`${program}[${i}] reads ${RUN_VALUES} where a dry run wrote none`);
+    });
   }
 
   const trust = steps.findIndex(row => row.step === 'trust_cluster_authority');
@@ -271,6 +283,7 @@ test('the programs leave cert-manager to Argo CD and install it only where none 
 const at = (rows, test) => rows.findIndex(test);
 const release = name => row => installOf(row) === name;
 const accountWait = r => r.step === 'wait_for_command_output' && JSON.stringify(r.command_arguments ?? []).includes('"clusterissuer","platform-acme"');
+const valuesProbe = chart => r => r.step === 'wait_for_command_output' && JSON.stringify(r.command_arguments ?? []).includes(`${INVENTORY}/${chart} `);
 const PLANTED = {
   'the addon enabled again': p => { p.programs['deploy-cluster'].find(r => r.step === 'enable_addons').addons.push('cert-manager'); },
   'the addon disabled': p => { p.programs['deploy-cluster'].push({step: 'disable_addons', addons: ['cert-manager']}); },
@@ -444,6 +457,17 @@ const PLANTED = {
     const [row] = rows.splice(at(rows, r => r.answer === 'letsencrypt_server'), 1);
     rows.splice(at(rows, r => r.step === 'enable_addons') + 1, 0, row);
   },
+  'the issuers\' probe reading the values a dry run never wrote': p => {
+    const row = p.programs['deploy-platform-services'].find(valuesProbe('cert-manager-issuers'));
+    row.command_arguments[1] = row.command_arguments[1].replace(DRY_GUARD, '');
+  },
+  'the Bundle\'s probe asking after another file': p => {
+    const row = p.programs['deploy-platform-services'].find(valuesProbe('trust-manager-bundles'));
+    row.command_arguments[1] = row.command_arguments[1].replace(`test -r ${RUN_VALUES}`, 'test -r /tmp/other.yaml');
+  },
+  'the values written without ending a run that cannot write them': p => {
+    p.programs['deploy-platform-services'].find(r => r.path === RUN_VALUES).on_failure = 'continue';
+  },
   'trust_cluster_authority after vault_init': p => {
     const rows = p.programs['deploy-platform-services'];
     const [row] = rows.splice(at(rows, r => r.step === 'trust_cluster_authority'), 1);
@@ -483,6 +507,10 @@ const INNOCENT = {
     p.programs['deploy-cluster'].find(r => r.answer === 'letsencrypt_server').pattern = '^(?:https://dv\\.acme-v02\\.api\\.pki\\.goog/directory)$';
   },
   'the directory row refusing in other words': p => { p.programs['deploy-cluster'].find(r => r.answer === 'letsencrypt_server').refusal = 'answer the GTS directory'; },
+  'the probe saying in other words why a dry run cannot measure': p => {
+    const row = p.programs['deploy-platform-services'].find(valuesProbe('cert-manager-issuers'));
+    row.command_arguments[1] = row.command_arguments[1].replace(/echo "[^"]+"/, 'echo "no values file yet"');
+  },
   'the account wait given longer': p => { p.programs['deploy-platform-services'].find(accountWait).timeout_seconds = 900; },
   'the values template keys in another order': p => {
     const row = p.programs['deploy-platform-services'].find(r => r.path === RUN_VALUES && same(r.when, ['certificates_enabled']));
