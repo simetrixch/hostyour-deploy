@@ -388,10 +388,21 @@ answers:
     kind: text
     describes: >-
       The certificate authority this installation registers with, written as the address of its
-      directory. Every installation of this platform answers
-      https://acme-v02.api.letsencrypt.org/directory; a provider whose authority is a different one
-      names that instead. Never a staging service: its certificates are signed by a root no machine
-      carries, so an installation that answers one cannot reach its own secret store.
+      directory. Every installation of this platform answers Google Trust Services,
+      https://dv.acme-v02.api.pki.goog/directory, with the account binding below. Never a staging
+      service: its certificates are signed by a root no machine carries, so an installation that
+      answers one cannot reach its own secret store.
+
+  # THE ONE ACME ACCOUNT, asked here for the reason the authority is: the map is where a machine
+  # added later reads it. Optional, because a map without it keeps the issuer form that binds no
+  # account, and an installation is switched to the account one machine at a time.
+  - name: acme_eab_key_id
+    kind: text
+    required: false
+    describes: >-
+      The key id of the External Account Binding Google Trust Services issued for this
+      installation's one ACME account. Not a secret: it names the binding and signs nothing. The
+      MAC key that goes with it is the secret answer acme_eab_mac_key below.
 
 
 
@@ -531,6 +542,16 @@ answers:
     describes: >-
       The password of that storage box sub-account. Never the main account's, which also unlocks the
       Hetzner Robot and so can delete the machine this installation runs on.
+
+  - name: acme_eab_mac_key
+    kind: text
+    required: false
+    secret: true
+    describes: >-
+      The MAC key of the External Account Binding whose key id is acme_eab_key_id, as Google Trust
+      Services hands it out (base64url). It binds exactly one ACME account, once, within seven days
+      of its creation; the account key this installation registers with it is minted in the secret
+      store, and every cluster of the installation issues from that one account.
 
   # ── only on the cluster that carries the build plane ────────────────────────
   # Every other cluster reads its images through that one and never looks at these.
@@ -860,6 +881,7 @@ steps:
       cluster-issuer: { answer: cluster_issuer }
       letsencrypt-email: { answer: letsencrypt_email }
       letsencrypt-server: { answer: letsencrypt_server }
+      acme-eab-key-id: { answer: acme_eab_key_id }
       # Several mailboxes on one line, SEPARATED THE WAY THE TEMPLATE WRITES A LIST: the slot stands
       # inside `[...]` and outside any quoting, so ", " puts each mailbox in an entry of its own.
       # Inside quotes it could not: a joined list of two carries the quote that closes them, and
@@ -968,6 +990,7 @@ steps:
       STORAGE_BOX_HOST: { answer: storage_box_host }
       STORAGE_BOX_USER: { answer: storage_box_user }
       STORAGE_BOX_PASSWORD: { answer: storage_box_password }
+      ACME_EAB_MAC_KEY: { answer: acme_eab_mac_key }
     on_failure: exit
 
   # THE INSTALLATION'S OWN WILDCARD, `*.<fqdn>`, kept a CNAME to `<fqdn>` — so every platform name

@@ -291,6 +291,7 @@ steps:
     values:
       letsencrypt-email: { answer: letsencrypt_email }
       letsencrypt-server: { answer: letsencrypt_server }
+      acme-eab-key-id: { answer: acme_eab_key_id }
     on_failure: exit
 
   - step: write_file_from_template
@@ -1049,9 +1050,6 @@ steps:
     rules: |
       path "secret/data/manager/cred/*" { capabilities = ["create", "read", "update", "delete", "list"] }
       path "secret/metadata/manager/cred/*" { capabilities = ["read", "delete", "list"] }
-      path "secret/data/manager/tenant-tls/*" { capabilities = ["create", "read", "update"] }
-      path "secret/metadata/manager/tenant-tls/*" { capabilities = ["list", "read", "update", "delete"] }
-      path "secret/metadata/manager/tenant-tls" { capabilities = ["list"] }
       path "secret/data/build/+/repo-pat" { capabilities = ["create", "update"] }
       path "secret/metadata/build/+/repo-pat" { capabilities = ["delete"] }
       path "secret/data/+/consumer/+/app" { capabilities = ["create", "update", "patch"] }
@@ -1089,9 +1087,6 @@ steps:
     rules: |
       path "secret/data/manager/cred/*" { capabilities = ["create", "read", "update", "delete", "list"] }
       path "secret/metadata/manager/cred/*" { capabilities = ["read", "delete", "list"] }
-      path "secret/data/manager/tenant-tls/*" { capabilities = ["create", "read", "update"] }
-      path "secret/metadata/manager/tenant-tls/*" { capabilities = ["list", "read", "update", "delete"] }
-      path "secret/metadata/manager/tenant-tls" { capabilities = ["list"] }
       path "secret/data/+/consumer/+/app" { capabilities = ["create", "update", "patch"] }
       path "secret/metadata/+/consumer/+/app" { capabilities = ["delete"] }
       path "secret/data/+/consumer/+/postgres" { capabilities = ["create", "update"] }
@@ -1504,6 +1499,35 @@ steps:
     path: <stage>/app/postfix
     private_key_field: dkim-private-key
     public_key_field: dkim-public-key
+    when: [secret_store_enabled, books_here_in_answers]
+    on_failure: exit
+
+  # THE ONE ACME ACCOUNT'S KEY, minted here for the reason the mail key is: nobody can be asked for
+  # a private key. Every cluster's issuer signs with this one key (ExternalSecret platform-acme-account
+  # in cert-manager), so all of them use the account the first one registered. A key already in the
+  # store is kept: minting again would register a second account, and the binding below admits one.
+  # Its public half is published under a name of its own, because the mail pair above publishes the
+  # name the kind declares and one program publishes each name once.
+  - step: vault_kv_dkim_key_pair
+    rests_on_an_earlier_step: true
+    repository: /srv/hostyour-cloud
+    mount: secret
+    path: <stage>/app/acme-account
+    private_key_field: private-key
+    public_key_field: public-key
+    publish: { dkim_public_key: acme_account_public_key }
+    when: [secret_store_enabled, books_here_in_answers]
+    on_failure: exit
+
+  # The MAC key of that account's External Account Binding, out of the credentials file. Optional:
+  # an installation that has none writes nothing, and its issuers bind no account.
+  - step: vault_kv_entry
+    rests_on_an_earlier_step: true
+    repository: /srv/hostyour-cloud
+    mount: secret
+    path: <stage>/app/acme-eab
+    fields: ['mac-key=ACME_EAB_MAC_KEY']
+    optional_fields: [mac-key]
     when: [secret_store_enabled, books_here_in_answers]
     on_failure: exit
 
@@ -2726,3 +2750,11 @@ answers:
       proven spends one of those five per hostname per attempt, so the fifth rebuild in a week is
       refused with 429 and the wait runs to a week after the first of them. Nothing here raises it:
       what avoids it is an installation that does not throw its certificates away when it is rebuilt.
+
+  - name: acme_eab_key_id
+    kind: text
+    required: false
+    describes: >-
+      The key id of the External Account Binding of this installation's one ACME account, as the
+      cluster's map states it. Given, the issuers bind that account; not given, the line is left
+      out and the issuer binds none, which is the form of a machine not yet switched.

@@ -66,6 +66,9 @@ global:
   clusterIssuer: <cluster-issuer>
   letsencryptEmail: <letsencrypt-email>
   letsencryptServer: <letsencrypt-server>
+  # The key id of the one ACME account's External Account Binding. Where it stands, the issuer binds
+  # that account; a map without the line keeps the form that binds none.
+  acmeEabKeyId: <acme-eab-key-id?>
   # The time servers the machines of this installation ask the time of, and the only ones they ask.
   # A slave added later is told them from here rather than being asked again. A flow sequence of
   # plain scalars, one per source, kept apart by the comma the join writes: a hostname or an
