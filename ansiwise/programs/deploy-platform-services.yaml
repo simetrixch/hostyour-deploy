@@ -46,7 +46,7 @@
 # by the run.
 name: deploy-platform-services
 # BOTH PARTS, because a cluster that keeps no books runs this too — and the file already knew. Of the
-# rows below, 102 are gated on `books_here_in_answers` and 79 on `secret_store_enabled`: gates that
+# rows below, 105 are gated on `books_here_in_answers` and 82 on `secret_store_enabled`: gates that
 # would be pointless if only the books cluster ever reached them. What a slave gets is what is left
 # when they skip. The line said `master` alone from the time before there were slaves, and no slave
 # ever tripped over it because every slave reached this program claiming to be a master — the
@@ -766,6 +766,33 @@ steps:
   # instead is the journal, because the timer fires the service a second after this row arms it.
   - step: enable_service
     unit: hostyour-vault-unseal.timer
+    when: [secret_store_enabled, books_here_in_answers]
+    on_failure: exit
+
+  # THE STORE'S LISTENER TAKES A RENEWED LEAF ONLY WHEN IT IS TOLD TO. Its pair renews on disk with
+  # the Secret, but the server keeps the leaf it loaded until SIGHUP, so a daily timer sends it; the
+  # two templates say why daily and why nothing more. The same three rows as the unsealer's, after
+  # the store's release, on the cluster that runs the store.
+  - step: write_file_from_template
+    template: ansiwise/templates/vault-reload-service.tpl
+    path: /etc/systemd/system/hostyour-vault-reload.service
+    file_mode: 420
+    elevated: true
+    values:
+      operator-user: { answer: operator_user }
+    when: [secret_store_enabled, books_here_in_answers]
+    on_failure: exit
+
+  - step: write_file_from_template
+    template: ansiwise/templates/vault-reload-timer.tpl
+    path: /etc/systemd/system/hostyour-vault-reload.timer
+    file_mode: 420
+    elevated: true
+    when: [secret_store_enabled, books_here_in_answers]
+    on_failure: exit
+
+  - step: enable_service
+    unit: hostyour-vault-reload.timer
     when: [secret_store_enabled, books_here_in_answers]
     on_failure: exit
 
