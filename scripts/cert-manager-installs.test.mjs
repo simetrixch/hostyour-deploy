@@ -21,7 +21,9 @@ const templates = Object.fromEntries(readdirSync(`${root}ansiwise/templates`)
 const INVENTORY = '/srv/hostyour-cloud/clusters/inventories';
 const RUN_VALUES = '/tmp/ansiwise-certificate-values.yaml';
 // A dry run writes no values file, so a probe that renders with it asks first and, where it is not
-// there, says why it cannot measure instead of printing helm's refusal of the missing file.
+// there, says why it cannot measure instead of printing helm's refusal of the missing file. The
+// probe answers 0 there, and the engine records the output of a command that answered 0 only where
+// its row says keep_output: without it the sentence reaches no record.
 const DRY_GUARD = new RegExp(`^test -r ${RUN_VALUES.replace(/\./g, '\\.')} \\|\\| \\{ echo "[^"]+"; exit 0; \\}; `);
 // Each install, the values it is given, and the one object whose absence lets it run.
 const INSTALLS = {
@@ -147,6 +149,7 @@ function findings({programs, conditions, templates, answers}) {
       if (row.step !== 'wait_for_command_output' || !JSON.stringify(row).includes(RUN_VALUES)) return;
       const [flag, script] = row.command_arguments ?? [];
       if (row.command !== 'sh' || flag !== '-c' || !DRY_GUARD.test(script ?? '')) found.push(`${program}[${i}] reads ${RUN_VALUES} where a dry run wrote none`);
+      if (row.keep_output !== true) found.push(`${program}[${i}] says why a dry run cannot measure where no record keeps it`);
     });
   }
 
@@ -467,6 +470,9 @@ const PLANTED = {
     const row = p.programs['deploy-platform-services'].find(valuesProbe('trust-manager-bundles'));
     row.command_arguments[1] = row.command_arguments[1].replace(`test -r ${RUN_VALUES}`, 'test -r /tmp/other.yaml');
   },
+  'the Bundle\'s probe whose reason no record keeps': p => {
+    delete p.programs['deploy-platform-services'].find(valuesProbe('trust-manager-bundles')).keep_output;
+  },
   'the values written without ending a run that cannot write them': p => {
     p.programs['deploy-platform-services'].find(r => r.path === RUN_VALUES).on_failure = 'continue';
   },
@@ -516,6 +522,9 @@ const INNOCENT = {
   'the probe saying in other words why a dry run cannot measure': p => {
     const row = p.programs['deploy-platform-services'].find(valuesProbe('cert-manager-issuers'));
     row.command_arguments[1] = row.command_arguments[1].replace(/echo "[^"]+"/, 'echo "no values file yet"');
+  },
+  'a wait that reads no values file keeping its output too': p => {
+    p.programs['deploy-platform-services'].find(r => r.step === 'wait_for_command_output' && !JSON.stringify(r).includes(RUN_VALUES)).keep_output = true;
   },
   'the account wait with its gates in the other order': p => { p.programs['deploy-platform-services'].find(accountWait).when.reverse(); },
   'the account wait given longer': p => { p.programs['deploy-platform-services'].find(accountWait).timeout_seconds = 900; },
