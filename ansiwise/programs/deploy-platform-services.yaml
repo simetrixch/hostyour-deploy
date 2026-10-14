@@ -2745,6 +2745,12 @@ answers:
       cannot talk to itself proves nothing, which is the whole of what a staging service is answered
       for.
 
+      TWO LIMITS TO LIVE WITH, and the second is the one that bites. Fifty certificates per
+      registered domain per week, and FIVE for one exact set of names. A machine reinstalled to be
+      proven spends one of those five per hostname per attempt, so the fifth rebuild in a week is
+      refused with 429 and the wait runs to a week after the first of them. Nothing here raises it:
+      what avoids it is an installation that does not throw its certificates away when it is rebuilt.
+
   - name: acme_eab_key_id
     kind: text
     required: false
@@ -2752,9 +2758,3 @@ answers:
       The key id of the External Account Binding of this installation's one ACME account, as the
       cluster's map states it. Given, the issuers bind that account; not given, the line is left
       out and the issuer binds none, which is the form of a machine not yet switched.
-
-      TWO LIMITS TO LIVE WITH, and the second is the one that bites. Fifty certificates per
-      registered domain per week, and FIVE for one exact set of names. A machine reinstalled to be
-      proven spends one of those five per hostname per attempt, so the fifth rebuild in a week is
-      refused with 429 and the wait runs to a week after the first of them. Nothing here raises it:
-      what avoids it is an installation that does not throw its certificates away when it is rebuilt.

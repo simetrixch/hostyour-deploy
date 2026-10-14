@@ -3,4 +3,4 @@ global:
   clusterIssuer: platform-acme
   letsencryptEmail: "<letsencrypt-email>"
   letsencryptServer: "<letsencrypt-server>"
-  acmeEabKeyId: "<acme-eab-key-id>"
+  acmeEabKeyId: "<acme-eab-key-id?>"

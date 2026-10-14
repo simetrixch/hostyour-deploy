@@ -46,6 +46,7 @@ const leaves = (value, path = []) => value !== null && typeof value === 'object'
 /** Every way the programs break the rule, named. */
 function findings({programs, conditions, templates, answers}) {
   const found = [];
+  const optional = (program, name) => (answers[program] ?? []).find(a => a.name === name)?.required === false;
   for (const [program, steps] of Object.entries(programs)) {
     steps.forEach((row, at) => {
       const where = `${program}[${at}] ${row.step}`;
@@ -113,13 +114,18 @@ function findings({programs, conditions, templates, answers}) {
     if (readers.some(j => j < i)) found.push(`${where} is written after a row reads it`);
     let values;
     try {
-      values = yq(['.'], (templates[row.template] ?? '').replace(/<([a-z-]+)>/g, '__$1__'));
+      values = yq(['.'], (templates[row.template] ?? '').replace(/<([a-z-]+)\??>/g, '__$1__'));
     } catch {
       found.push(`${where}: ${row.template} is no YAML`);
       continue;
     }
     const bound = Object.fromEntries(Object.entries(row.values ?? {}).map(([slot, from]) => [`__${slot}__`, from?.answer]));
     if (Object.values(row.values ?? {}).some(from => !VALUES_ANSWERS.includes(from?.answer) || Object.keys(from).length !== 1)) found.push(`${where} is filled from ${JSON.stringify(row.values)}`);
+    // A slot fed by an optional answer is written <slot?>: the engine leaves an unanswered source
+    // out, and only that spelling drops the line instead of refusing the run.
+    for (const [slot, from] of Object.entries(row.values ?? {})) {
+      if (optional('deploy-platform-services', from?.answer) && (templates[row.template] ?? '').includes(`<${slot}>`)) found.push(`${where} requires <${slot}>, so a run without ${from.answer} is refused`);
+    }
     const held = Object.fromEntries(leaves(values ?? {}));
     for (const key of Object.keys(held)) {
       if (!TEMPLATE_KEYS.includes(key)) found.push(`${where} holds ${key}`);
@@ -147,8 +153,9 @@ function findings({programs, conditions, templates, answers}) {
 // from it, and deploy-platform-services hands it to the issuers it installs itself. Its MAC key is a
 // secret answer that reaches Vault through the credentials file, and the account key is minted in
 // Vault once. Both seed rows stand where every other seed of the installation stands: on the books
-// cluster, with the secret store up. Every part optional, so a machine not yet switched keeps the
-// issuer form that binds no account.
+// cluster, with the secret store up. Every part optional, and the key id's slots written <slot?>, so
+// a machine not yet switched renders its map and values as before and keeps the issuer form that
+// binds no account.
 const SEED_WHEN = ['secret_store_enabled', 'books_here_in_answers'];
 const ACCOUNT_SEEDS = {
   '<stage>/app/acme-eab': {step: 'vault_kv_entry', fields: ['mac-key=ACME_EAB_MAC_KEY'], optional_fields: ['mac-key']},
@@ -173,9 +180,10 @@ function accountFindings({programs, templates, answers}) {
 
   const branch = programs['deploy-branch'] ?? [];
   const map = branch.find(row => row.step === 'write_file_from_template' && row.template === 'ansiwise/templates/cluster-map.tpl');
-  const mapLine = /^ {2}acmeEabKeyId: <([a-z-]+)>$/m.exec(templates['ansiwise/templates/cluster-map.tpl'] ?? '');
+  const mapLine = /^ {2}acmeEabKeyId: <([a-z-]+)(\??)>$/m.exec(templates['ansiwise/templates/cluster-map.tpl'] ?? '');
   if (!map) found.push('deploy-branch writes no cluster map');
   else if (!mapLine) found.push('the cluster map writes no acmeEabKeyId line under global');
+  else if (mapLine[2] !== '?') found.push(`the cluster map requires <${mapLine[1]}>, so a run without acme_eab_key_id is refused`);
   else if (map.values?.[mapLine[1]]?.answer !== 'acme_eab_key_id' || Object.keys(map.values[mapLine[1]]).length !== 1) found.push(`the cluster map fills acmeEabKeyId from ${JSON.stringify(map.values?.[mapLine[1]])}`);
   const fills = branch.filter(row => row.step === 'fill_key_value_file' && row.path === '/srv/hostyour-cloud/secrets/secrets.<stage>'
     && row.values?.ACME_EAB_MAC_KEY !== undefined);
@@ -326,6 +334,13 @@ const PLANTED = {
   'the acmeEabKeyId line missing from the cluster map where the answer is given': p => {
     p.templates['ansiwise/templates/cluster-map.tpl'] = p.templates['ansiwise/templates/cluster-map.tpl'].split('\n').filter(l => !l.includes('acmeEabKeyId')).join('\n');
   },
+  'the values template requiring the key id slot': p => {
+    const row = p.programs['deploy-platform-services'].find(r => r.path === RUN_VALUES && same(r.when, ['certificates_enabled']));
+    p.templates[row.template] = p.templates[row.template].replace('<acme-eab-key-id?>', '<acme-eab-key-id>');
+  },
+  'the cluster map requiring the key id slot': p => {
+    p.templates['ansiwise/templates/cluster-map.tpl'] = p.templates['ansiwise/templates/cluster-map.tpl'].replace('<acme-eab-key-id?>', '<acme-eab-key-id>');
+  },
   'the cluster map filling acmeEabKeyId from another answer': p => {
     const row = p.programs['deploy-branch'].find(r => r.template === 'ansiwise/templates/cluster-map.tpl');
     for (const from of Object.values(row.values)) if (from.answer === 'acme_eab_key_id') from.answer = 'letsencrypt_server';
@@ -367,6 +382,15 @@ const INNOCENT = {
   },
   'the account key pair publishing a name of its own choosing': p => {
     p.programs['deploy-platform-services'].find(r => r.path === '<stage>/app/acme-account').publish = {dkim_public_key: 'another_public_key'};
+  },
+  'the key id slots under another name': p => {
+    const map = p.programs['deploy-branch'].find(r => r.template === 'ansiwise/templates/cluster-map.tpl');
+    const values = p.programs['deploy-platform-services'].find(r => r.path === RUN_VALUES && same(r.when, ['certificates_enabled']));
+    for (const row of [map, values]) {
+      p.templates[row.template] = p.templates[row.template].replace('<acme-eab-key-id?>', '<eab-key-id?>');
+      row.values['eab-key-id'] = row.values['acme-eab-key-id'];
+      delete row.values['acme-eab-key-id'];
+    }
   },
   'the values template keys in another order': p => {
     const row = p.programs['deploy-platform-services'].find(r => r.path === RUN_VALUES && same(r.when, ['certificates_enabled']));
