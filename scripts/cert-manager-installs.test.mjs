@@ -263,6 +263,8 @@ function accountFindings({programs, templates, answers}) {
     if (seeds.some(seed => i < seed)) found.push(`deploy-platform-services[${i}] waits for platform-acme before the account is seeded`);
     if (i < handoff) found.push(`deploy-platform-services[${i}] waits for platform-acme before the handoff delivers the account`);
     if (!(services[i].timeout_seconds >= 600)) found.push(`deploy-platform-services[${i}] waits ${services[i].timeout_seconds}s for platform-acme`);
+    // Only the books cluster delivers the account in this run; a slave's comes after register-slave.
+    if (!(services[i].when ?? []).includes('books_here_in_answers')) found.push(`deploy-platform-services[${i}] waits for platform-acme on a slave, whose account arrives after register-slave`);
   }
   // ONE NAME PER MEASUREMENT IN A PROGRAM. A key pair row publishes its public half under the name
   // its kind declares unless it renames it, and the engine refuses a program in which two rows
@@ -468,6 +470,10 @@ const PLANTED = {
   'the values written without ending a run that cannot write them': p => {
     p.programs['deploy-platform-services'].find(r => r.path === RUN_VALUES).on_failure = 'continue';
   },
+  'the account wait on a slave': p => {
+    const row = p.programs['deploy-platform-services'].find(accountWait);
+    row.when = row.when.filter(w => w !== 'books_here_in_answers');
+  },
   'trust_cluster_authority after vault_init': p => {
     const rows = p.programs['deploy-platform-services'];
     const [row] = rows.splice(at(rows, r => r.step === 'trust_cluster_authority'), 1);
@@ -511,6 +517,7 @@ const INNOCENT = {
     const row = p.programs['deploy-platform-services'].find(valuesProbe('cert-manager-issuers'));
     row.command_arguments[1] = row.command_arguments[1].replace(/echo "[^"]+"/, 'echo "no values file yet"');
   },
+  'the account wait with its gates in the other order': p => { p.programs['deploy-platform-services'].find(accountWait).when.reverse(); },
   'the account wait given longer': p => { p.programs['deploy-platform-services'].find(accountWait).timeout_seconds = 900; },
   'the values template keys in another order': p => {
     const row = p.programs['deploy-platform-services'].find(r => r.path === RUN_VALUES && same(r.when, ['certificates_enabled']));

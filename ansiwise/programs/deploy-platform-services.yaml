@@ -46,7 +46,7 @@
 # by the run.
 name: deploy-platform-services
 # BOTH PARTS, because a cluster that keeps no books runs this too — and the file already knew. Of the
-# rows below, 78 are gated on `books_here_in_answers` and 63 on `secret_store_enabled`: gates that
+# rows below, 102 are gated on `books_here_in_answers` and 79 on `secret_store_enabled`: gates that
 # would be pointless if only the books cluster ever reached them. What a slave gets is what is left
 # when they skip. The line said `master` alone from the time before there were slaves, and no slave
 # ever tripped over it because every slave reached this program claiming to be a master — the
@@ -2603,9 +2603,14 @@ steps:
   # TEN MINUTES, because the delivery is not immediate: the secret store's reader retries a failed
   # read with a growing pause, and on master1 the Secret came 168 seconds after the seeds. Where the
   # account is registered already, the first look answers.
+  #
+  # ONLY ON THE CLUSTER THAT KEEPS THE BOOKS, because only there does this run deliver the account. A
+  # slave's Secret comes from the books cluster's Argo CD after register-slave, which runs after this
+  # program, so a new slave born on the public authority waited ten minutes for nothing; there the
+  # issuer turns Ready by GitOps, where Argo CD's health of cert-manager-issuers shows it.
   - step: wait_for_command_output
     rests_on_an_earlier_step: true
-    when: [certificates_enabled]
+    when: [certificates_enabled, books_here_in_answers]
     waiting_for: platform-acme to report that its account is registered
     command: microk8s
     command_arguments:
