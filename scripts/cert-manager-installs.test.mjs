@@ -211,6 +211,21 @@ function accountFindings({programs, templates, answers}) {
     if (!same(row.when, SEED_WHEN)) found.push(`${path} is seeded under ${JSON.stringify(row.when)}`);
     if (row.repository !== '/srv/hostyour-cloud' || row.mount !== 'secret' || row.rests_on_an_earlier_step !== true || row.on_failure !== 'exit') found.push(`${path} is seeded unlike the installation's other seeds`);
   }
+  // THE WAIT FOR THE ACCOUNT TO REGISTER COMES AFTER WHAT DELIVERS IT. The issuer signs with the key
+  // ExternalSecret platform-acme-account delivers out of the two seeded entries, through Argo CD
+  // (hostyour-cloud cert-manager-account), so it can register only after both seeds and after the
+  // handoff; before them, a first run waits for an account nothing can deliver yet. Its window
+  // covers the delivery: on master1 the Secret came 168 seconds after the seeds (ESO's backoff).
+  const handoff = services.findIndex(row => row.manifest === 'clusters/argocd/root-app.yaml');
+  const waits = services.flatMap((row, i) => row.step === 'wait_for_command_output'
+    && same((row.command_arguments ?? []).slice(1, 4), ['get', 'clusterissuer', 'platform-acme']) ? [i] : []);
+  const seeds = Object.keys(ACCOUNT_SEEDS).map(path => services.findIndex(row => row.path === path));
+  if (waits.length !== 1) found.push(`${waits.length} rows of deploy-platform-services wait for platform-acme`);
+  for (const i of waits) {
+    if (seeds.some(seed => i < seed)) found.push(`deploy-platform-services[${i}] waits for platform-acme before the account is seeded`);
+    if (i < handoff) found.push(`deploy-platform-services[${i}] waits for platform-acme before the handoff delivers the account`);
+    if (!(services[i].timeout_seconds >= 600)) found.push(`deploy-platform-services[${i}] waits ${services[i].timeout_seconds}s for platform-acme`);
+  }
   // ONE NAME PER MEASUREMENT IN A PROGRAM. A key pair row publishes its public half under the name
   // its kind declares unless it renames it, and the engine refuses a program in which two rows
   // publish one name, whatever their conditions, before its first row runs.
@@ -229,6 +244,7 @@ test('the programs leave cert-manager to Argo CD and install it only where none 
 
 const at = (rows, test) => rows.findIndex(test);
 const release = name => row => installOf(row) === name;
+const accountWait = r => r.step === 'wait_for_command_output' && JSON.stringify(r.command_arguments ?? []).includes('"clusterissuer","platform-acme"');
 const PLANTED = {
   'the addon enabled again': p => { p.programs['deploy-cluster'].find(r => r.step === 'enable_addons').addons.push('cert-manager'); },
   'the addon disabled': p => { p.programs['deploy-cluster'].push({step: 'disable_addons', addons: ['cert-manager']}); },
@@ -365,6 +381,21 @@ const PLANTED = {
     const rows = p.programs['deploy-platform-services'];
     rows.push(structuredClone(rows.find(r => r.path === '<stage>/app/acme-account')));
   },
+  'the account wait before the seeds, as at bb1976d': p => {
+    const rows = p.programs['deploy-platform-services'];
+    const [row] = rows.splice(at(rows, accountWait), 1);
+    rows.splice(at(rows, r => r.step === 'trust_cluster_authority') + 1, 0, row);
+  },
+  'the account wait between the seeds and the handoff': p => {
+    const rows = p.programs['deploy-platform-services'];
+    const [row] = rows.splice(at(rows, accountWait), 1);
+    rows.splice(at(rows, r => r.path === '<stage>/app/acme-eab') + 1, 0, row);
+  },
+  'the account wait given its old 60 seconds': p => { p.programs['deploy-platform-services'].find(accountWait).timeout_seconds = 60; },
+  'the account wait gone': p => {
+    const rows = p.programs['deploy-platform-services'];
+    rows.splice(at(rows, accountWait), 1);
+  },
   'trust_cluster_authority after vault_init': p => {
     const rows = p.programs['deploy-platform-services'];
     const [row] = rows.splice(at(rows, r => r.step === 'trust_cluster_authority'), 1);
@@ -392,6 +423,12 @@ const INNOCENT = {
       delete row.values['acme-eab-key-id'];
     }
   },
+  'the account wait as the last row': p => {
+    const rows = p.programs['deploy-platform-services'];
+    const [row] = rows.splice(at(rows, accountWait), 1);
+    rows.push(row);
+  },
+  'the account wait given longer': p => { p.programs['deploy-platform-services'].find(accountWait).timeout_seconds = 900; },
   'the values template keys in another order': p => {
     const row = p.programs['deploy-platform-services'].find(r => r.path === RUN_VALUES && same(r.when, ['certificates_enabled']));
     const keys = p.templates[row.template].split('\n').filter(l => /^ {2}\w/.test(l));

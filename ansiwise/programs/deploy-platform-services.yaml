@@ -400,28 +400,6 @@ steps:
     bundle: /etc/ssl/certs/ca-certificates.crt
     on_failure: exit
 
-  # Until the account is registered, no certificate on this cluster can be issued. Recorded rather
-  # than fatal, and only where this installation asks the public authority at all.
-  - step: wait_for_command_output
-    rests_on_an_earlier_step: true
-    when: [certificates_enabled]
-    waiting_for: platform-acme to report that its account is registered
-    command: microk8s
-    command_arguments:
-      - kubectl
-      - get
-      - clusterissuer
-      - platform-acme
-      - -o
-      - 'jsonpath={.status.conditions[?(@.type=="Ready")].status}'
-    answer: 'True'
-    # As root: the snap refuses the question to an account outside its group, and a group is
-    # read at login so the row that adds the account cannot help a process already running.
-    elevated: true
-    timeout_seconds: 60
-    interval_seconds: 10
-    on_failure: continue
-
   # trust-manager reads its sources from the certificate service's namespace, where the authority a
   # cluster mints for itself stands as the Secret `platform-ca`. Its chart renders no Bundle: a
   # release holding the Bundle's CRD and a Bundle cannot install on a new cluster, so the Bundle is a
@@ -2606,6 +2584,39 @@ steps:
       /srv/hostyour-cloud merge master" and re-run.
     when: [reconciler_enabled, books_here_in_answers]
     on_failure: exit
+
+  # Until the account is registered, no certificate on this cluster can be issued. Recorded rather
+  # than fatal, and only where this installation asks the public authority at all.
+  #
+  # AFTER THE SEEDS AND THE HANDOFF, because those are what deliver the account. Where the cluster's
+  # map names it, the issuer signs with the key ExternalSecret platform-acme-account reads out of
+  # <stage>/app/acme-account and <stage>/app/acme-eab, and that ExternalSecret stands under Argo CD
+  # (hostyour-cloud cert-manager-account). Asked before the seeds, a run that switches a standing
+  # master to the account waits for a Secret nothing can deliver yet and ends failed, though the
+  # issuer registers minutes later.
+  #
+  # TEN MINUTES, because the delivery is not immediate: the secret store's reader retries a failed
+  # read with a growing pause, and on master1 the Secret came 168 seconds after the seeds. Where the
+  # account is registered already, the first look answers.
+  - step: wait_for_command_output
+    rests_on_an_earlier_step: true
+    when: [certificates_enabled]
+    waiting_for: platform-acme to report that its account is registered
+    command: microk8s
+    command_arguments:
+      - kubectl
+      - get
+      - clusterissuer
+      - platform-acme
+      - -o
+      - 'jsonpath={.status.conditions[?(@.type=="Ready")].status}'
+    answer: 'True'
+    # As root: the snap refuses the question to an account outside its group, and a group is
+    # read at login so the row that adds the account cannot help a process already running.
+    elevated: true
+    timeout_seconds: 600
+    interval_seconds: 10
+    on_failure: continue
 
   # --- what the operator is left holding ---------------------------------------------------------
   #
