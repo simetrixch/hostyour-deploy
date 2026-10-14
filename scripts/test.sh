@@ -45,6 +45,7 @@ node --test "$ROOT/scripts/host-admission-floor.test.mjs" || fail 'host admissio
 node --test "$ROOT/scripts/traefik-dashboard.test.mjs" || fail 'traefik dashboard off the web'
 node --test "$ROOT/scripts/prune-unused-images.test.mjs" || fail 'prune unused images before the free-disk check'
 node --test "$ROOT/scripts/manager-tenant-key-grants.test.mjs" || fail 'manager grants every tenant app key kind'
+node --test "$ROOT/scripts/build-platform-leaves.test.mjs" || fail 'the platform bump credentials stand on build-platform/ alone'
 node --test "$ROOT/scripts/manager-post-client-read.test.mjs" || fail 'manager reads the post client secret from its own entry alone'
 node --test "$ROOT/scripts/e2e-runner-read.test.mjs" || fail 'the e2e runner reads the E2E passwords alone'
 node --test "$ROOT/scripts/idp-bootstrap-read.test.mjs" || fail 'no cluster secret reader reads idp bootstrap'
