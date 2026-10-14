@@ -53,6 +53,7 @@ node --test "$ROOT/scripts/kubelet-image-gc.test.mjs" || fail 'kubelet collects 
 node --test "$ROOT/scripts/publish-mail-dkim.test.mjs" || fail 'publish-mail-dkim writes only the DKIM record'
 node --test "$ROOT/scripts/cert-manager-installs.test.mjs" || fail 'cert-manager installed only where none stands, never the addon'
 node --test "$ROOT/scripts/vault-listener-reload.test.mjs" || fail 'the secret store reloads its renewed TLS pair daily'
+node --test "$ROOT/scripts/forgejo.test.mjs" || fail 'Forgejo gets its client secret from the one minted value and its installation values'
 
 python3 "$ROOT/scripts/tenant-stage-proof.test.py" || fail 'tenant stage permission proof'
 

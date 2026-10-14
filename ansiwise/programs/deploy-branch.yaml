@@ -599,6 +599,17 @@ answers:
       The account the release pipeline pushes images as, granted read, create, update and delete. A
       separate account from the one above on purpose: what pulls an image cannot replace it.
 
+  # THE SSH PORT FORGEJO ANNOUNCES, which is not the port it listens on. Forgejo listens on port 2222
+  # of the master, and the router may forward another public port to it; the clone address a person
+  # copies has to name the public one.
+  - name: forgejo_ssh_port
+    kind: text
+    required: true
+    default: "2222"
+    describes: >-
+      The port Forgejo names in its SSH clone address, ssh://git@forgejo.<fqdn>:<port>/. The master
+      listens on 2222; name the port the router forwards to it.
+
   - name: build_platform_repo_write_pat
     kind: text
     stated_when: {predicate: build_plane_here_in_answers}
@@ -1214,6 +1225,21 @@ steps:
     file_mode: 420
     values:
       fqdn: { answer: fqdn }
+    on_failure: exit
+
+  # WHAT FORGEJO IS TOLD ABOUT THIS INSTALLATION: its own address, the SSH port it announces, and its
+  # one sign-in source, whose discovery address names this installation's identity provider. The
+  # chart writes these into app.ini without tpl, so none of them can be composed from the cluster map
+  # at render time. The sign-in list stands here whole, because Helm replaces a list instead of merging
+  # it. Inert on a cluster without the master part, like the Manager's file above.
+  - step: write_file_from_template
+    template: ansiwise/templates/forgejo-values.tpl
+    path: /srv/hostyour-cloud/installation/values/forgejo.yaml
+    # 420 — the reconciler's render reads this file.
+    file_mode: 420
+    values:
+      fqdn: { answer: fqdn }
+      forgejo-ssh-port: { answer: forgejo_ssh_port }
     on_failure: exit
 
   # WHAT THIS RUN WROTE, RECORDED. Without it the program ends exit 0 having produced files that

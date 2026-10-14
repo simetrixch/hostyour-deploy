@@ -1481,6 +1481,7 @@ steps:
       - 'headlamp-client-secret=IDP_HEADLAMP_CLIENT_SECRET'
       - 'vault-client-secret=IDP_VAULT_CLIENT_SECRET'
       - 'post-client-secret=IDP_POST_CLIENT_SECRET'
+      - 'forgejo-client-secret=IDP_FORGEJO_CLIENT_SECRET'
       # NOT A CLIENT SECRET, and it stands here because this is the entry the provider's own
       # credentials live in. It is what the DEPLOYMENT authenticates to the provider with, for the
       # acts a declaration cannot perform — adding one account to one group without owning the other
@@ -1493,6 +1494,7 @@ steps:
       - headlamp-client-secret
       - vault-client-secret
       - post-client-secret
+      - forgejo-client-secret
       - platform-api-token
     when: [secret_store_enabled, books_here_in_answers]
     on_failure: exit
@@ -1848,6 +1850,23 @@ steps:
     when: [secret_store_enabled, idp_enabled, books_here_in_answers]
     on_failure: exit
 
+  # Forgejo's sign-in source reads its client secret here; see the explanation above the Manager's
+  # copy for why each workload gets its own copy. The keys Forgejo signs and encrypts with are not
+  # here: Forgejo makes them at its first start and keeps them in app.ini on its own volume, beside
+  # the database they protect, and its JWT secret must be 32 bytes in base64, which a minted
+  # hexadecimal value is not.
+  - step: vault_kv_entry
+    rests_on_an_earlier_step: true
+    repository: /srv/hostyour-cloud
+    mount: secret
+    path: <stage>/app/forgejo
+    fields:
+      - 'oidc-client-secret=IDP_FORGEJO_CLIENT_SECRET'
+    copy_from:
+      - 'oidc-client-secret=<stage>/idp/bootstrap:forgejo-client-secret'
+    when: [secret_store_enabled, idp_enabled, books_here_in_answers]
+    on_failure: exit
+
   # THE POST CLIENT'S SECRET, FOR THE MANAGER ALONE. digita-post logs operators in with the client
   # post of the provider, and the Manager seeds that secret into post's own entry when it onboards a
   # stage of post, so no operator copies it by hand. It stands under the
@@ -1999,6 +2018,7 @@ steps:
       - 'IDP_HEADLAMP_CLIENT_SECRET=headlamp-client-secret'
       - 'IDP_VAULT_CLIENT_SECRET=vault-client-secret'
       - 'IDP_POST_CLIENT_SECRET=post-client-secret'
+      - 'IDP_FORGEJO_CLIENT_SECRET=forgejo-client-secret'
       # DELIBERATELY WITHOUT THE PROVIDER'S OWN PREFIX. Every key of this Secret becomes an
       # environment variable of the provider's pods verbatim, and the provider reads every variable
       # named after itself as one of its configuration keys. A credential is not one, so this is
