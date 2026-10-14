@@ -157,6 +157,8 @@ const REFUSED_DIRECTORIES = [
   'https://acme-v02.api.letsencrypt.org/directory',
   'https://acme-staging-v02.api.letsencrypt.org/directory',
   'https://dv.acme-v02.test-api.pki.goog/directory',
+  'https://dv.acme-v02.api.pki.goog/directory/x',
+  'https://evil.example/?https://dv.acme-v02.api.pki.goog/directory',
 ];
 function directoryFindings({programs}) {
   const steps = programs['deploy-cluster'];
@@ -426,6 +428,12 @@ const PLANTED = {
   'the directory row admitting the GTS test directory': p => {
     p.programs['deploy-cluster'].find(r => r.answer === 'letsencrypt_server').pattern = '^https://dv\\.acme-v02\\.(test-)?api\\.pki\\.goog/directory$';
   },
+  'the directory row without its end anchor': p => {
+    p.programs['deploy-cluster'].find(r => r.answer === 'letsencrypt_server').pattern = '^https://dv\\.acme-v02\\.api\\.pki\\.goog/directory';
+  },
+  'the directory row without its start anchor': p => {
+    p.programs['deploy-cluster'].find(r => r.answer === 'letsencrypt_server').pattern = 'https://dv\\.acme-v02\\.api\\.pki\\.goog/directory$';
+  },
   'the directory row judging another answer': p => { p.programs['deploy-cluster'].find(r => r.answer === 'letsencrypt_server').answer = 'letsencrypt_email'; },
   'the directory row gone': p => {
     const rows = p.programs['deploy-cluster'];
@@ -470,6 +478,9 @@ const INNOCENT = {
   },
   'the directory row with its dots written as classes': p => {
     p.programs['deploy-cluster'].find(r => r.answer === 'letsencrypt_server').pattern = '^https://dv[.]acme-v02[.]api[.]pki[.]goog/directory$';
+  },
+  'the directory row anchored around a group': p => {
+    p.programs['deploy-cluster'].find(r => r.answer === 'letsencrypt_server').pattern = '^(?:https://dv\\.acme-v02\\.api\\.pki\\.goog/directory)$';
   },
   'the directory row refusing in other words': p => { p.programs['deploy-cluster'].find(r => r.answer === 'letsencrypt_server').refusal = 'answer the GTS directory'; },
   'the account wait given longer': p => { p.programs['deploy-platform-services'].find(accountWait).timeout_seconds = 900; },
