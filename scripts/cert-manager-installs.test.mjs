@@ -145,7 +145,31 @@ function findings({programs, conditions, templates, answers}) {
     if (!(steps[trust].when ?? []).includes('certificates_withheld')) found.push('trust_cluster_authority runs without certificates_withheld');
     if (unseal >= 0 && trust > unseal) found.push('trust_cluster_authority stands after vault_init');
   }
-  return [...found, ...accountFindings({programs, templates, answers})];
+  return [...found, ...accountFindings({programs, templates, answers}), ...directoryFindings({programs})];
+}
+
+// THE ONE DIRECTORY. Every cluster's issuer binds the one account registered at Google Trust Services'
+// production directory, so deploy-cluster's first row admits that directory and no other: a Let's
+// Encrypt directory knows no such account, and a test directory signs with a root no machine carries.
+// Read with the row's own pattern, as the engine reads it (a search, so the anchors are the pattern's).
+const GTS_DIRECTORY = 'https://dv.acme-v02.api.pki.goog/directory';
+const REFUSED_DIRECTORIES = [
+  'https://acme-v02.api.letsencrypt.org/directory',
+  'https://acme-staging-v02.api.letsencrypt.org/directory',
+  'https://dv.acme-v02.test-api.pki.goog/directory',
+];
+function directoryFindings({programs}) {
+  const steps = programs['deploy-cluster'];
+  const rows = steps.filter(row => row.step === 'require_answer_matches' && row.answer === 'letsencrypt_server');
+  if (rows.length !== 1) return [`deploy-cluster holds ${rows.length} rows judging letsencrypt_server`];
+  const [row] = rows;
+  const found = [];
+  if (steps.indexOf(row) !== 0) found.push(`deploy-cluster judges letsencrypt_server at row ${steps.indexOf(row)}, not before anything is written`);
+  if (row.on_failure !== 'exit') found.push(`deploy-cluster's directory row goes on after a refusal (${row.on_failure})`);
+  const admits = directory => new RegExp(row.pattern).test(directory);
+  if (!admits(GTS_DIRECTORY)) found.push(`deploy-cluster refuses ${GTS_DIRECTORY}`);
+  for (const directory of REFUSED_DIRECTORIES) if (admits(directory)) found.push(`deploy-cluster admits ${directory}`);
+  return found;
 }
 
 // THE ONE ACME ACCOUNT (Google Trust Services). The key id of its External Account Binding is an
@@ -154,8 +178,8 @@ function findings({programs, conditions, templates, answers}) {
 // secret answer that reaches Vault through the credentials file, and the account key is minted in
 // Vault once. Both seed rows stand where every other seed of the installation stands: on the books
 // cluster, with the secret store up. Every part optional, and the key id's slots written <slot?>, so
-// a machine not yet switched renders its map and values as before and keeps the issuer form that
-// binds no account.
+// a run without the answer writes no line rather than an empty one, and hostyour-cloud's issuer chart
+// refuses that map by the key's name.
 const SEED_WHEN = ['secret_store_enabled', 'books_here_in_answers'];
 const ACCOUNT_SEEDS = {
   '<stage>/app/acme-eab': {step: 'vault_kv_entry', fields: ['mac-key=ACME_EAB_MAC_KEY'], optional_fields: ['mac-key']},
@@ -396,6 +420,22 @@ const PLANTED = {
     const rows = p.programs['deploy-platform-services'];
     rows.splice(at(rows, accountWait), 1);
   },
+  'the directory row admitting every production directory, as before': p => {
+    p.programs['deploy-cluster'].find(r => r.answer === 'letsencrypt_server').pattern = '^https://(?![^/]*staging)[^/]+/[^\\s]*$';
+  },
+  'the directory row admitting the GTS test directory': p => {
+    p.programs['deploy-cluster'].find(r => r.answer === 'letsencrypt_server').pattern = '^https://dv\\.acme-v02\\.(test-)?api\\.pki\\.goog/directory$';
+  },
+  'the directory row judging another answer': p => { p.programs['deploy-cluster'].find(r => r.answer === 'letsencrypt_server').answer = 'letsencrypt_email'; },
+  'the directory row gone': p => {
+    const rows = p.programs['deploy-cluster'];
+    rows.splice(at(rows, r => r.answer === 'letsencrypt_server'), 1);
+  },
+  'the directory row after the addons are enabled': p => {
+    const rows = p.programs['deploy-cluster'];
+    const [row] = rows.splice(at(rows, r => r.answer === 'letsencrypt_server'), 1);
+    rows.splice(at(rows, r => r.step === 'enable_addons') + 1, 0, row);
+  },
   'trust_cluster_authority after vault_init': p => {
     const rows = p.programs['deploy-platform-services'];
     const [row] = rows.splice(at(rows, r => r.step === 'trust_cluster_authority'), 1);
@@ -428,6 +468,10 @@ const INNOCENT = {
     const [row] = rows.splice(at(rows, accountWait), 1);
     rows.push(row);
   },
+  'the directory row with its dots written as classes': p => {
+    p.programs['deploy-cluster'].find(r => r.answer === 'letsencrypt_server').pattern = '^https://dv[.]acme-v02[.]api[.]pki[.]goog/directory$';
+  },
+  'the directory row refusing in other words': p => { p.programs['deploy-cluster'].find(r => r.answer === 'letsencrypt_server').refusal = 'answer the GTS directory'; },
   'the account wait given longer': p => { p.programs['deploy-platform-services'].find(accountWait).timeout_seconds = 900; },
   'the values template keys in another order': p => {
     const row = p.programs['deploy-platform-services'].find(r => r.path === RUN_VALUES && same(r.when, ['certificates_enabled']));

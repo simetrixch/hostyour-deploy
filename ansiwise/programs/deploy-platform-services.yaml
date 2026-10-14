@@ -2744,28 +2744,16 @@ answers:
     kind: text
     describes: >-
       The certificate authority this installation registers with, written as the address of its
-      directory. Every installation of this platform answers
-      https://acme-v02.api.letsencrypt.org/directory; a provider whose authority is a different one
-      names that instead, which is the only reason this is an answer rather than a line of the
-      program.
-
-      NEVER A STAGING SERVICE, and the first step of deploy-cluster refuses one rather than leaving
-      it to be discovered later. Its certificates are signed by a root no machine carries, so an
-      installation that answers one cannot reach its own secret store: the certificate issues, and
-      the run dies one step later on CERTIFICATE_VERIFY_FAILED, at vault_init. An installation that
-      cannot talk to itself proves nothing, which is the whole of what a staging service is answered
-      for.
-
-      TWO LIMITS TO LIVE WITH, and the second is the one that bites. Fifty certificates per
-      registered domain per week, and FIVE for one exact set of names. A machine reinstalled to be
-      proven spends one of those five per hostname per attempt, so the fifth rebuild in a week is
-      refused with 429 and the wait runs to a week after the first of them. Nothing here raises it:
-      what avoids it is an installation that does not throw its certificates away when it is rebuilt.
+      directory. Every installation of this platform answers Google Trust Services,
+      https://dv.acme-v02.api.pki.goog/directory, and the first step of deploy-cluster refuses every
+      other: the installation's one ACME account is registered there. Never a test directory: its
+      certificates are signed by a root no machine carries, so an installation that answers one
+      cannot reach its own secret store.
 
   - name: acme_eab_key_id
     kind: text
     required: false
     describes: >-
       The key id of the External Account Binding of this installation's one ACME account, as the
-      cluster's map states it. Given, the issuers bind that account; not given, the line is left
-      out and the issuer binds none, which is the form of a machine not yet switched.
+      cluster's map states it. The issuers bind that account, and hostyour-cloud's issuer chart
+      refuses a cluster whose values carry no key id by this key's name: there is no form without it.
