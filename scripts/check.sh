@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Local YAML parsing. Registry binding tests run in GitHub Actions.
+# Local YAML parsing. Registry binding tests run in the ci of the master.
 set -uo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -40,33 +40,39 @@ EOF
 [ "$broken" -eq 0 ] || fail "$broken of $parsed YAML file(s) do not parse"
 echo "check: $parsed YAML file(s) parse."
 
+# What the ci of the master reads of this tree before it runs it: the tools it installs and the commit of ansiwise-cli it binds to.
+yq -p=json -o=yaml e '.' "$ROOT/ci-tools.json" "$ROOT/ci-sources.json" >/dev/null || fail 'ci-tools.json or ci-sources.json does not parse'
+bash -n "$ROOT/scripts/cli-checkout.sh" || fail 'CLI checkout Bash syntax'
+node --check "$ROOT/scripts/cli-checkout.test.mjs" || fail 'CLI checkout check syntax'
+echo "check: NOT RUN locally — scripts/cli-checkout.test.mjs; runs in the ci of the master via scripts/test.sh."
+
 node --check "$ROOT/scripts/move-machine.mjs" || fail 'machine move syntax'
 node --check "$ROOT/scripts/move-machine.test.mjs" || fail 'machine move check syntax'
 bash -n "$ROOT/scripts/move-machine.sh" || fail 'machine move Bash syntax'
-echo 'check: NOT RUN locally — scripts/move-machine.test.mjs; runs in public GitHub Actions.'
+echo 'check: NOT RUN locally — scripts/move-machine.test.mjs; runs in the ci of the master via scripts/test.sh.'
 
 node --check "$ROOT/scripts/host-admission-floor.test.mjs" || fail 'host admission floor check syntax'
-echo 'check: NOT RUN locally — scripts/host-admission-floor.test.mjs; runs in public GitHub Actions.'
+echo 'check: NOT RUN locally — scripts/host-admission-floor.test.mjs; runs in the ci of the master via scripts/test.sh.'
 node --check "$ROOT/scripts/traefik-dashboard.test.mjs" || fail 'traefik dashboard check syntax'
-echo 'check: NOT RUN locally — scripts/traefik-dashboard.test.mjs; runs in public GitHub Actions.'
+echo 'check: NOT RUN locally — scripts/traefik-dashboard.test.mjs; runs in the ci of the master via scripts/test.sh.'
 node --check "$ROOT/scripts/prune-unused-images.test.mjs" || fail 'prune unused images check syntax'
-echo 'check: NOT RUN locally — scripts/prune-unused-images.test.mjs; runs in public GitHub Actions.'
+echo 'check: NOT RUN locally — scripts/prune-unused-images.test.mjs; runs in the ci of the master via scripts/test.sh.'
 node --check "$ROOT/scripts/manager-tenant-key-grants.test.mjs" || fail 'manager tenant key grants check syntax'
-echo 'check: NOT RUN locally — scripts/manager-tenant-key-grants.test.mjs; runs in public GitHub Actions.'
+echo 'check: NOT RUN locally — scripts/manager-tenant-key-grants.test.mjs; runs in the ci of the master via scripts/test.sh.'
 node --check "$ROOT/scripts/manager-post-client-read.test.mjs" || fail 'manager post client read check syntax'
-echo 'check: NOT RUN locally — scripts/manager-post-client-read.test.mjs; runs in public GitHub Actions.'
+echo 'check: NOT RUN locally — scripts/manager-post-client-read.test.mjs; runs in the ci of the master via scripts/test.sh.'
 node --check "$ROOT/scripts/e2e-runner-read.test.mjs" || fail 'e2e runner read check syntax'
-echo 'check: NOT RUN locally — scripts/e2e-runner-read.test.mjs; runs in public GitHub Actions.'
+echo 'check: NOT RUN locally — scripts/e2e-runner-read.test.mjs; runs in the ci of the master via scripts/test.sh.'
 node --check "$ROOT/scripts/idp-bootstrap-read.test.mjs" || fail 'idp bootstrap read check syntax'
-echo 'check: NOT RUN locally — scripts/idp-bootstrap-read.test.mjs; runs in public GitHub Actions.'
+echo 'check: NOT RUN locally — scripts/idp-bootstrap-read.test.mjs; runs in the ci of the master via scripts/test.sh.'
 node --check "$ROOT/scripts/kubelet-image-gc.test.mjs" || fail 'kubelet image gc check syntax'
-echo 'check: NOT RUN locally — scripts/kubelet-image-gc.test.mjs; runs in public GitHub Actions.'
+echo 'check: NOT RUN locally — scripts/kubelet-image-gc.test.mjs; runs in the ci of the master via scripts/test.sh.'
 node --check "$ROOT/scripts/cert-manager-installs.test.mjs" || fail 'cert-manager installs check syntax'
-echo 'check: NOT RUN locally — scripts/cert-manager-installs.test.mjs; runs in public GitHub Actions.'
+echo 'check: NOT RUN locally — scripts/cert-manager-installs.test.mjs; runs in the ci of the master via scripts/test.sh.'
 
 python3 -c 'import ast, pathlib, sys; [ast.parse(pathlib.Path(p).read_text()) for p in sys.argv[1:]]' "$ROOT/scripts/tenant-stage-proof.py" "$ROOT/scripts/tenant-stage-proof.test.py" || fail 'tenant stage proof Python syntax'
 bash -n "$ROOT/scripts/tenant-stage-proof.sh" || fail 'tenant stage proof Bash syntax'
 echo 'check: NOT RUN locally — scripts/tenant-stage-proof.test.py; public CI, except the explicit operator regression-first instruction.'
 
-echo 'check: NOT RUN locally — dart test test/checks/config_validity_test.dart; runs in GitHub Actions via scripts/test.sh.'
+echo 'check: NOT RUN locally — dart test test/checks/config_validity_test.dart; runs in the ci of the master via scripts/test.sh.'
 echo 'check: OK — every local check green'
