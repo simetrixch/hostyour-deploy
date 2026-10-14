@@ -1481,6 +1481,7 @@ steps:
       - 'headlamp-client-secret=IDP_HEADLAMP_CLIENT_SECRET'
       - 'vault-client-secret=IDP_VAULT_CLIENT_SECRET'
       - 'post-client-secret=IDP_POST_CLIENT_SECRET'
+      - 'forgejo-client-secret=IDP_FORGEJO_CLIENT_SECRET'
       # NOT A CLIENT SECRET, and it stands here because this is the entry the provider's own
       # credentials live in. It is what the DEPLOYMENT authenticates to the provider with, for the
       # acts a declaration cannot perform — adding one account to one group without owning the other
@@ -1493,6 +1494,7 @@ steps:
       - headlamp-client-secret
       - vault-client-secret
       - post-client-secret
+      - forgejo-client-secret
       - platform-api-token
     when: [secret_store_enabled, books_here_in_answers]
     on_failure: exit
@@ -1848,6 +1850,43 @@ steps:
     when: [secret_store_enabled, idp_enabled, books_here_in_answers]
     on_failure: exit
 
+  # Forgejo's sign-in source reads its client secret here; see the explanation above the Manager's
+  # copy for why each workload gets its own copy. The keys Forgejo signs and encrypts with are not
+  # here: Forgejo makes them at its first start and keeps them in app.ini on its own volume, beside
+  # the database they protect, and its JWT secret must be 32 bytes in base64, which a minted
+  # hexadecimal value is not.
+  - step: vault_kv_entry
+    rests_on_an_earlier_step: true
+    repository: /srv/hostyour-cloud
+    mount: secret
+    path: <stage>/app/forgejo
+    fields:
+      - 'oidc-client-secret=IDP_FORGEJO_CLIENT_SECRET'
+    copy_from:
+      - 'oidc-client-secret=<stage>/idp/bootstrap:forgejo-client-secret'
+    when: [secret_store_enabled, idp_enabled, books_here_in_answers]
+    on_failure: exit
+
+  # PLANE'S ENTRY: its two signing keys and the passwords of the PostgreSQL, RabbitMQ and MinIO that
+  # run beside it, all minted, because nobody types them and nothing outside Plane's namespace reads
+  # them. One row for all six: this step rewrites the whole entry and keeps only the minted fields of
+  # its own row, so a second row on this path would erase what the first one wrote.
+  - step: vault_kv_entry
+    rests_on_an_earlier_step: true
+    repository: /srv/hostyour-cloud
+    mount: secret
+    path: <stage>/app/plane
+    fields:
+      - 'secret-key=PLANE_SECRET_KEY'
+      - 'live-server-secret-key=PLANE_LIVE_SERVER_SECRET_KEY'
+      - 'pgdb-password=PLANE_PGDB_PASSWORD'
+      - 'rabbitmq-password=PLANE_RABBITMQ_PASSWORD'
+      - 'minio-access-key=PLANE_MINIO_ACCESS_KEY'
+      - 'minio-secret-key=PLANE_MINIO_SECRET_KEY'
+    mint: [secret-key, live-server-secret-key, pgdb-password, rabbitmq-password, minio-access-key, minio-secret-key]
+    when: [secret_store_enabled, books_here_in_answers]
+    on_failure: exit
+
   # THE POST CLIENT'S SECRET, FOR THE MANAGER ALONE. digita-post logs operators in with the client
   # post of the provider, and the Manager seeds that secret into post's own entry when it onboards a
   # stage of post, so no operator copies it by hand. It stands under the
@@ -1877,6 +1916,22 @@ steps:
     fields:
       - 'github-webhook-secret=IMAGE_BUILDER_GITHUB_WEBHOOK_SECRET'
     mint: [github-webhook-secret]
+    when: [secret_store_enabled, build_plane_here_in_answers, books_here_in_answers]
+    on_failure: exit
+
+  # THE KEY FORGEJO SIGNS ITS DELIVERIES WITH, which the build plane's Forgejo Triggers check before
+  # they believe one. Minted here and typed into the webhook of a Forgejo repository from Vault, so no
+  # operator invents it. An entry of its own and not a field beside GitHub's: the release that makes
+  # the build plane read it reaches the cluster before this row mints it, and its reader treats a
+  # missing entry as no error but a missing field of an entry that exists as one.
+  - step: vault_kv_entry
+    rests_on_an_earlier_step: true
+    repository: /srv/hostyour-cloud
+    mount: secret
+    path: <stage>/app/forgejo-webhook
+    fields:
+      - 'forgejo-webhook-secret=FORGEJO_WEBHOOK_SECRET'
+    mint: [forgejo-webhook-secret]
     when: [secret_store_enabled, build_plane_here_in_answers, books_here_in_answers]
     on_failure: exit
 
@@ -1999,6 +2054,7 @@ steps:
       - 'IDP_HEADLAMP_CLIENT_SECRET=headlamp-client-secret'
       - 'IDP_VAULT_CLIENT_SECRET=vault-client-secret'
       - 'IDP_POST_CLIENT_SECRET=post-client-secret'
+      - 'IDP_FORGEJO_CLIENT_SECRET=forgejo-client-secret'
       # DELIBERATELY WITHOUT THE PROVIDER'S OWN PREFIX. Every key of this Secret becomes an
       # environment variable of the provider's pods verbatim, and the provider reads every variable
       # named after itself as one of its configuration keys. A credential is not one, so this is
