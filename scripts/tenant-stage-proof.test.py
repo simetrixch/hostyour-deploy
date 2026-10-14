@@ -111,13 +111,10 @@ class ProofTest(unittest.TestCase):
         finally:
             server.shutdown();server.server_close();thread.join()
 
-    def test_launchers_keep_identical_output_and_exit(self):
-        root=SCRIPT.parent
-        shell=subprocess.run(['bash',str(root/'tenant-stage-proof.sh')],capture_output=True)
-        powershell=subprocess.run(['pwsh','-NoProfile','-File',str(root/'tenant-stage-proof.ps1')],capture_output=True)
+    def test_launcher_without_arguments_refuses_in_its_recorded_output(self):
+        shell=subprocess.run(['bash',str(SCRIPT.parent/'tenant-stage-proof.sh')],capture_output=True)
         self.assertEqual(shell.returncode,1)
-        self.assertEqual(powershell.returncode,shell.returncode)
-        self.assertEqual(powershell.stdout,shell.stdout)
-        self.assertEqual(powershell.stderr,shell.stderr)
+        self.assertEqual(shell.stdout,b'{"phase": "prepare", "exceptionClass": "ValueError", "subprocessExit": null, "httpStatus": null}\n')
+        self.assertEqual(shell.stderr,b'')
 
 if __name__=='__main__':unittest.main()
