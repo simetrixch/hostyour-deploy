@@ -8,8 +8,11 @@ import {fileURLToPath} from 'node:url';
 // file whose imageMaximumGCAge collects an image unused for that long. A --config file brings the
 // v1beta1 defaults, which differ from the flag defaults in four fields (Kubernetes v1.35.6
 // cmd/kubelet/app/options/options.go applyLegacyDefaults); MicroK8s sets three of them as flags,
-// so the file restates the fourth, authorization.mode, at today's AlwaysAllow and says nothing else.
-// The same row raises the node's pod limit to 250, as a flag, because the file says nothing else.
+// so the file restates the fourth, authorization.mode, at today's AlwaysAllow. It also declares the bound of every
+// container's log on the node, the source the ingress access log is written to: a file is rotated at 10Mi and 5 are kept,
+// the values the kubelets run today. Kubernetes v1.35.6 turns rotation off for a negative size
+// (pkg/kubelet/logs/container_log_manager.go NewContainerLogManager), so that is a log without bound. The file says
+// nothing else. The same row raises the node's pod limit to 250, as a flag, because the file says nothing else.
 const TEMPLATE = 'ansiwise/templates/kubelet-config.tpl';
 const ARGS = '/var/snap/microk8s/current/args/kubelet';
 const file = path => fileURLToPath(new URL(`../${path}`, import.meta.url));
@@ -34,12 +37,14 @@ function findings(rows, written) {
   if (written.kind !== 'KubeletConfiguration' || written.apiVersion !== 'kubelet.config.k8s.io/v1beta1') found.push(`the file is a ${written.apiVersion} ${written.kind}`);
   if (written.imageMaximumGCAge !== '36h') found.push(`imageMaximumGCAge is ${written.imageMaximumGCAge}`);
   if (written.authorization?.mode !== 'AlwaysAllow') found.push(`authorization.mode is ${written.authorization?.mode}, not today's AlwaysAllow`);
-  const extra = Object.keys(written).filter(key => !['apiVersion', 'kind', 'authorization', 'imageMaximumGCAge'].includes(key));
+  if (written.containerLogMaxSize !== '10Mi') found.push(`a container's log is rotated at ${written.containerLogMaxSize ?? 'a size the file does not declare'}, not 10Mi`);
+  if (written.containerLogMaxFiles !== 5) found.push(`a container keeps ${written.containerLogMaxFiles ?? 'a number the file does not declare of'} log files, not 5`);
+  const extra = Object.keys(written).filter(key => !['apiVersion', 'kind', 'authorization', 'imageMaximumGCAge', 'containerLogMaxSize', 'containerLogMaxFiles'].includes(key));
   if (extra.length) found.push(`the file also sets ${extra.join(', ')}`);
   return found;
 }
 
-test('deploy-cluster gives the kubelet an image collection of 36 h and 250 pods, and changes nothing else', () => {
+test('deploy-cluster gives the kubelet an image collection of 36 h, 250 pods and a container log of 10Mi in 5 files, and changes nothing else', () => {
   assert.deepEqual(findings(steps, config), []);
 });
 
@@ -55,6 +60,11 @@ test('PLANTED DEFECT: each way out is found, and the program itself is not', () 
     'no restart': [rows => { delete flagsRow(rows).restart_command; }, config],
     'no age': [rows => {}, {...config, imageMaximumGCAge: undefined}],
     'webhook authorization slips in': [rows => {}, {...config, authorization: {mode: 'Webhook'}}],
+    'no log size declared': [rows => {}, {...config, containerLogMaxSize: undefined}],
+    'no log file count declared': [rows => {}, {...config, containerLogMaxFiles: undefined}],
+    'log rotation off': [rows => {}, {...config, containerLogMaxSize: '-1'}],
+    'a larger log': [rows => {}, {...config, containerLogMaxSize: '1Gi'}],
+    'more log files': [rows => {}, {...config, containerLogMaxFiles: 50}],
     'a further setting rides along': [rows => {}, {...config, readOnlyPort: 0}],
   };
   for (const [name, [plant, written]] of Object.entries(planted)) {

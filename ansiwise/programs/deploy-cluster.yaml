@@ -530,6 +530,19 @@ steps:
   # published on. Neither half works alone. The roll is part of this step: on one machine the
   # replacement pod cannot be created while the old one holds the machine's ports, so a patch
   # without it looks like it succeeded while the running controller keeps its old arguments.
+  #
+  # THE ACCESS LOG KEEPS METADATA ONLY: every field is dropped unless named here. In Traefik v3.6.2
+  # RequestPath carries the query, ClientHost is the raw X-Forwarded-For, RequestHost and
+  # RequestMethod are text the caller chooses, and TLSClientSubject names a client; none of them may
+  # reach a log. ClientAddr is the socket peer: behind Cloudflare it names the edge, never the
+  # visitor. The lines are JSON, because the common format has no place for ClientAddr or
+  # ServiceName. The step only appends, so a changed value would stand beside the old one: each
+  # argument here keeps its value. scripts/traefik-access-log.test.mjs runs these arguments on the
+  # v3.6.2 binary.
+  #
+  # NO forwardedHeaders ARGUMENT, on purpose: nothing stands in front of this controller, and with
+  # neither `insecure` nor `trustedIPs` set Traefik deletes every X-Forwarded-* and X-Real-Ip a peer
+  # sends and writes its own.
   - step: patch_container_arguments_and_ports
     rests_on_an_earlier_step: true
     namespace: ingress
@@ -538,6 +551,16 @@ steps:
     container: traefik
     arguments:
       - --providers.kubernetescrd.allowCrossNamespace=true
+      - --accesslog=true
+      - --accesslog.format=json
+      - --accesslog.fields.defaultmode=drop
+      - --accesslog.fields.headers.defaultmode=drop
+      - --accesslog.fields.names.ClientAddr=keep
+      - --accesslog.fields.names.RouterName=keep
+      - --accesslog.fields.names.ServiceName=keep
+      - --accesslog.fields.names.DownstreamStatus=keep
+      - --accesslog.fields.names.Duration=keep
+      - --accesslog.fields.names.DownstreamContentSize=keep
     ports: []
     rollout_timeout_seconds: 90
     on_failure: continue
@@ -623,6 +646,8 @@ steps:
   # setting exists only in the kubelet's configuration file, so the file is written and named by
   # --config; what it says and why it restates authorization.mode stands in the template. The age
   # stands in the file's name, so a new age is a new flag and the row below restarts the kubelet.
+  # The same file declares the bound of every container's log, 10Mi rotated and 5 files kept, the
+  # source the ingress writes its access log to.
   - step: write_file_from_template
     template: ansiwise/templates/kubelet-config.tpl
     path: /var/snap/microk8s/current/args/kubelet-config-36h.yaml
