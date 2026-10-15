@@ -114,7 +114,7 @@ async function fixture(options = {}) {
       return send(200, {user: {...user, ...(options.badUser ?? {})}, permission: 'write'});
     }
     if (path === base + 'akadmin/permission') return send(basic || options.ownerToken ? 200 : 403, {});
-    if (path === '/api/v1/user/repos') return send(200, [{full_name: REPO, permissions: {push: true, admin: false}}, ...(options.unrelated ? [{full_name: 'akadmin/unrelated', permissions: {push: true}}] : [])]);
+    if (path === '/api/v1/user/repos') return send(200, [{full_name: REPO, permissions: {push: true, admin: options.repoAdmin ?? false}}, ...(options.unrelated ? [{full_name: 'akadmin/unrelated', permissions: {push: true}}] : [])]);
     if (path === '/api/v1/repos/akadmin/unrelated/contents/proof') return send(403);
     return send(500, 'unexpected path');
   });
@@ -198,7 +198,7 @@ test('a confirmed invalid or lost same-name token is recovered once and reused',
 });
 
 test('read failures, absent pods and broad identity rights cannot mint or claim success', async () => {
-  for (const options of [{unreadable: true}, {apiFailure: true}, {absentPod: true}, {unrelated: true}, {badUser: {restricted: false}}, {ownerToken: true}]) {
+  for (const options of [{unreadable: true}, {apiFailure: true}, {absentPod: true}, {unrelated: true}, {repoAdmin: true}, {badUser: {restricted: false}}, {ownerToken: true}]) {
     const f = await fixture(options);
     try {
       const r = await f.run(entry);

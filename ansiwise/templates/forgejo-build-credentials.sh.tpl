@@ -110,6 +110,8 @@ def users(cleanup=False):
     if not lines or lines[0].split() != ['ID', 'Username', 'Email', 'IsActive', 'IsAdmin', '2FA']:
         refuse('the Forgejo user list could not be read')
     for line in lines[1:]:
+        if not line.strip():
+            continue
         cells = line.split()
         if len(cells) != 6 or not cells[0].isdigit() or cells[3] not in ('true', 'false') or cells[4] not in ('true', 'false'):
             refuse('the Forgejo user list could not be read')
@@ -178,6 +180,8 @@ def inspect(token):
             rights = repo.get('permissions')
             if not isinstance(rights, dict) or not isinstance(rights.get('push'), bool):
                 refuse('Forgejo repository write rights are unreadable')
+            if rights.get('admin') is True:
+                refuse('forgejo-build has repository administration rights')
             if rights['push'] and repo.get('full_name') not in REPOSITORIES:
                 refuse('forgejo-build has write access to an unrelated repository')
         if len(repositories) < 50:
