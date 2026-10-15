@@ -5,10 +5,9 @@
 # reconciler, the secret store — fills the secret store with the shape every workload authenticates
 # against, and then hands the cluster over.
 #
-# WHERE IT STOPS. The last step applies one application. From there the reconciler creates the
-# projects, the generators and every platform application below them, each naming its own path, and
-# the question "which file put this object on the cluster" is answered by it and not by any record
-# here. That handover is a step with a verdict, not the absence of an error.
+# The handoff starts the reconciler's application tree. Once its Forgejo pod is ready, the
+# installer can provision the build credentials that require Forgejo to issue and validate a token.
+# The reconciler owns the application objects; the installer owns the complete credential entry.
 #
 # THE ORDER IS A CHAIN OF DEPENDENCIES AND NOT A PREFERENCE, and the chain begins where credentials
 # do. The secret store is first: it is the one place a credential of this installation comes into
@@ -24,7 +23,7 @@
 # Three steps of the store's own block sit AFTER the identity provider, and they are the three that
 # give a human a browser login to it. Everything else about the store needs nothing from it.
 #
-# The handoff is last because the applications it starts read what the seed wrote on their first
+# The handoff follows the seeds because the applications it starts read them on their first
 # sync.
 #
 # EVERY PHASE CAN BE SWITCHED OFF, AND OFF MEANS NOTHING AT ALL. The conditions behind `when:` are
@@ -2643,8 +2642,8 @@ steps:
 
   # --- the handoff -----------------------------------------------------------------------------
   #
-  # Last, and last for a reason: the applications this starts read on their first sync what the seed
-  # above wrote. After it the installer decides nothing more about this cluster.
+  # The applications this starts read on their first sync what the seed above wrote. The Forgejo
+  # credential producer follows this handoff because it needs that application's ready pod.
   #
   # ONE OBJECT, AND IT IS WHY THE ROW IS THE IRREVERSIBLE KIND rather than the ordinary one. Nothing
   # in the branch's application tree reaches the cluster except through the single application this
