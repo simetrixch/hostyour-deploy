@@ -2677,7 +2677,8 @@ steps:
     when: [reconciler_enabled, books_here_in_answers]
     on_failure: exit
 
-  # Forgejo starts through the handoff. Credentials are then exchanged once, as a complete entry.
+  # Credentials are exchanged once, as a complete entry, on a master where Plane already ran before
+  # this run: a first installation hands Forgejo and Plane over above and skips these two rows.
   - step: write_file_from_template
     template: ansiwise/templates/forgejo-build-credentials.sh.tpl
     path: /run/forgejo-build-credentials.sh
@@ -2692,7 +2693,7 @@ steps:
       forgejo-container: forgejo
       forgejo-repositories: akadmin/hostyour-release-test
       forgejo-credential-lock: /run/forgejo-build-credentials.lock
-    when: [secret_store_enabled, books_here_in_answers, build_plane_here_in_answers]
+    when: [secret_store_enabled, books_here_in_answers, build_plane_here_in_answers, plane_runs_here]
     on_failure: exit
 
   - step: vault_kv_entry_from_command
@@ -2703,7 +2704,7 @@ steps:
     producer: /run/forgejo-build-credentials.sh
     fields: [forgejo-user, forgejo-api-token, plane-api-token]
     fields_from_answers: ['plane-api-token=plane_api_token']
-    when: [secret_store_enabled, books_here_in_answers, build_plane_here_in_answers]
+    when: [secret_store_enabled, books_here_in_answers, build_plane_here_in_answers, plane_runs_here]
     on_failure: exit
 
   # Until the account is registered, no certificate on this cluster can be issued. Recorded rather

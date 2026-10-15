@@ -13,7 +13,9 @@ const PLANE = 'fixture-plane-update-status-secret';
 const TOKEN = 'fixture-forgejo-build-issued-secret';
 const PASSWORD = "fixture-bootstrap-password'$with-quotes";
 const entry = {'forgejo-user': USER, 'forgejo-api-token': TOKEN, 'plane-api-token': PLANE};
-const program = JSON.parse(execFileSync('yq', ['-o=json', '.', new URL('ansiwise/programs/deploy-platform-services.yaml', root).pathname], {encoding: 'utf8'}));
+const yaml = file => JSON.parse(execFileSync('yq', ['-o=json', '.', new URL(file, root).pathname], {encoding: 'utf8'}));
+const program = yaml('ansiwise/programs/deploy-platform-services.yaml');
+const installation = yaml('ansiwise.yaml');
 
 function wiring(steps) {
   const writers = steps.filter(s => s.path === '<stage>/app/forgejo-build');
@@ -21,9 +23,10 @@ function wiring(steps) {
   const row = writers[0], problems = [];
   if (JSON.stringify(row.fields) !== JSON.stringify(Object.keys(entry))) problems.push('not the three credential fields');
   if (JSON.stringify(row.fields_from_answers) !== JSON.stringify(['plane-api-token=plane_api_token'])) problems.push('missing secret input');
-  if (!['books_here_in_answers', 'build_plane_here_in_answers'].every(c => row.when?.includes(c))) problems.push('wrong machine');
-  if (row.on_failure !== 'exit') problems.push('failure continued');
   const render = steps.find(s => s.path === row.producer);
+  const machine = ['books_here_in_answers', 'build_plane_here_in_answers', 'plane_runs_here'];
+  if (![row, render].every(r => machine.every(c => r?.when?.includes(c)))) problems.push('wrong machine');
+  if (row.on_failure !== 'exit') problems.push('failure continued');
   if (render?.step !== 'write_file_from_template' || render.template !== 'ansiwise/templates/forgejo-build-credentials.sh.tpl') problems.push('no application producer');
   if (steps.indexOf(row) <= steps.findIndex(s => s.manifest === 'clusters/argocd/root-app.yaml')) problems.push('before Forgejo can start');
   return problems;
@@ -31,6 +34,9 @@ function wiring(steps) {
 
 test('one installer writer follows the handoff and reads the optional secret answer', () => {
   assert.deepEqual(wiring(program.steps), []);
+  // Conditions are measured before the first row, so a first installation finds no Plane yet.
+  assert.deepEqual(installation.conditions.plane_runs_here, {predicate: 'kubernetes_object_present', kind: 'deployments.apps',
+    name: 'plane-api-wl', namespace: 'plane', kubectl: ['microk8s', 'kubectl'], kubectl_needs_root: true});
   const answer = program.answers.find(a => a.name === 'plane_api_token');
   assert.equal(answer?.secret, true);
   assert.equal(answer?.required, false);
@@ -39,6 +45,8 @@ test('one installer writer follows the handoff and reads the optional secret ans
     steps => steps.push(structuredClone(steps.find(s => s.path === '<stage>/app/forgejo-build'))),
     steps => { steps.find(s => s.path === '<stage>/app/forgejo-build').fields.push('plane-project'); },
     steps => { steps.find(s => s.path === '<stage>/app/forgejo-build').on_failure = 'continue'; },
+    steps => { const row = steps.find(s => s.path === '<stage>/app/forgejo-build'); row.when = row.when.filter(c => c !== 'plane_runs_here'); },
+    steps => { const row = steps.find(s => s.template === 'ansiwise/templates/forgejo-build-credentials.sh.tpl'); row.when = row.when.filter(c => c !== 'plane_runs_here'); },
   ]) {
     const changed = structuredClone(program.steps); defect(changed);
     assert.notDeepEqual(wiring(changed), []);
