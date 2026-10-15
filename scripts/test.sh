@@ -55,6 +55,7 @@ node --test "$ROOT/scripts/idp-bootstrap-read.test.mjs" || fail 'no cluster secr
 node --test "$ROOT/scripts/kubelet-image-gc.test.mjs" || fail 'kubelet collects unused images'
 node --test "$ROOT/scripts/publish-mail-dkim.test.mjs" || fail 'publish-mail-dkim writes only the DKIM record'
 node --test "$ROOT/scripts/cert-manager-installs.test.mjs" || fail 'cert-manager installed only where none stands, never the addon'
+node --test "$ROOT/scripts/cloudflare-origin-pull-ca.test.mjs" || fail 'the origin pull CA reaches the Vault entry every cluster reads, optional, without the client half'
 node --test "$ROOT/scripts/vault-listener-reload.test.mjs" || fail 'the secret store reloads its renewed TLS pair daily'
 node --test "$ROOT/scripts/forgejo.test.mjs" || fail 'Forgejo gets its client secret from the one minted value and its installation values'
 node --test "$ROOT/scripts/plane.test.mjs" || fail 'Plane gets every secret from one minted entry and its installation values'

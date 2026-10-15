@@ -77,6 +77,8 @@ node --check "$ROOT/scripts/kubelet-image-gc.test.mjs" || fail 'kubelet image gc
 echo 'check: NOT RUN locally — scripts/kubelet-image-gc.test.mjs; runs in the ci of the master via scripts/test.sh.'
 node --check "$ROOT/scripts/cert-manager-installs.test.mjs" || fail 'cert-manager installs check syntax'
 echo 'check: NOT RUN locally — scripts/cert-manager-installs.test.mjs; runs in the ci of the master via scripts/test.sh.'
+node --check "$ROOT/scripts/cloudflare-origin-pull-ca.test.mjs" || fail 'cloudflare origin pull CA check syntax'
+echo 'check: NOT RUN locally — scripts/cloudflare-origin-pull-ca.test.mjs; runs in the ci of the master via scripts/test.sh.'
 node --check "$ROOT/scripts/vault-listener-reload.test.mjs" || fail 'vault listener reload check syntax'
 echo 'check: NOT RUN locally — scripts/vault-listener-reload.test.mjs; runs in the ci of the master via scripts/test.sh.'
 node --check "$ROOT/scripts/forgejo.test.mjs" || fail 'Forgejo client secret and values check syntax'

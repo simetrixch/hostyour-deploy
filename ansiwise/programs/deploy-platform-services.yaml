@@ -1642,6 +1642,20 @@ steps:
     when: [secret_store_enabled, books_here_in_answers]
     on_failure: exit
 
+  # The CA the ingress of every cluster verifies Cloudflare's origin pull client certificate
+  # against, out of the credentials file, read there by ExternalSecret cloudflare-origin-pull-ca
+  # (hostyour-cloud) through <cluster>-eso. Public, so alone on its entry; optional, so an
+  # installation that serves no host behind Cloudflare's proxy writes nothing.
+  - step: vault_kv_entry
+    rests_on_an_earlier_step: true
+    repository: /srv/hostyour-cloud
+    mount: secret
+    path: <stage>/app/cloudflare-origin-pull
+    fields: ['ca-certificate=CLOUDFLARE_ORIGIN_PULL_CA']
+    optional_fields: [ca-certificate]
+    when: [secret_store_enabled, books_here_in_answers]
+    on_failure: exit
+
   # The platform's GitHub App, three fields and one entry like the object storage: an App id
   # without its installation id signs a token for no owner, and a key without either signs
   # nothing. All three required (hostyour-cloud#237): the App is the identity the deploy repository
