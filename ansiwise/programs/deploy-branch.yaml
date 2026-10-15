@@ -625,10 +625,10 @@ answers:
     required: false
     secret: true
     describes: >-
-      Build plane only: the same, on the repository the platform's own Manager is built from. It
-      is a unit like any other, and its build reads the credential at the path every unit's build
-      reads — which the Manager writes when it onboards a unit, this one included:
-      ansiwise/programs/onboard-manager.yaml asks for the same answer under this same name.
+      Build plane only: a GitHub PAT with Contents: Read access to the private
+      simetrixch/hostyour-manager repository. onboard-manager uses this same secret answer to check
+      access before creating an onboarding run. The Manager's GitHub App or the repository owner's
+      recorded PAT supplies the build identity.
 
 steps:
   # THE SECOND REFUSAL THAT ASKS NO MACHINE ANYTHING, AND IT STANDS AHEAD OF THE FIRST TOOL. The

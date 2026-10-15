@@ -45,6 +45,8 @@ yq -p=json -o=yaml e '.' "$ROOT/ci-tools.json" "$ROOT/ci-sources.json" >/dev/nul
 bash -n "$ROOT/scripts/cli-checkout.sh" || fail 'CLI checkout Bash syntax'
 node --check "$ROOT/scripts/cli-checkout.test.mjs" || fail 'CLI checkout check syntax'
 echo "check: NOT RUN locally — scripts/cli-checkout.test.mjs; runs in the ci of the master via scripts/test.sh."
+node --check "$ROOT/scripts/onboard-manager.test.mjs" || fail 'Manager onboarding access check syntax'
+echo 'check: NOT RUN locally — scripts/onboard-manager.test.mjs; runs in the ci of the master via scripts/test.sh.'
 
 node --check "$ROOT/scripts/move-machine.mjs" || fail 'machine move syntax'
 node --check "$ROOT/scripts/move-machine.test.mjs" || fail 'machine move check syntax'
