@@ -23,6 +23,10 @@ SELECTOR = '<forgejo-pod-selector>'
 CONTAINER = '<forgejo-container>'
 REPOSITORIES = '<forgejo-repositories>'.split(',')
 LOCK = '<forgejo-credential-lock>'
+# write:repository sets statuses and creates releases; read:user lets the token show its own account,
+# its own scopes and its rights (GET /user, /users/<user>/tokens, /user/repos), so a check needs no
+# administrator and stays read-only.
+SCOPES = 'write:repository,read:user'
 PORT = 3000
 POD_WAIT_SECONDS = 30
 
@@ -149,46 +153,61 @@ def permission_path(repo, user):
     return '/repos/' + repo + '/collaborators/' + user + '/permission'
 
 
-def inspect(token):
-    if not isinstance(token, str) or not token or any(c in token for c in '\r\n'):
-        return False
-    auth = 'token ' + token
-    for repo in REPOSITORIES:
-        status, raw = api('GET', permission_path(repo, USER), auth, (200, 401, 403, 404))
-        if status == 403:
-            refuse('Forgejo credential permissions could not be read; no token was minted')
-        if status != 200:
-            return False
-        permission = object_json(raw, 'Forgejo permission')
-        person = permission.get('user', {})
-        if person.get('login') != USER or person.get('is_admin') is not False or person.get('restricted') is not True or person.get('active') is not True:
-            refuse('forgejo-build is not an active restricted non-admin user')
-        if permission.get('permission') != 'write':
-            refuse('forgejo-build must have write permission without repository administration')
-        # With write:repository, /user needs an ungranted read:user scope. This self-only endpoint
-        # plus the refused owner lookup identifies the actor without adding that scope.
-        status, _ = api('GET', permission_path(repo, repo.split('/')[0]), auth, (200, 401, 403, 404))
-        if status != 403:
-            refuse('the standing Forgejo credential has broader identity rights than forgejo-build')
+def pages(path, auth):
     page = 1
     while True:
-        _, raw = api('GET', '/user/repos?limit=50&page=' + str(page), auth, (200,))
-        repositories = object_json(raw, 'Forgejo repository permissions')
-        if not isinstance(repositories, list):
-            refuse('Forgejo repository permissions are unreadable')
-        for repo in repositories:
-            rights = repo.get('permissions')
-            if not isinstance(rights, dict) or not isinstance(rights.get('push'), bool):
-                refuse('Forgejo repository write rights are unreadable')
-            if rights.get('admin') is True:
-                refuse('forgejo-build has repository administration rights')
-            if rights['push'] and repo.get('full_name') not in REPOSITORIES:
-                refuse('forgejo-build has write access to an unrelated repository')
-        if len(repositories) < 50:
-            return True
+        _, raw = api('GET', path + '?limit=50&page=' + str(page), auth, (200,))
+        listed = object_json(raw, 'Forgejo ' + path)
+        if not isinstance(listed, list):
+            refuse('Forgejo returned no list for GET ' + path)
+        yield from listed
+        if len(listed) < 50:
+            return
         page += 1
         if page > 100:
-            refuse('Forgejo repository permissions exceeded the page bound')
+            refuse('Forgejo ' + path + ' exceeded the page bound')
+
+
+def issued_here(tokens, token):
+    # Forgejo never edits a token after issuing it, so its listed scopes and repository limit are what
+    # it can do: exactly SCOPES, over every repository, and so neither public-only nor narrowed.
+    named = [t for t in tokens if isinstance(t, dict) and t.get('name') == TOKEN_NAME]
+    return (len(named) == 1 and named[0].get('token_last_eight') == token[-8:] and
+            sorted(named[0].get('scopes') or []) == sorted(SCOPES.split(',')) and
+            named[0].get('repositories') is None)
+
+
+def inspect(token):
+    """'valid', 'ungranted' (a valid token whose user lacks a build repository's write grant) or
+    'invalid'. Only GET requests with the token itself, so a check stays read-only."""
+    if not isinstance(token, str) or len(token) < 8 or any(c in token for c in '\r\n'):
+        return 'invalid'
+    auth = 'token ' + token
+    # 401: Forgejo knows no such token; 403: it lacks read:user, so it is not the one issued here.
+    # Neither mints by itself: apply asks the administrator's listing first.
+    status, raw = api('GET', '/user', auth, (200, 401, 403))
+    if status != 200:
+        return 'invalid'
+    actor = object_json(raw, 'Forgejo user')
+    if actor.get('login') != USER:
+        refuse('the held Forgejo credential belongs to another account; no token was minted')
+    if actor.get('is_admin') is not False or actor.get('restricted') is not True or actor.get('active') is not True:
+        refuse('forgejo-build is not an active restricted non-admin user')
+    if not issued_here(list(pages('/users/' + USER + '/tokens', auth)), token):
+        return 'invalid'
+    # The token reaches every repository, so this list is every repository the user has a right on.
+    pushed = set()
+    for repo in pages('/user/repos', auth):
+        rights = repo.get('permissions') if isinstance(repo, dict) else None
+        if not isinstance(rights, dict) or not isinstance(rights.get('push'), bool):
+            refuse('Forgejo repository write rights are unreadable')
+        if rights.get('admin') is True:
+            refuse('forgejo-build has repository administration rights')
+        if rights['push']:
+            if repo.get('full_name') not in REPOSITORIES:
+                refuse('forgejo-build has write access to an unrelated repository')
+            pushed.add(repo['full_name'])
+    return 'valid' if pushed == set(REPOSITORIES) else 'ungranted'
 
 
 def remove_bootstrap():
@@ -222,27 +241,20 @@ def provision(token):
             person = object_json(raw, 'Forgejo collaborator').get('user', {})
             if person.get('login') != USER or person.get('is_admin') is not False or person.get('restricted') is not True or person.get('active') is not True:
                 refuse('forgejo-build is not an active restricted non-admin user')
-        if inspect(token):
+        if inspect(token) == 'valid':
             return token
+        # The administrator's listing decides what Forgejo issued: a held token it lists as issued
+        # here failed for a reason a new token cannot fix, so it is kept and the run stops.
+        listed = list(pages('/users/' + USER + '/tokens', auth))
+        if isinstance(token, str) and len(token) >= 8 and issued_here(listed, token):
+            refuse('Forgejo lists the held credential as issued, yet it did not validate; no token was minted')
         # Forgejo 15 has no token-delete CLI. Its self/admin Basic-auth endpoint removes a
         # confirmed lost or invalid same-name token before the CLI can issue the replacement.
-        page = 1
-        while True:
-            _, raw = api('GET', '/users/' + USER + '/tokens?limit=50&page=' + str(page), auth, (200,))
-            listed = object_json(raw, 'Forgejo token list')
-            if not isinstance(listed, list):
-                refuse('the Forgejo token list is unreadable')
-            for held in listed:
-                if held.get('name') == TOKEN_NAME:
-                    api('DELETE', '/users/' + USER + '/tokens/' + urllib.parse.quote(TOKEN_NAME, safe=''), auth, (204,))
-            if len(listed) < 50:
-                break
-            page += 1
-            if page > 100:
-                refuse('the Forgejo token list exceeded the page bound')
+        if any(isinstance(held, dict) and held.get('name') == TOKEN_NAME for held in listed):
+            api('DELETE', '/users/' + USER + '/tokens/' + urllib.parse.quote(TOKEN_NAME, safe=''), auth, (204,))
         issued = cli(['generate-access-token', '--username', USER, '--token-name', TOKEN_NAME,
-                      '--scopes', 'write:repository', '--raw']).strip()
-        if not inspect(issued):
+                      '--scopes', SCOPES, '--raw']).strip()
+        if inspect(issued) != 'valid':
             refuse('the issued Forgejo credential did not validate')
         return issued
     finally:
@@ -269,16 +281,16 @@ def exchange():
     if person is not None and (person['admin'] or not person['active']):
         refuse('forgejo-build must be an active non-admin user')
     token = entry.get('forgejo-api-token') if entry.get('forgejo-user') == USER else None
-    valid = person is not None and inspect(token)
+    state = inspect(token) if person is not None else 'invalid'
     if not APPLY:
-        return {'satisfied': valid and BOOTSTRAP not in people and
+        return {'satisfied': state == 'valid' and BOOTSTRAP not in people and
                 entry == {'forgejo-user': USER, 'forgejo-api-token': token, 'plane-api-token': plane}}
     if BOOTSTRAP in people:
         remove_bootstrap()
     if person is None:
         cli(['create', '--username', USER, '--email', USER + '@hostyour.invalid',
              '--restricted', '--random-password', '--must-change-password=false'])
-    if not valid:
+    if state != 'valid':
         token = provision(token)
     return {'forgejo-user': USER, 'forgejo-api-token': token, 'plane-api-token': plane}
 

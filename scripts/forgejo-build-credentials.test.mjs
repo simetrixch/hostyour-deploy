@@ -54,17 +54,35 @@ test('one installer writer follows the handoff and reads the optional secret ans
   assert.deepEqual(wiring([...program.steps]), []);
 });
 
+const SCOPES = ['read:user', 'write:repository'];
+const UNRELATED = 'akadmin/unrelated';
+const SHA = 'a1b2c3d4e5f60718293a4b5c6d7e8f9012345678';
+
+// A stand-in for the pinned Forgejo 15.0.10 routes the producer and a build call. It answers by the
+// token's scopes, then the repository, then the user's right, in the order routers/api/v1/api.go
+// checks them: a token needs write:<category> for POST, PUT and DELETE and read or write otherwise
+// (api.go:252-260, permissions/token_requires_scopes.go:13-39); /user and /users/<name> need the user
+// category (api.go:611, :760), /user/repos the repository category as well (api.go:722); public-only
+// hides private repositories (services/authz/public_repos_reducer.go); basic auth carries no scope.
 async function fixture(options = {}) {
   const directory = await mkdtemp(join(tmpdir(), 'forgejo-credentials-'));
-  const commands = [], requests = [], users = new Map(), tokens = new Map();
-  const user = {login: USER, is_admin: false, restricted: true, active: true};
-  if (options.exists !== false) users.set(USER, {email: USER + '@hostyour.invalid', admin: false});
-  if (options.staleBootstrap) users.set(BOOTSTRAP, {email: BOOTSTRAP + '@hostyour.invalid', admin: true});
-  if (options.staleToken) tokens.set(USER, {name: USER, id: 7, value: 'lost-fixture-secret'});
-  let granted = options.granted ?? true, generation = 0;
+  const commands = [], requests = [];
+  const users = new Map([['akadmin', {email: 'akadmin@hostyour.invalid', admin: true, restricted: false, active: true}]]);
+  if (options.exists !== false) users.set(USER, {email: USER + '@hostyour.invalid', admin: false, restricted: true, active: true, ...options.badUser});
+  if (options.staleBootstrap) users.set(BOOTSTRAP, {email: BOOTSTRAP + '@hostyour.invalid', admin: true, restricted: false, active: true});
+  const repos = new Map([
+    [REPO, {private: false, grants: new Map(options.granted === false ? [] : [[USER, options.repoAdmin ? 'admin' : 'write']])}],
+    [UNRELATED, {private: options.privateUnrelated ?? false, grants: new Map(options.unrelated ? [[USER, 'write']] : [])}],
+  ]);
+  const tokens = new Map();
+  if (options.valid !== false) tokens.set(TOKEN, options.ownerToken ? {owner: 'akadmin', name: 'admin', scopes: ['all'], repositories: null} : {owner: USER, name: USER, scopes: SCOPES, repositories: null});
+  if (options.staleToken) tokens.set('lost-fixture-secret', {owner: USER, name: USER, scopes: SCOPES, repositories: null});
+  if (options.held) tokens.set(options.held.value, {owner: USER, name: USER, repositories: null, ...options.held});
+  let generation = 0;
+  const right = (login, repo) => users.get(login)?.admin ? 'admin' : repo.grants.get(login) ?? (repo.private || users.get(login)?.restricted ? null : 'read');
   const server = createServer(async (req, res) => {
     let text = ''; for await (const chunk of req) text += chunk;
-    const path = new URL(req.url, 'http://fixture.invalid').pathname;
+    const url = new URL(req.url, 'http://fixture.invalid'), path = url.pathname;
     const send = (status, data = '') => { res.writeHead(status, {'content-type': 'application/json'}); res.end(typeof data === 'string' ? data : JSON.stringify(data)); };
     if (path === '/_command') {
       const argv = JSON.parse(text); commands.push(argv);
@@ -76,61 +94,84 @@ async function fixture(options = {}) {
       if (args.slice(0, 3).join(' ') !== 'forgejo admin user') return send(500, TOKEN);
       const name = args[args.indexOf('--username') + 1];
       switch (args[3]) {
-        case 'list': return send(200, 'ID Username Email IsActive IsAdmin 2FA\n' + [...users].map(([n, v], i) => `${i + 1} ${n} ${v.email} true ${v.admin} false`).join('\n') + '\n');
+        case 'list': return send(200, 'ID Username Email IsActive IsAdmin 2FA\n' + [...users].map(([n, v], i) => `${i + 1} ${n} ${v.email} ${v.active} ${v.admin} false`).join('\n') + '\n');
         case 'create':
           assert.ok(!args.includes('--password'), 'no password in arguments');
           assert.ok(args.includes('--random-password'));
           if (users.has(name)) return send(500, 'already exists');
-          users.set(name, {email: args[args.indexOf('--email') + 1], admin: args.includes('--admin')});
-          if (name === USER) assert.ok(args.includes('--restricted'));
+          users.set(name, {email: args[args.indexOf('--email') + 1], admin: args.includes('--admin'), restricted: args.includes('--restricted'), active: true});
           return send(200, `generated random password is '${PASSWORD}'\nNew user created\n`);
         case 'delete': users.delete(name); return send(200);
         case 'generate-access-token':
-          assert.equal(name, USER);
           assert.equal(args[args.indexOf('--token-name') + 1], USER);
-          assert.equal(args[args.indexOf('--scopes') + 1], 'write:repository');
           assert.ok(args.includes('--raw'));
-          if (tokens.has(USER)) return send(500, 'same name exists');
-          generation++; tokens.set(USER, {name: USER, id: 8, value: TOKEN});
+          if ([...tokens.values()].some(t => t.owner === name && t.name === USER)) return send(500, 'same name exists');
+          generation++; tokens.set(TOKEN, {owner: name, name: USER, scopes: args[args.indexOf('--scopes') + 1].split(','), repositories: null});
           return send(200, TOKEN + '\n');
         default: return send(500, 'unexpected command');
       }
     }
     requests.push({method: req.method, path, body: text});
     if (options.apiFailure) return send(503, TOKEN);
-    const basic = req.headers.authorization === 'Basic ' + Buffer.from(BOOTSTRAP + ':' + PASSWORD).toString('base64');
-    const token = req.headers.authorization?.replace(/^token /, '');
-    const valid = token === TOKEN && (options.valid !== false || generation > 0);
-    if (!basic && !valid) return send(401, TOKEN);
-    if (path === '/api/v1/users/' + USER + '/tokens') {
-      if (!basic) return send(403);
-      return send(200, [...tokens.values()].map(({value, ...t}) => t));
+    const basic = req.headers.authorization === 'Basic ' + Buffer.from(BOOTSTRAP + ':' + PASSWORD).toString('base64') && users.has(BOOTSTRAP);
+    const held = tokens.get(req.headers.authorization?.replace(/^token /, ''));
+    const actor = basic ? {login: BOOTSTRAP, scopes: null} : held && users.has(held.owner) ? {login: held.owner, ...held} : null;
+    if (!actor) return send(401, TOKEN);
+    const scoped = (...categories) => actor.scopes === null || categories.every(c => actor.scopes.includes('all') ||
+      actor.scopes.includes('write:' + c) || (req.method === 'GET' && actor.scopes.includes('read:' + c)));
+    const visible = (name, repo) => actor.scopes === null || ((!actor.scopes.includes('public-only') || !repo.private) &&
+      (actor.repositories === null || actor.repositories.includes(name)));
+    const page = list => list.slice((Number(url.searchParams.get('page')) - 1) * 50, Number(url.searchParams.get('page')) * 50);
+    if (options.pause && basic) await new Promise(resolve => setTimeout(resolve, 200));
+    if (path === '/api/v1/user' && req.method === 'GET') {
+      if (!scoped('user')) return send(403, TOKEN);
+      const u = users.get(actor.login);
+      return send(200, {login: actor.login, is_admin: u.admin, restricted: u.restricted, active: u.active});
+    }
+    if (path === '/api/v1/user/repos' && req.method === 'GET') {
+      if (!scoped('user', 'repository')) return send(403, TOKEN);
+      return send(200, page([...repos].filter(([n, r]) => right(actor.login, r) && visible(n, r)).map(([n, r]) => {
+        const has = right(actor.login, r);
+        return {full_name: n, private: r.private, permissions: {admin: has === 'admin', push: has === 'admin' || has === 'write', pull: true}};
+      })));
+    }
+    if (path === '/api/v1/users/' + USER + '/tokens' && req.method === 'GET') {
+      if (!scoped('user')) return send(403, TOKEN);
+      if (actor.login !== USER && !users.get(actor.login)?.admin) return send(403);
+      return send(200, page([...tokens].filter(([, t]) => t.owner === USER).map(([value, t], id) =>
+        ({id, name: t.name, token_last_eight: value.slice(-8), scopes: t.scopes, repositories: t.repositories}))));
     }
     if (path === '/api/v1/users/' + USER + '/tokens/' + USER && req.method === 'DELETE') {
-      if (!basic) return send(403);
-      tokens.delete(USER); return send(204);
+      if (!basic) return send(401);
+      for (const [value, t] of tokens) if (t.owner === USER && t.name === USER) tokens.delete(value);
+      return send(204);
     }
-    if (options.pause && basic) await new Promise(resolve => setTimeout(resolve, 200));
-    const base = '/api/v1/repos/' + REPO + '/collaborators/';
-    if (path === base + USER && req.method === 'PUT') {
-      if (!basic) return send(403);
-      assert.deepEqual(JSON.parse(text), {permission: 'write'});
-      granted = true; return send(204);
+    const repoPath = path.match(/^\/api\/v1\/repos\/([^/]+\/[^/]+)(\/.*)$/);
+    if (repoPath) {
+      if (!scoped('repository')) return send(403, TOKEN);
+      const [, name, rest] = repoPath, repo = repos.get(name);
+      if (!repo || !visible(name, repo) || !right(actor.login, repo)) return send(404);
+      const has = right(actor.login, repo);
+      if (rest === '/collaborators/' + USER && req.method === 'PUT') {
+        if (has !== 'admin') return send(403);
+        assert.deepEqual(JSON.parse(text), {permission: 'write'});
+        repo.grants.set(USER, 'write'); return send(204);
+      }
+      const asked = rest.match(/^\/collaborators\/([^/]+)\/permission$/)?.[1];
+      if (asked && req.method === 'GET') {
+        if (asked !== actor.login && has !== 'admin') return send(403);
+        const u = users.get(asked);
+        return send(200, {permission: right(asked, repo) ?? 'none', user: {login: asked, is_admin: u.admin, restricted: u.restricted, active: u.active}});
+      }
+      if (rest === '/statuses/' + SHA && req.method === 'POST') return send(has === 'admin' || has === 'write' ? 201 : 403);
     }
-    if (path === base + USER + '/permission') {
-      if (!granted) return send(404);
-      return send(200, {user: {...user, ...(options.badUser ?? {})}, permission: 'write'});
-    }
-    if (path === base + 'akadmin/permission') return send(basic || options.ownerToken ? 200 : 403, {});
-    if (path === '/api/v1/user/repos') return send(200, [{full_name: REPO, permissions: {push: true, admin: options.repoAdmin ?? false}}, ...(options.unrelated ? [{full_name: 'akadmin/unrelated', permissions: {push: true}}] : [])]);
-    if (path === '/api/v1/repos/akadmin/unrelated/contents/proof') return send(403);
     return send(500, 'unexpected path');
   });
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
   const port = server.address().port;
   const source = await readFile(new URL('ansiwise/templates/forgejo-build-credentials.sh.tpl', root), 'utf8');
   const render = program.steps.find(s => s.template === 'ansiwise/templates/forgejo-build-credentials.sh.tpl');
-  let script = source;
+  let script = options.mutate ? options.mutate(source) : source;
   for (const [slot, value] of Object.entries(render.values)) script = script.replaceAll('<' + slot + '>', value);
   script = script.replace("/run/forgejo-build-credentials.lock", join(directory, "credentials.lock")).replace("PORT = 3000", 'PORT = ' + port).replace("POD_WAIT_SECONDS = 30", 'POD_WAIT_SECONDS = 0.1');
   const producer = join(directory, 'forgejo-build-credentials.sh'), kubectl = join(directory, 'kubectl');
@@ -160,7 +201,9 @@ process.stdout.write(await r.text());process.exit(r.status===200?0:1);
     }
     for (const args of commands) for (const secret of [PLANE, TOKEN, PASSWORD]) assert.ok(!args.join(' ').includes(secret));
   };
-  return {run, clean, privateFiles, users, commands, requests, get generation() {return generation;}, port};
+  const write = (repo, token) => fetch(`http://127.0.0.1:${port}/api/v1/repos/${repo}/statuses/${SHA}`,
+    {method: 'POST', headers: {authorization: 'token ' + token}, body: '{}'}).then(r => r.status);
+  return {run, clean, privateFiles, write, users, tokens, commands, requests, get generation() {return generation;}};
 }
 
 test('first creation grants only the proof repository and returns exactly three fields', async () => {
@@ -169,9 +212,63 @@ test('first creation grants only the proof repository and returns exactly three 
     const r = await f.run(null); assert.equal(r.code, 0, r.stderr);
     assert.deepEqual(JSON.parse(r.stdout), entry);
     assert.equal(f.generation, 1); assert.ok(!f.users.has(BOOTSTRAP));
+    assert.deepEqual(f.tokens.get(TOKEN).scopes, ['write:repository', 'read:user']);
     assert.ok(f.requests.some(r => r.method === 'PUT' && r.path.includes(REPO)));
-    const unrelated = await fetch('http://127.0.0.1:' + f.port + '/api/v1/repos/akadmin/unrelated/contents/proof', {method: 'PUT', headers: {authorization: 'token ' + TOKEN}});
-    assert.equal(unrelated.status, 403);
+    // The token the user may write with reaches the proof repository and is refused elsewhere.
+    assert.equal(await f.write(REPO, TOKEN), 201);
+    assert.equal(await f.write(UNRELATED, TOKEN), 404);
+    await f.privateFiles();
+  } finally {await f.clean();}
+  // PLANTED DEFECT: the owner's write:repository alone cannot read GET /user, so nothing validates.
+  const narrow = await fixture({exists: false, granted: false, mutate: text => text.replace("SCOPES = 'write:repository,read:user'", "SCOPES = 'write:repository'")});
+  try {
+    const r = await narrow.run(null);
+    assert.notEqual(r.code, 0); assert.match(r.stderr, /did not validate/);
+    assert.equal(r.stdout, '');
+  } finally {await narrow.clean();}
+});
+
+test('the stand-in refuses an unrelated write by the user\'s rights, and the producer refuses those rights', async () => {
+  for (const privateUnrelated of [false, true]) {
+    const f = await fixture({unrelated: true, privateUnrelated});
+    try {
+      // PLANTED DEFECT: broader rights make the same write succeed, so the 404 above is the rights' answer.
+      assert.equal(await f.write(UNRELATED, TOKEN), 201);
+      const r = await f.run(entry);
+      assert.notEqual(r.code, 0); assert.match(r.stderr, /unrelated repository/);
+      assert.equal(f.generation, 0);
+    } finally {await f.clean();}
+  }
+});
+
+test('a standing token without write scope is replaced, never returned', async () => {
+  const held = {value: 'fixture-forgejo-build-read-only-secret', scopes: ['read:repository', 'read:user']};
+  const f = await fixture({valid: false, held});
+  try {
+    assert.equal(await f.write(REPO, held.value), 403, 'the read-only token cannot set a status');
+    const standing = {...entry, 'forgejo-api-token': held.value};
+    const check = await f.run(standing, PLANE, '--check');
+    assert.equal(check.code, 0, check.stderr); assert.deepEqual(JSON.parse(check.stdout), {satisfied: false});
+    const r = await f.run(standing); assert.equal(r.code, 0, r.stderr);
+    assert.deepEqual(JSON.parse(r.stdout), entry);
+    assert.equal(f.generation, 1);
+    assert.equal(await f.write(REPO, TOKEN), 201);
+    assert.ok(!f.tokens.has(held.value), 'the read-only same-name token was removed');
+    await f.privateFiles();
+  } finally {await f.clean();}
+});
+
+test('a public-only standing token cannot hide a private unrelated grant', async () => {
+  const held = {value: 'fixture-forgejo-build-public-only-secret', scopes: ['public-only', 'write:repository', 'read:user']};
+  const f = await fixture({valid: false, held, unrelated: true, privateUnrelated: true});
+  try {
+    const standing = {...entry, 'forgejo-api-token': held.value};
+    const check = await f.run(standing, PLANE, '--check');
+    assert.equal(check.code, 0, check.stderr); assert.deepEqual(JSON.parse(check.stdout), {satisfied: false});
+    const r = await f.run(standing);
+    assert.notEqual(r.code, 0); assert.match(r.stderr, /unrelated repository/);
+    assert.equal(r.stdout, '');
+    assert.ok(!f.users.has(BOOTSTRAP));
     await f.privateFiles();
   } finally {await f.clean();}
 });
@@ -186,6 +283,10 @@ test('valid credentials survive retries, later callers and Plane-only rotation w
     }
     assert.equal(f.generation, 0);
     assert.equal(f.commands.filter(c => c.includes('create') || c.includes('delete')).length, 0);
+    const before = f.requests.length;
+    const check = await f.run(entry, PLANE, '--check');
+    assert.equal(check.code, 0, check.stderr); assert.deepEqual(JSON.parse(check.stdout), {satisfied: true});
+    assert.ok(f.requests.slice(before).every(r => r.method === 'GET'), 'a check only reads');
     await f.privateFiles();
   } finally {await f.clean();}
 });
@@ -206,7 +307,7 @@ test('a confirmed invalid or lost same-name token is recovered once and reused',
 });
 
 test('read failures, absent pods and broad identity rights cannot mint or claim success', async () => {
-  for (const options of [{unreadable: true}, {apiFailure: true}, {absentPod: true}, {unrelated: true}, {repoAdmin: true}, {badUser: {restricted: false}}, {ownerToken: true}]) {
+  for (const options of [{unreadable: true}, {apiFailure: true}, {absentPod: true}, {unrelated: true}, {unrelated: true, privateUnrelated: true}, {repoAdmin: true}, {badUser: {restricted: false}}, {ownerToken: true}]) {
     const f = await fixture(options);
     try {
       const r = await f.run(entry);
