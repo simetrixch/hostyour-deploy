@@ -619,17 +619,6 @@ answers:
       Build plane only: a GitHub credential with Contents: Read and Write on the repository this
       installation is generated in. The release bump pushes with it.
 
-  - name: build_manager_repo_write_pat
-    kind: text
-    stated_when: {predicate: build_plane_here_in_answers}
-    required: false
-    secret: true
-    describes: >-
-      Build plane only: the same, on the repository the platform's own Manager is built from. It
-      is a unit like any other, and its build reads the credential at the path every unit's build
-      reads — which the Manager writes when it onboards a unit, this one included:
-      ansiwise/programs/onboard-manager.yaml asks for the same answer under this same name.
-
 steps:
   # THE SECOND REFUSAL THAT ASKS NO MACHINE ANYTHING, AND IT STANDS AHEAD OF THE FIRST TOOL. The
   # domain answered here becomes the branch name, the name of the cluster map, and the host in every
@@ -1033,20 +1022,10 @@ steps:
     run_answer: stage
     on_failure: continue
 
-  # THE FOUR ONLY THE CLUSTER CARRYING THE BUILD PLANE EVER READS. Every other cluster reads its
-  # images through that one and never looks at them, so writing them there would put a credential on
-  # a machine nothing on it uses — and asking for one nobody needs is how an installation ends up
-  # holding a secret it cannot account for.
-  #
-  # A SECOND ROW AND NOT A CONDITION. A condition is answered ONCE, before the first step, and the
-  # only file that
-  # could say whether this cluster carries the build plane is the one the row above WRITES — so a
-  # condition here asks a question four rows before anything answers it, and the run ends before it
-  # starts.
-  #
-  # Nothing is lost by dropping it. All four answers below are optional, and an answer nobody gave
-  # is left out rather than written empty, so a cluster that carries no build plane simply is not
-  # asked for them and the four keys keep what the template ships.
+  # Unanswered optional build-plane credentials keep the template values. Registry account names
+  # use the same answers as the installation values, so the registry and its callers agree.
+  # A condition cannot select this row: conditions run before the earlier row writes the file
+  # that records whether this cluster carries the build plane.
   - step: fill_key_value_file
     template_path: /srv/hostyour-cloud/secrets/secrets.example
     path: /srv/hostyour-cloud/secrets/secrets.<stage>
@@ -1063,7 +1042,6 @@ steps:
       REGISTRY_DOCKERHUB_USER: { answer: registry_dockerhub_user }
       REGISTRY_DOCKERHUB_TOKEN: { answer: registry_dockerhub_token }
       BUILD_HOSTYOUR_CLOUD_REPO_PAT: { answer: build_platform_repo_write_pat }
-      BUILD_HOSTYOUR_MANAGER_REPO_PAT: { answer: build_manager_repo_write_pat }
     on_failure: exit
 
   # THE SEVEN BOOTSTRAP MANIFESTS THAT NAME THIS INSTALLATION, rendered from the templates standing

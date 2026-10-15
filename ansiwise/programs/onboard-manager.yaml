@@ -29,8 +29,8 @@
 # AND IT IS MINTED TWICE, WHICH IS A FACT ABOUT SESSIONS AND NOT A SECOND MECHANISM. A session goes
 # idle-stale, and the one door here hands a bearer a value it then holds unchanged — the Manager
 # slides the idle window only for a caller it can hand a new value to, which is a browser holding a
-# cookie. So a bearer ages from the moment it was sealed however often it is used. The first four
-# rows fit inside one session by their own deadlines; the last row waits on a whole release cycle
+# cookie. So a bearer ages from the moment it was sealed however often it is used. The onboarding
+# requests fit inside one session by their own deadlines; the last row waits on a whole release cycle
 # and does not, so it is given a session minted immediately in front of it. Same socket, same route,
 # same act — only later.
 #
@@ -59,6 +59,17 @@
 name: onboard-manager
 roles: [master]
 steps:
+  # Probe Contents access with the supplied PAT before the Manager creates any onboarding run.
+  - step: wait_for_http_field
+    waiting_for: read access to the private simetrixch/hostyour-manager repository
+    url: https://api.github.com/repos/simetrixch/hostyour-manager/contents/deploy/platform.yaml
+    field: type
+    until: [file]
+    bearer_answer: build_manager_repo_write_pat
+    timeout_seconds: 5
+    interval_seconds: 5
+    on_failure: exit
+
   # --- the session, minted through the socket file ----------------------------------------------
   #
   # The one door a caller that is not a browser comes through. It has no address a peer off this
@@ -120,9 +131,8 @@ steps:
   # owner are the same on every installation of this product — they are what the unit IS, they stand
   # in its own manifest, and a run may not be asked to invent them — so they are written out. The
   # release channel and the stage are this run's to state; the version is the Manager's to read, the
-  # next number after the release tags of the platform's line. The credential is a raw field
-  # of the request, sealed by the Manager before any run exists; it rides here as a secret answer
-  # and stands in no record.
+  # next number after the release tags of the platform's line. The Manager selects the GitHub App
+  # or the repository owner's recorded PAT. The access probe's PAT is not that selection.
   #
   # WHAT THIS ADDRESS NEEDS THE MANAGER TO ALREADY BE, because the answer it gives otherwise says
   # one true thing and not the one an operator can act on. Consumer onboarding is a family the
@@ -145,8 +155,7 @@ steps:
       {"consumerName":"hostyour-manager",
       "repoURL":"https://github.com/simetrixch/hostyour-manager.git",
       "owner":"platform@simetrixch",
-      "channel":"<channel>","stage":"<stage>",
-      "repoPat":"<repo-pat>"}
+      "channel":"<channel>","stage":"<stage>"}
     # The session the row above minted. It is filled by the framework from that measurement, and the
     # rule that makes it safe is checked before the run starts: this argument is declared secret, and
     # only a measurement declared secret may fill it.
@@ -155,7 +164,6 @@ steps:
       manager-url: { answer: manager_url }
       channel: { answer: channel }
       stage: { answer: stage }
-      repo-pat: { answer: build_manager_repo_write_pat }
     field: runId
     publish: { http_exchanged_field: onboarding_run_id }
     on_failure: exit
@@ -322,9 +330,7 @@ answers:
     kind: text
     secret: true
     describes: >-
-      The repository credential this unit onboards with — the same answer deploy-branch takes under
-      this name, so one value is given once whichever program asks for it. It is a raw field of the
-      create request, which the Manager seals before any run exists and then writes itself to
-      build/hostyour-manager/repo-pat, the path every unit's build reads its credential at. Nothing
-      seeds that path any more: the run's own seed-repo-pat step writes it, one step after the
-      registration that brings the reader into existence.
+      A GitHub PAT with Contents: Read access to the private simetrixch/hostyour-manager repository.
+      This exact PAT is checked before any onboarding run is created. It is the same secret answer
+      deploy-branch takes under this name. The Manager uses its GitHub App or the repository owner's
+      recorded PAT for onboarding and builds; this probe does not change that identity.

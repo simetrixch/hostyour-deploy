@@ -66,7 +66,7 @@ test('PLANTED DEFECT: an old leaf, a missing seed or grant, a templated or extra
   const planted = {
     'the bootstrap seeds the unit leaf build/hostyour-cloud/repo-pat': rows => { seed(rows).path = 'build/hostyour-cloud/repo-pat'; },
     'no seed of the hostyour-cloud leaf': rows => { rows.splice(rows.indexOf(seed(rows)), 1); },
-    'the hostyour-cloud seed takes another answer': rows => { seed(rows).fields = ['pat=BUILD_HOSTYOUR_MANAGER_REPO_PAT']; },
+    'the hostyour-cloud seed takes another answer': rows => { seed(rows).fields = ['pat=GITOPS_REPO_PAT']; },
     'a second bootstrap seed under build/': rows => { rows.push({...seed(rows), path: 'build/deploy/repo-pat'}); },
     'no read of the deploy leaf': rows => { const p = policy(rows, '<cluster>-build-read'); p.rules = p.rules.replace(READ(DEPLOY), ''); },
     'the build reader reads the old deploy leaf': rows => { const p = policy(rows, '<cluster>-build-read'); p.rules = p.rules.replace(READ(DEPLOY), READ('build/deploy/repo-pat')); },
