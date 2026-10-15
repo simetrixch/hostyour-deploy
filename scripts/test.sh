@@ -57,6 +57,7 @@ node --test "$ROOT/scripts/cert-manager-installs.test.mjs" || fail 'cert-manager
 node --test "$ROOT/scripts/vault-listener-reload.test.mjs" || fail 'the secret store reloads its renewed TLS pair daily'
 node --test "$ROOT/scripts/forgejo.test.mjs" || fail 'Forgejo gets its client secret from the one minted value and its installation values'
 node --test "$ROOT/scripts/plane.test.mjs" || fail 'Plane gets every secret from one minted entry and its installation values'
+node --test "$ROOT/scripts/forgejo-build-credentials.test.mjs" || fail 'Forgejo credential producer and complete entry'
 node --test "$ROOT/scripts/forgejo-webhook.test.mjs" || fail 'the Forgejo webhook key stands in an entry of its own'
 
 python3 "$ROOT/scripts/tenant-stage-proof.test.py" || fail 'tenant stage permission proof'

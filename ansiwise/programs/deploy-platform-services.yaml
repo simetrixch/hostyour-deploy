@@ -5,10 +5,9 @@
 # reconciler, the secret store — fills the secret store with the shape every workload authenticates
 # against, and then hands the cluster over.
 #
-# WHERE IT STOPS. The last step applies one application. From there the reconciler creates the
-# projects, the generators and every platform application below them, each naming its own path, and
-# the question "which file put this object on the cluster" is answered by it and not by any record
-# here. That handover is a step with a verdict, not the absence of an error.
+# The handoff starts the reconciler's application tree. Once its Forgejo pod is ready, the
+# installer can provision the build credentials that require Forgejo to issue and validate a token.
+# The reconciler owns the application objects; the installer owns the complete credential entry.
 #
 # THE ORDER IS A CHAIN OF DEPENDENCIES AND NOT A PREFERENCE, and the chain begins where credentials
 # do. The secret store is first: it is the one place a credential of this installation comes into
@@ -24,7 +23,7 @@
 # Three steps of the store's own block sit AFTER the identity provider, and they are the three that
 # give a human a browser login to it. Everything else about the store needs nothing from it.
 #
-# The handoff is last because the applications it starts read what the seed wrote on their first
+# The handoff follows the seeds because the applications it starts read them on their first
 # sync.
 #
 # EVERY PHASE CAN BE SWITCHED OFF, AND OFF MEANS NOTHING AT ALL. The conditions behind `when:` are
@@ -2643,8 +2642,8 @@ steps:
 
   # --- the handoff -----------------------------------------------------------------------------
   #
-  # Last, and last for a reason: the applications this starts read on their first sync what the seed
-  # above wrote. After it the installer decides nothing more about this cluster.
+  # The applications this starts read on their first sync what the seed above wrote. The Forgejo
+  # credential producer follows this handoff because it needs that application's ready pod.
   #
   # ONE OBJECT, AND IT IS WHY THE ROW IS THE IRREVERSIBLE KIND rather than the ordinary one. Nothing
   # in the branch's application tree reaches the cluster except through the single application this
@@ -2676,6 +2675,36 @@ steps:
       a branch without it is a branch that has fallen behind the trunk. Restore it with "git -C
       /srv/hostyour-cloud merge master" and re-run.
     when: [reconciler_enabled, books_here_in_answers]
+    on_failure: exit
+
+  # Credentials are exchanged once, as a complete entry, on a master where Plane already ran before
+  # this run: a first installation hands Forgejo and Plane over above and skips these two rows.
+  - step: write_file_from_template
+    template: ansiwise/templates/forgejo-build-credentials.sh.tpl
+    path: /run/forgejo-build-credentials.sh
+    file_mode: 448
+    elevated: true
+    values:
+      forgejo-user: forgejo-build
+      forgejo-token-name: forgejo-build
+      forgejo-bootstrap-user: forgejo-build-provisioner
+      forgejo-namespace: forgejo
+      forgejo-pod-selector: app.kubernetes.io/name=forgejo
+      forgejo-container: forgejo
+      forgejo-repositories: akadmin/hostyour-release-test
+      forgejo-credential-lock: /run/forgejo-build-credentials.lock
+    when: [secret_store_enabled, books_here_in_answers, build_plane_here_in_answers, plane_runs_here]
+    on_failure: exit
+
+  - step: vault_kv_entry_from_command
+    rests_on_an_earlier_step: true
+    repository: /srv/hostyour-cloud
+    mount: secret
+    path: <stage>/app/forgejo-build
+    producer: /run/forgejo-build-credentials.sh
+    fields: [forgejo-user, forgejo-api-token, plane-api-token]
+    fields_from_answers: ['plane-api-token=plane_api_token']
+    when: [secret_store_enabled, books_here_in_answers, build_plane_here_in_answers, plane_runs_here]
     on_failure: exit
 
   # Until the account is registered, no certificate on this cluster can be issued. Recorded rather
@@ -2760,6 +2789,14 @@ steps:
 # is left — the address of Vault, this cluster's short name, its auth mount — is read out of
 # `installation/profile.yaml` and answered by nobody.
 answers:
+  - name: plane_api_token
+    kind: text
+    secret: true
+    required: false
+    describes: >-
+      The Plane API token named plane-update-status. A config-fed master redeploy supplies it in
+      memory. Later redeploys preserve and validate the existing credential entry when it is absent.
+
   # THE PASSWORD THIS RUN WAS STARTED WITH, and the one answer nobody sends under this name.
   #
   # It is filled by the run itself from what the caller handed over beside the answers, because this
