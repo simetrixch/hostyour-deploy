@@ -52,7 +52,7 @@ node --test "$ROOT/scripts/build-platform-leaves.test.mjs" || fail 'the platform
 node --test "$ROOT/scripts/manager-post-client-read.test.mjs" || fail 'manager reads the post client secret from its own entry alone'
 node --test "$ROOT/scripts/e2e-runner-read.test.mjs" || fail 'the e2e runner reads the E2E passwords alone'
 node --test "$ROOT/scripts/idp-bootstrap-read.test.mjs" || fail 'no cluster secret reader reads idp bootstrap'
-node --test "$ROOT/scripts/kubelet-image-gc.test.mjs" || fail 'kubelet collects unused images'
+node --test "$ROOT/scripts/kubelet-image-gc.test.mjs" || fail 'kubelet collects unused images and bounds container logs'
 node --test "$ROOT/scripts/publish-mail-dkim.test.mjs" || fail 'publish-mail-dkim writes only the DKIM record'
 node --test "$ROOT/scripts/cert-manager-installs.test.mjs" || fail 'cert-manager installed only where none stands, never the addon'
 node --test "$ROOT/scripts/cloudflare-origin-pull-ca.test.mjs" || fail 'the origin pull CA reaches the Vault entry every cluster reads, optional, without the client half'

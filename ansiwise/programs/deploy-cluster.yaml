@@ -646,6 +646,8 @@ steps:
   # setting exists only in the kubelet's configuration file, so the file is written and named by
   # --config; what it says and why it restates authorization.mode stands in the template. The age
   # stands in the file's name, so a new age is a new flag and the row below restarts the kubelet.
+  # The same file declares the bound of every container's log, 10Mi rotated and 5 files kept, the
+  # source the ingress writes its access log to.
   - step: write_file_from_template
     template: ansiwise/templates/kubelet-config.tpl
     path: /var/snap/microk8s/current/args/kubelet-config-36h.yaml
