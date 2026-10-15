@@ -24,8 +24,8 @@ CONTAINER = '<forgejo-container>'
 REPOSITORIES = '<forgejo-repositories>'.split(',')
 LOCK = '<forgejo-credential-lock>'
 # write:repository sets statuses and creates releases; read:user lets the token show its own account,
-# its own scopes and its rights (GET /user, /users/<user>/tokens, /user/repos), so a check needs no
-# administrator and stays read-only.
+# its own scopes and its rights (GET /user, /users/forgejo-build/tokens, /user/repos), so a check
+# needs no administrator and stays read-only.
 SCOPES = 'write:repository,read:user'
 PORT = 3000
 POD_WAIT_SECONDS = 30

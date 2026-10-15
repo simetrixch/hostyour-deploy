@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import {spawn, execFileSync} from 'node:child_process';
 import {createServer} from 'node:http';
+import {readFileSync} from 'node:fs';
 import {mkdtemp, readFile, writeFile, readdir, rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
@@ -13,6 +14,17 @@ const PLANE = 'fixture-plane-update-status-secret';
 const TOKEN = 'fixture-forgejo-build-issued-secret';
 const PASSWORD = "fixture-bootstrap-password'$with-quotes";
 const entry = {'forgejo-user': USER, 'forgejo-api-token': TOKEN, 'plane-api-token': PLANE};
+// The engine's template rule (ansiwise-core lib/src/steps/slots.dart slotPattern, template.dart
+// filledWith): every required slot names a value of the row, and every value has a slot.
+function rendered(text, values) {
+  const slots = [...text.matchAll(/<([a-z][a-z0-9-]*)(!\?|\??)>/g)];
+  const unfilled = slots.filter(([, name, suffix]) => suffix === '' && !(name in values)).map(([slot]) => slot);
+  const unplaced = Object.keys(values).filter(name => !slots.some(([, slot]) => slot === name));
+  if (slots.some(([, , suffix]) => suffix !== '')) throw new Error('this fixture renders no optional slot');
+  if (unfilled.length || unplaced.length) throw new Error(`template and values do not fit: unfilled ${unfilled}, unplaced ${unplaced}`);
+  return text.replace(/<([a-z][a-z0-9-]*)>/g, (_, name) => values[name]);
+}
+
 const yaml = file => JSON.parse(execFileSync('yq', ['-o=json', '.', new URL(file, root).pathname], {encoding: 'utf8'}));
 const program = yaml('ansiwise/programs/deploy-platform-services.yaml');
 const installation = yaml('ansiwise.yaml');
@@ -54,6 +66,15 @@ test('one installer writer follows the handoff and reads the optional secret ans
   assert.deepEqual(wiring([...program.steps]), []);
 });
 
+test('the producer template renders under the engine\'s slot rule with exactly the row\'s values', () => {
+  const template = readFileSync(new URL('ansiwise/templates/forgejo-build-credentials.sh.tpl', root), 'utf8');
+  const {values} = program.steps.find(s => s.template === 'ansiwise/templates/forgejo-build-credentials.sh.tpl');
+  assert.ok(!rendered(template, values).match(/<[a-z][a-z0-9-]*>/));
+  // PLANTED: an angle-bracketed word in a comment is a slot no row fills, and the engine refuses it.
+  assert.throws(() => rendered(template.replace('# The installer', '# GET /users/<user>/tokens\n# The installer'), values), /unfilled <user>/);
+  assert.throws(() => rendered(template, {...values, 'forgejo-planted': 'x'}), /unplaced forgejo-planted/);
+});
+
 const SCOPES = ['read:user', 'write:repository'];
 const UNRELATED = 'akadmin/unrelated';
 const SHA = 'a1b2c3d4e5f60718293a4b5c6d7e8f9012345678';
@@ -65,6 +86,10 @@ const SHA = 'a1b2c3d4e5f60718293a4b5c6d7e8f9012345678';
 // category (api.go:611, :760), /user/repos the repository category as well (api.go:722); public-only
 // hides private repositories (services/authz/public_repos_reducer.go); basic auth carries no scope.
 async function fixture(options = {}) {
+  // Rendered first: a template the engine would refuse starts no server.
+  const source = await readFile(new URL('ansiwise/templates/forgejo-build-credentials.sh.tpl', root), 'utf8');
+  const render = program.steps.find(s => s.template === 'ansiwise/templates/forgejo-build-credentials.sh.tpl');
+  let script = rendered(options.mutate ? options.mutate(source) : source, render.values);
   const directory = await mkdtemp(join(tmpdir(), 'forgejo-credentials-'));
   const commands = [], requests = [];
   const users = new Map([['akadmin', {email: 'akadmin@hostyour.invalid', admin: true, restricted: false, active: true}]]);
@@ -169,10 +194,6 @@ async function fixture(options = {}) {
   });
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
   const port = server.address().port;
-  const source = await readFile(new URL('ansiwise/templates/forgejo-build-credentials.sh.tpl', root), 'utf8');
-  const render = program.steps.find(s => s.template === 'ansiwise/templates/forgejo-build-credentials.sh.tpl');
-  let script = options.mutate ? options.mutate(source) : source;
-  for (const [slot, value] of Object.entries(render.values)) script = script.replaceAll('<' + slot + '>', value);
   script = script.replace("/run/forgejo-build-credentials.lock", join(directory, "credentials.lock")).replace("PORT = 3000", 'PORT = ' + port).replace("POD_WAIT_SECONDS = 30", 'POD_WAIT_SECONDS = 0.1');
   const producer = join(directory, 'forgejo-build-credentials.sh'), kubectl = join(directory, 'kubectl');
   await writeFile(producer, script);
