@@ -358,6 +358,29 @@ test('missing Plane input fails before provisioning, while check/dry only observ
   } finally {await f.clean();}
 });
 
+// Run 20261015T181634Z-3907389-2ef68b25 on the master: Vault held no forgejo-build entry, the run's
+// answers carried no plane_api_token, and the check exited 1 with one line in 55 ms, before any
+// cluster command (the fastest elevated microk8s call of that run took 141 ms).
+test('a check with no held entry and no Plane answer refuses with exit 1 before any cluster command', async () => {
+  const refusesFirst = async f => {
+    const r = await f.run(null, null, '--check');
+    return r.code === 1 && /plane-api-token is absent/.test(r.stderr) && r.stdout === '' && f.commands.length === 0;
+  };
+  const f = await fixture();
+  try {
+    assert.equal(await refusesFirst(f), true);
+    // INNOCENT: with the answer the same check reads the pod and answers its verdict.
+    const r = await f.run(null, PLANE, '--check');
+    assert.equal(r.code, 0, r.stderr); assert.deepEqual(JSON.parse(r.stdout), {satisfied: false});
+    assert.ok(f.commands[0].includes('pods'));
+  } finally {await f.clean();}
+  // PLANTED DEFECT: a producer that reads the pod before it holds the Plane input reaches the cluster.
+  const early = await fixture({mutate: text => text.replace('def exchange():\n', 'def exchange():\n    ready_pod()\n')});
+  try {
+    assert.equal(await refusesFirst(early), false);
+  } finally {await early.clean();}
+});
+
 
 test('cancellation removes temporary bootstrap authorization and keeps output and files private', async () => {
   const f = await fixture({valid: false, pause: true});
