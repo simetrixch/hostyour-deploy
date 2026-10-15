@@ -59,6 +59,8 @@ node --check "$ROOT/scripts/host-admission-floor.test.mjs" || fail 'host admissi
 echo 'check: NOT RUN locally — scripts/host-admission-floor.test.mjs; runs in the ci of the master via scripts/test.sh.'
 node --check "$ROOT/scripts/traefik-dashboard.test.mjs" || fail 'traefik dashboard check syntax'
 echo 'check: NOT RUN locally — scripts/traefik-dashboard.test.mjs; runs in the ci of the master via scripts/test.sh.'
+node --check "$ROOT/scripts/traefik-access-log.test.mjs" || fail 'traefik access log check syntax'
+echo 'check: NOT RUN locally — scripts/traefik-access-log.test.mjs; runs in the ci of the master via scripts/test.sh.'
 node --check "$ROOT/scripts/prune-unused-images.test.mjs" || fail 'prune unused images check syntax'
 echo 'check: NOT RUN locally — scripts/prune-unused-images.test.mjs; runs in the ci of the master via scripts/test.sh.'
 node --check "$ROOT/scripts/manager-tenant-key-grants.test.mjs" || fail 'manager tenant key grants check syntax'

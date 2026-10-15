@@ -45,8 +45,9 @@ naming what it could not read, rather than failing on it.
 `bash scripts/check.sh` parses the program YAML locally.
 It names the registry binding suite as not run locally.
 
-The master's ci runs those checks and `bash scripts/test.sh` on every push of a branch, with the Dart that
-`ci-tools.json` names. The test entry point runs `dart test test/checks/config_validity_test.dart` in the
+The master's ci runs those checks and `bash scripts/test.sh` on every push of a branch, with the Dart and the
+Traefik that `ci-tools.json` names; `scripts/traefik-access-log.test.mjs` runs the ingress controller's declared
+access-log arguments on that Traefik, the version the MicroK8s ingress addon ships. The test entry point runs `dart test test/checks/config_validity_test.dart` in the
 `ansiwise-cli` tree that `scripts/cli-checkout.sh` names, with `ANSIWISE_INSTALLATION` set to this tree: the commit
 `ci-sources.json` pins in the ci, the checkout beside the main one on a machine. A skipped suite fails. Run tests only
 on a remote runner.
