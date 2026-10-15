@@ -49,6 +49,8 @@ node --check "$ROOT/scripts/onboard-manager.test.mjs" || fail 'Manager onboardin
 echo 'check: NOT RUN locally — scripts/onboard-manager.test.mjs; runs in the ci of the master via scripts/test.sh.'
 node --check "$ROOT/scripts/deploy-branch-secrets.test.mjs" || fail 'deploy-branch secrets check syntax'
 echo 'check: NOT RUN locally — scripts/deploy-branch-secrets.test.mjs; runs in the ci of the master via scripts/test.sh.'
+node --check "$ROOT/scripts/no-password-persistence.test.mjs" || fail 'no password persistence check syntax'
+echo 'check: NOT RUN locally — scripts/no-password-persistence.test.mjs; runs in the ci of the master via scripts/test.sh.'
 
 node --check "$ROOT/scripts/move-machine.mjs" || fail 'machine move syntax'
 node --check "$ROOT/scripts/move-machine.test.mjs" || fail 'machine move check syntax'

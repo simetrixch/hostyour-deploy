@@ -2797,23 +2797,6 @@ answers:
       The Plane API token named plane-update-status. A config-fed master redeploy supplies it in
       memory. Later redeploys preserve and validate the existing credential entry when it is absent.
 
-  # THE PASSWORD THIS RUN WAS STARTED WITH, and the one answer nobody sends under this name.
-  #
-  # It is filled by the run itself from what the caller handed over beside the answers, because this
-  # installation takes elevation from the caller rather than from a file on the machine. Declaring it
-  # is how a program says "I need to persist it" — a row above writes it into the store so the
-  # manager, which is the caller of every run after this one, can hand it over in turn.
-  #
-  # An answer of this name arriving in the envelope is refused: the value is already there once, and
-  # the same value in two places is the drift this exists to prevent.
-  - name: elevation_password
-    kind: text
-    secret: true
-    describes: >-
-      The password that raises a command to root on this machine. Never typed into a program file and
-      never read out of one: it is what the caller of this run handed over, and it is written into the
-      secret store so whatever calls the next run can hand it over too.
-
   - name: fqdn
     kind: text
     describes: >-
