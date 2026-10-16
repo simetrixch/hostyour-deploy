@@ -45,10 +45,17 @@ naming what it could not read, rather than failing on it.
 `bash scripts/check.sh` parses the program YAML locally.
 It names the registry binding suite as not run locally.
 
-The master's ci runs those checks and `bash scripts/test.sh` on every push of a branch, with the Dart and the
-Traefik that `ci-tools.json` names; `scripts/traefik-access-log.test.mjs` runs the ingress controller's declared
-access-log arguments on that Traefik, the version the MicroK8s ingress addon ships. The test entry point runs `dart test test/checks/config_validity_test.dart` in the
-`ansiwise-cli` tree that `scripts/cli-checkout.sh` names, with `ANSIWISE_INSTALLATION` set to this tree: the commit
+The master's ci is the Tekton pipeline `hostyour-deploy-ci`, defined in hostyour-cloud
+(`clusters/inventories/consumer-build/templates/pipeline-ci.yaml`). It runs those checks and
+`bash scripts/test.sh` on every push of the default branch and of a branch whose name starts with `ci/`
+(the Trigger `github-ci-push`, `clusters/inventories/image-builder/templates/triggers/github-ci-push.yaml`),
+with the Dart and the Traefik that `ci-tools.json` names. Read its runs on the master as the PipelineRuns
+`hostyour-deploy-ci-*` in the namespace `hostyour-deploy-build`, or as the commit status `tekton/ci`. A branch
+that does not start with `ci/` is judged by the push gate on the machine only.
+
+`scripts/traefik-access-log.test.mjs` runs the ingress controller's declared access-log arguments on that
+Traefik, the version the MicroK8s ingress addon ships. The test entry point runs
+`dart test test/checks/config_validity_test.dart` in the `ansiwise-cli` tree that `scripts/cli-checkout.sh` names, with `ANSIWISE_INSTALLATION` set to this tree: the commit
 `ci-sources.json` pins in the ci, the checkout beside the main one on a machine. A skipped suite fails. Run tests only
 on a remote runner.
 
