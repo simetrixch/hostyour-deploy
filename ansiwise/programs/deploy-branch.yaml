@@ -827,11 +827,16 @@ steps:
   # does the answer a row naming none of its own reads. What is HERE is what tells one row from
   # another.
   #
-  # The domain the source branch carries in place of an installation's own, anywhere in the checkout. It
-  # names no tree and no key, and both are left OUT rather than written as empty: the whole checkout
-  # and "the literal is itself the value" are the off states of those two, not values of them.
+  # The domain the source branch carries in place of an installation's own, under clusters/ alone. The
+  # tree has to stand inside the paths of the git_commit row below: a file stamped outside them is
+  # rewritten on the machine and never committed, and the next regeneration refuses the dirty
+  # checkout. configs/ and installation/ are written from this run's answers and hold no placeholder.
+  # scripts/deploy-branch-stamp.test.mjs holds the two rows to each other. The row names no key, and
+  # leaves it OUT rather than writing it empty: "the literal is itself the value" is the off state of
+  # the key, not a value of it.
   - step: stamp_placeholder_in_tracked_files
     repository: /srv/hostyour-cloud
+    tree: clusters
     placeholder: example.invalid
     on_failure: exit
 
