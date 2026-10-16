@@ -33,8 +33,19 @@ const INSTALLS = {
   'trust-manager-bundles': {values: RUN_VALUES, absent: [['bundle', 'platform-trust']]},
 };
 const ISSUER_SWITCH = {'platform-acme': 'certificates_enabled', 'platform-local': 'certificates_withheld'};
-const TEMPLATE_KEYS = ['global.clusterIssuer', 'global.letsencryptEmail', 'global.letsencryptServer', 'global.acmeEabKeyId'];
-const VALUES_ANSWERS = ['letsencrypt_email', 'letsencrypt_server', 'acme_eab_key_id'];
+// The run's values are the cluster's map as committed, the file Argo CD renders both charts from, so
+// a key a chart asks for is the map producer's to write and no copy of the zones stands in the program.
+const MAP_COPY = {
+  step: 'copy_branch_file',
+  repository: '/srv/hostyour-cloud',
+  path: 'clusters/active/<fqdn>.yaml',
+  run_answer: 'fqdn',
+  destination: RUN_VALUES,
+  file_mode: 420,
+  on_failure: 'exit',
+};
+const MAP_TEMPLATE = 'ansiwise/templates/cluster-map.tpl';
+const MAP_KEYS = ['global.clusterIssuer', 'global.platformDomain', 'global.unitApex', 'global.letsencryptEmail', 'global.letsencryptServer', 'global.acmeEabKeyId'];
 
 const kindOf = kind => String(kind).toLowerCase().split('.')[0].replace(/s$/, '');
 const installOf = row => row.step === 'helm_release'
@@ -51,7 +62,6 @@ const leaves = (value, path = []) => value !== null && typeof value === 'object'
 /** Every way the programs break the rule, named. */
 function findings({programs, conditions, templates, answers}) {
   const found = [];
-  const optional = (program, name) => (answers[program] ?? []).find(a => a.name === name)?.required === false;
   for (const [program, steps] of Object.entries(programs)) {
     steps.forEach((row, at) => {
       const where = `${program}[${at}] ${row.step}`;
@@ -106,42 +116,25 @@ function findings({programs, conditions, templates, answers}) {
     else if (!waitsFor(before, Math.min(...later), second)) found.push(`no admission wait for ${second} between ${first} and it`);
   }
 
-  const writes = steps.flatMap((row, i) => row.step === 'write_file_from_template' && row.path === RUN_VALUES ? [[i, row]] : []);
-  for (const [issuer, switched] of Object.entries(ISSUER_SWITCH)) {
-    const mine = writes.filter(([, row]) => same(row.when, [switched]));
-    if (mine.length !== 1) found.push(`${mine.length} values files written under ${switched}`);
-  }
-  for (const [i, row] of writes) {
+  // ONE VALUES FILE FOR BOTH ISSUERS, AND IT IS THE MAP. The row copies the committed bytes, under no
+  // condition, because the admission waits read the file on every run, and nothing else may write it.
+  const writers = steps.flatMap((row, i) => row.path === RUN_VALUES || row.destination === RUN_VALUES ? [[i, row]] : []);
+  const copies = writers.filter(([, row]) => row.step === 'copy_branch_file');
+  if (copies.length !== 1) found.push(`${copies.length} rows copy the cluster's map to ${RUN_VALUES}`);
+  const readers = steps.flatMap((row, j) => JSON.stringify(row).includes(RUN_VALUES) && !writers.some(([, w]) => w === row) ? [j] : []);
+  for (const [i, row] of writers) {
     const where = `deploy-platform-services[${i}] the run's values`;
-    const issuer = Object.keys(ISSUER_SWITCH).find(each => same(row.when, [ISSUER_SWITCH[each]]));
-    if (!issuer) found.push(`${where} is written under ${JSON.stringify(row.when)}`);
-    const readers = steps.flatMap((each, j) => JSON.stringify(each).includes(RUN_VALUES) && !writes.some(([, w]) => w === each) ? [j] : []);
-    if (readers.some(j => j < i)) found.push(`${where} is written after a row reads it`);
-    if (row.on_failure !== 'exit') found.push(`${where} lets the run go on without its values`);
-    let values;
-    try {
-      values = yq(['.'], (templates[row.template] ?? '').replace(/<([a-z-]+)\??>/g, '__$1__'));
-    } catch {
-      found.push(`${where}: ${row.template} is no YAML`);
+    if (row.step !== 'copy_branch_file') {
+      found.push(`${where} are written by ${row.step}, not copied from the cluster's map`);
       continue;
     }
-    const bound = Object.fromEntries(Object.entries(row.values ?? {}).map(([slot, from]) => [`__${slot}__`, from?.answer]));
-    if (Object.values(row.values ?? {}).some(from => !VALUES_ANSWERS.includes(from?.answer) || Object.keys(from).length !== 1)) found.push(`${where} is filled from ${JSON.stringify(row.values)}`);
-    // A slot fed by an optional answer is written <slot?>: the engine leaves an unanswered source
-    // out, and only that spelling drops the line instead of refusing the run.
-    for (const [slot, from] of Object.entries(row.values ?? {})) {
-      if (optional('deploy-platform-services', from?.answer) && (templates[row.template] ?? '').includes(`<${slot}>`)) found.push(`${where} requires <${slot}>, so a run without ${from.answer} is refused`);
+    for (const [key, value] of Object.entries(MAP_COPY)) {
+      if (!same(row[key], value)) found.push(`${where} are copied with ${key} ${JSON.stringify(row[key])}`);
     }
-    const held = Object.fromEntries(leaves(values ?? {}));
-    for (const key of Object.keys(held)) {
-      if (!TEMPLATE_KEYS.includes(key)) found.push(`${where} holds ${key}`);
+    for (const key of Object.keys(row)) {
+      if (!(key in MAP_COPY)) found.push(`${where} are copied with ${key} ${JSON.stringify(row[key])}`);
     }
-    if (issuer && held['global.clusterIssuer'] !== issuer) found.push(`${where} names the issuer ${held['global.clusterIssuer']}`);
-    if (issuer === 'platform-acme') {
-      if (bound[held['global.letsencryptEmail']] !== 'letsencrypt_email') found.push(`${where} takes the ACME contact from ${held['global.letsencryptEmail']}`);
-      if (bound[held['global.letsencryptServer']] !== 'letsencrypt_server') found.push(`${where} takes the ACME directory from ${held['global.letsencryptServer']}`);
-      if (bound[held['global.acmeEabKeyId']] !== 'acme_eab_key_id') found.push(`${where} takes the ACME account binding from ${held['global.acmeEabKeyId']}`);
-    }
+    if (readers.some(j => j < i)) found.push(`${where} are copied after a row reads them`);
   }
 
   for (const [program, rows] of Object.entries(programs)) {
@@ -160,7 +153,19 @@ function findings({programs, conditions, templates, answers}) {
     if (!(steps[trust].when ?? []).includes('certificates_withheld')) found.push('trust_cluster_authority runs without certificates_withheld');
     if (unseal >= 0 && trust > unseal) found.push('trust_cluster_authority stands after vault_init');
   }
-  return [...found, ...accountFindings({programs, templates, answers}), ...directoryFindings({programs})];
+  return [...found, ...mapFindings({templates}), ...accountFindings({programs, templates, answers}), ...directoryFindings({programs})];
+}
+
+/** Every key the two charts ask for that the cluster map's template does not write under global. */
+function mapFindings({templates}) {
+  let map;
+  try {
+    map = yq(['.'], (templates[MAP_TEMPLATE] ?? '').replace(/<([a-z-]+)[?!]*>/g, '__$1__'));
+  } catch {
+    return [`${MAP_TEMPLATE} is no YAML`];
+  }
+  const held = leaves(map ?? {}).map(([key]) => key);
+  return MAP_KEYS.filter(key => !held.includes(key)).map(key => `the cluster map writes no ${key}`);
 }
 
 // THE ONE DIRECTORY. Every cluster's issuer binds the one account registered at Google Trust Services'
@@ -191,7 +196,7 @@ function directoryFindings({programs}) {
 
 // THE ONE ACME ACCOUNT (Google Trust Services). The key id of its External Account Binding is an
 // optional answer: deploy-branch writes it into the cluster's map, where Argo CD renders the issuer
-// from it, and deploy-platform-services hands it to the issuers it installs itself. Its MAC key is a
+// from it and deploy-platform-services renders the issuers it installs itself. Its MAC key is a
 // secret answer that reaches Vault through the credentials file, and the account key is minted in
 // Vault once. Both seed rows stand where every other seed of the installation stands: on the books
 // cluster, with the secret store up. Every part optional, and the key id's slots written <slot?>, so
@@ -217,11 +222,10 @@ function accountFindings({programs, templates, answers}) {
   };
   optionalText('deploy-branch', 'acme_eab_key_id', false);
   optionalText('deploy-branch', 'acme_eab_mac_key', true);
-  optionalText('deploy-platform-services', 'acme_eab_key_id', false);
 
   const branch = programs['deploy-branch'] ?? [];
-  const map = branch.find(row => row.step === 'write_file_from_template' && row.template === 'ansiwise/templates/cluster-map.tpl');
-  const mapLine = /^ {2}acmeEabKeyId: <([a-z-]+)(\??)>$/m.exec(templates['ansiwise/templates/cluster-map.tpl'] ?? '');
+  const map = branch.find(row => row.step === 'write_file_from_template' && row.template === MAP_TEMPLATE);
+  const mapLine = /^ {2}acmeEabKeyId: <([a-z-]+)(\??)>$/m.exec(templates[MAP_TEMPLATE] ?? '');
   if (!map) found.push('deploy-branch writes no cluster map');
   else if (!mapLine) found.push('the cluster map writes no acmeEabKeyId line under global');
   else if (mapLine[2] !== '?') found.push(`the cluster map requires <${mapLine[1]}>, so a run without acme_eab_key_id is refused`);
@@ -288,6 +292,7 @@ test('the programs leave cert-manager to Argo CD and install it only where none 
 const at = (rows, test) => rows.findIndex(test);
 const release = name => row => installOf(row) === name;
 const accountWait = r => r.step === 'wait_for_command_output' && JSON.stringify(r.command_arguments ?? []).includes('"clusterissuer","platform-acme"');
+const copiesTheMap = r => r.step === 'copy_branch_file' && r.destination === RUN_VALUES;
 const valuesProbe = chart => r => r.step === 'wait_for_command_output' && JSON.stringify(r.command_arguments ?? []).includes(`${INVENTORY}/${chart} `);
 const PLANTED = {
   'the addon enabled again': p => { p.programs['deploy-cluster'].find(r => r.step === 'enable_addons').addons.push('cert-manager'); },
@@ -363,21 +368,35 @@ const PLANTED = {
     const rows = p.programs['deploy-platform-services'];
     rows.splice(at(rows, r => r.step === 'wait_for_command_output' && JSON.stringify(r).includes('cert-manager-issuers')), 1);
   },
-  'a values template holding another key': p => {
-    const row = p.programs['deploy-platform-services'].find(r => r.path === RUN_VALUES && same(r.when, ['certificates_withheld']));
-    p.templates[row.template] += '  ingressClass: public\n';
+  'the issuers\' values written from a template again': p => {
+    const rows = p.programs['deploy-platform-services'];
+    rows[at(rows, copiesTheMap)] = {step: 'write_file_from_template', template: MAP_TEMPLATE, path: RUN_VALUES, file_mode: 420, on_failure: 'exit'};
   },
-  'a values template naming the other issuer': p => {
-    const row = p.programs['deploy-platform-services'].find(r => r.path === RUN_VALUES && same(r.when, ['certificates_withheld']));
-    p.templates[row.template] = p.templates[row.template].replace('platform-local', 'platform-acme');
+  'the issuers\' values copied from another path': p => { p.programs['deploy-platform-services'].find(copiesTheMap).path = 'clusters/platform/values-common.yaml'; },
+  'the issuers\' values copied from another checkout': p => { p.programs['deploy-platform-services'].find(copiesTheMap).repository = '/srv/ansiwise-programs'; },
+  'the issuers\' values copied for the public authority only': p => { p.programs['deploy-platform-services'].find(copiesTheMap).when = ['certificates_enabled']; },
+  'the issuers\' values copied by no row': p => {
+    const rows = p.programs['deploy-platform-services'];
+    rows.splice(at(rows, copiesTheMap), 1);
   },
-  'the ACME contact from another answer': p => {
-    const row = p.programs['deploy-platform-services'].find(r => r.path === RUN_VALUES && same(r.when, ['certificates_enabled']));
-    for (const from of Object.values(row.values)) if (from.answer === 'letsencrypt_email') from.answer = 'operator_email';
+  'the issuers\' values copied after the issuers\' probe': p => {
+    const rows = p.programs['deploy-platform-services'];
+    const [row] = rows.splice(at(rows, copiesTheMap), 1);
+    rows.splice(at(rows, valuesProbe('cert-manager-issuers')) + 1, 0, row);
   },
-  'the values written under another condition': p => {
-    const row = p.programs['deploy-platform-services'].find(r => r.path === RUN_VALUES && same(r.when, ['certificates_enabled']));
-    row.when = ['secret_store_enabled'];
+  'the issuers\' values overwritten by a template after the copy': p => {
+    const rows = p.programs['deploy-platform-services'];
+    rows.splice(at(rows, copiesTheMap) + 1, 0, {step: 'write_file_from_template', template: MAP_TEMPLATE, path: RUN_VALUES, file_mode: 420, on_failure: 'exit'});
+  },
+  'the issuers\' values copied without ending a run that cannot copy them': p => { p.programs['deploy-platform-services'].find(copiesTheMap).on_failure = 'continue'; },
+  'the issuers given a values file of their own': p => {
+    for (const row of p.programs['deploy-platform-services'].filter(release('cert-manager-issuers'))) row.values = `${INVENTORY}/cert-manager-issuers/values-common.yaml`;
+  },
+  ...Object.fromEntries(MAP_KEYS.map(key => [`the cluster map without ${key}`, p => {
+    p.templates[MAP_TEMPLATE] = p.templates[MAP_TEMPLATE].split('\n').filter(l => !l.startsWith(`  ${key.split('.')[1]}:`)).join('\n');
+  }])),
+  'the cluster map with the zone of the units outside global': p => {
+    p.templates[MAP_TEMPLATE] = `${p.templates[MAP_TEMPLATE].split('\n').filter(l => !l.startsWith('  unitApex:')).join('\n')}unitApex: <unit-apex>\n`;
   },
   'trust_cluster_authority gone': p => {
     const rows = p.programs['deploy-platform-services'];
@@ -387,25 +406,16 @@ const PLANTED = {
     const rows = p.programs['deploy-platform-services'];
     rows[at(rows, r => r.step === 'trust_cluster_authority')].when = [];
   },
-  'the acmeEabKeyId line missing from the values where the answer is given': p => {
-    const row = p.programs['deploy-platform-services'].find(r => r.path === RUN_VALUES && same(r.when, ['certificates_enabled']));
-    p.templates[row.template] = p.templates[row.template].split('\n').filter(l => !l.includes('acmeEabKeyId')).join('\n');
-  },
   'the acmeEabKeyId line missing from the cluster map where the answer is given': p => {
-    p.templates['ansiwise/templates/cluster-map.tpl'] = p.templates['ansiwise/templates/cluster-map.tpl'].split('\n').filter(l => !l.includes('acmeEabKeyId')).join('\n');
-  },
-  'the values template requiring the key id slot': p => {
-    const row = p.programs['deploy-platform-services'].find(r => r.path === RUN_VALUES && same(r.when, ['certificates_enabled']));
-    p.templates[row.template] = p.templates[row.template].replace('<acme-eab-key-id?>', '<acme-eab-key-id>');
+    p.templates[MAP_TEMPLATE] = p.templates[MAP_TEMPLATE].split('\n').filter(l => !l.includes('acmeEabKeyId')).join('\n');
   },
   'the cluster map requiring the key id slot': p => {
-    p.templates['ansiwise/templates/cluster-map.tpl'] = p.templates['ansiwise/templates/cluster-map.tpl'].replace('<acme-eab-key-id?>', '<acme-eab-key-id>');
+    p.templates[MAP_TEMPLATE] = p.templates[MAP_TEMPLATE].replace('<acme-eab-key-id?>', '<acme-eab-key-id>');
   },
   'the cluster map filling acmeEabKeyId from another answer': p => {
-    const row = p.programs['deploy-branch'].find(r => r.template === 'ansiwise/templates/cluster-map.tpl');
+    const row = p.programs['deploy-branch'].find(r => r.template === MAP_TEMPLATE);
     for (const from of Object.values(row.values)) if (from.answer === 'acme_eab_key_id') from.answer = 'letsencrypt_server';
   },
-  'the key id answer required': p => { p.answers['deploy-platform-services'].find(a => a.name === 'acme_eab_key_id').required = true; },
   'the key id answer missing from deploy-branch': p => { p.answers['deploy-branch'] = p.answers['deploy-branch'].filter(a => a.name !== 'acme_eab_key_id'); },
   'the MAC key answer not secret': p => { delete p.answers['deploy-branch'].find(a => a.name === 'acme_eab_mac_key').secret; },
   'the MAC key never filled into the credentials file': p => {
@@ -473,9 +483,6 @@ const PLANTED = {
   'the Bundle\'s probe whose reason no record keeps': p => {
     delete p.programs['deploy-platform-services'].find(valuesProbe('trust-manager-bundles')).keep_output;
   },
-  'the values written without ending a run that cannot write them': p => {
-    p.programs['deploy-platform-services'].find(r => r.path === RUN_VALUES).on_failure = 'continue';
-  },
   'the account wait on a slave': p => {
     const row = p.programs['deploy-platform-services'].find(accountWait);
     row.when = row.when.filter(w => w !== 'books_here_in_answers');
@@ -498,14 +505,26 @@ const INNOCENT = {
   'the account key pair publishing a name of its own choosing': p => {
     p.programs['deploy-platform-services'].find(r => r.path === '<stage>/app/acme-account').publish = {dkim_public_key: 'another_public_key'};
   },
-  'the key id slots under another name': p => {
-    const map = p.programs['deploy-branch'].find(r => r.template === 'ansiwise/templates/cluster-map.tpl');
-    const values = p.programs['deploy-platform-services'].find(r => r.path === RUN_VALUES && same(r.when, ['certificates_enabled']));
-    for (const row of [map, values]) {
-      p.templates[row.template] = p.templates[row.template].replace('<acme-eab-key-id?>', '<eab-key-id?>');
-      row.values['eab-key-id'] = row.values['acme-eab-key-id'];
-      delete row.values['acme-eab-key-id'];
-    }
+  'the key id slot under another name': p => {
+    const map = p.programs['deploy-branch'].find(r => r.template === MAP_TEMPLATE);
+    p.templates[MAP_TEMPLATE] = p.templates[MAP_TEMPLATE].replace('<acme-eab-key-id?>', '<eab-key-id?>');
+    map.values['eab-key-id'] = map.values['acme-eab-key-id'];
+    delete map.values['acme-eab-key-id'];
+  },
+  'the cluster map of a cluster whose issuer is platform-local': p => {
+    p.templates[MAP_TEMPLATE] = p.templates[MAP_TEMPLATE].replace('clusterIssuer: <cluster-issuer>', 'clusterIssuer: platform-local');
+    delete p.programs['deploy-branch'].find(r => r.template === MAP_TEMPLATE).values['cluster-issuer'];
+  },
+  'the zones written in the other order': p => {
+    const lines = p.templates[MAP_TEMPLATE].split('\n');
+    const [unit, domain] = ['  unitApex:', '  platformDomain:'].map(start => lines.findIndex(l => l.startsWith(start)));
+    [lines[unit], lines[domain]] = [lines[domain], lines[unit]];
+    p.templates[MAP_TEMPLATE] = lines.join('\n');
+  },
+  'the copy row with its keys in another order': p => {
+    const rows = p.programs['deploy-platform-services'];
+    const at = rows.findIndex(copiesTheMap);
+    rows[at] = Object.fromEntries(Object.entries(rows[at]).reverse());
   },
   'the account wait as the last row': p => {
     const rows = p.programs['deploy-platform-services'];
@@ -528,11 +547,6 @@ const INNOCENT = {
   },
   'the account wait with its gates in the other order': p => { p.programs['deploy-platform-services'].find(accountWait).when.reverse(); },
   'the account wait given longer': p => { p.programs['deploy-platform-services'].find(accountWait).timeout_seconds = 900; },
-  'the values template keys in another order': p => {
-    const row = p.programs['deploy-platform-services'].find(r => r.path === RUN_VALUES && same(r.when, ['certificates_enabled']));
-    const keys = p.templates[row.template].split('\n').filter(l => /^ {2}\w/.test(l));
-    p.templates[row.template] = `global:\n${keys.reverse().join('\n')}\n`;
-  },
 };
 
 test('PLANTED DEFECT: each way back is found, and the programs as built are not', () => {
