@@ -62,6 +62,7 @@ node --test "$ROOT/scripts/vault-listener-reload.test.mjs" || fail 'the secret s
 node --test "$ROOT/scripts/forgejo.test.mjs" || fail 'Forgejo gets its client secret from the one minted value and its installation values'
 node --test "$ROOT/scripts/plane.test.mjs" || fail 'Plane gets every secret from one minted entry and its installation values'
 node --test "$ROOT/scripts/forgejo-build-credentials.test.mjs" || fail 'Forgejo credential producer and complete entry'
+node --test "$ROOT/scripts/owned-storage.test.mjs" || fail 'the installer downloads its tools and bootstrap charts from the owner mirror alone'
 node --test "$ROOT/scripts/forgejo-webhook.test.mjs" || fail 'the Forgejo webhook key stands in an entry of its own'
 
 python3 "$ROOT/scripts/tenant-stage-proof.test.py" || fail 'tenant stage permission proof'
