@@ -128,6 +128,13 @@ global:
   # A /32 and not the prefix the interface carries: a node configured 10.1.1.7/24 shares that /24
   # with every other host on the wire, and what a boundary needs is the machine, not the segment.
   nodeCidrs: [<node-cidrs>]
+  # WHERE THE STORAGE BOX ANSWERS, carried: the person in charge writes the addresses of its host on
+  # the owner's master's install branch, and every rewrite from the answers hands them back as they
+  # stand. The recovery-export task of the platform's publish run reaches the box there on TCP 22 and
+  # nowhere else, and that pinhole refuses to render on an empty list. A cold install or a restore of
+  # the owner's master rewrites this file, so a line the template did not carry would be gone, and
+  # every sync wave after the build plane's would stand waiting. Any other installation has no line.
+  storageBoxCidrs: [<storage-box-cidrs!?>]
   # WHERE THE SHARED SERVICES ANSWER, one map and one shape per service. Each is that service plus
   # the domain of the cluster that runs it — the books-keeping cluster for everything an
   # installation has exactly one of, the build plane for the registry.
