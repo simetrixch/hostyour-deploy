@@ -279,24 +279,18 @@ steps:
   # under both issuers; only its contents differ, so a consumer mounts one name and is never touched
   # when the issuer is turned over.
   # ---------------------------------------------------------------------------------------------
-  # The values the issuers and the bundle are rendered with, as Argo CD renders them from the cluster's
-  # map: which issuer, and for the public one its contact and directory. Written on every run,
-  # because the admission waits below render with it on every run.
-  - step: write_file_from_template
-    when: [certificates_enabled]
-    template: ansiwise/templates/certificate-values-platform-acme.tpl
-    path: /tmp/ansiwise-certificate-values.yaml
-    file_mode: 420
-    values:
-      letsencrypt-email: { answer: letsencrypt_email }
-      letsencrypt-server: { answer: letsencrypt_server }
-      acme-eab-key-id: { answer: acme_eab_key_id }
-    on_failure: exit
-
-  - step: write_file_from_template
-    when: [certificates_withheld]
-    template: ansiwise/templates/certificate-values-platform-local.tpl
-    path: /tmp/ansiwise-certificate-values.yaml
+  # The values the issuers and the bundle are rendered with: this cluster's map as the branch records
+  # it, the file Argo CD renders both charts from. The zones the public issuer answers by DNS-01, the
+  # contact, the directory and the account it binds stand there once, written by the run that cut the
+  # branch or by the Manager for a slave, so a key a chart asks for later is the map's to carry and no
+  # row here repeats it. The committed bytes are copied, never the working tree, and for both issuers:
+  # under `platform-local` the charts read the issuer and nothing else. Copied on every run, because
+  # the admission waits below read the file on every run.
+  - step: copy_branch_file
+    repository: /srv/hostyour-cloud
+    path: clusters/active/<fqdn>.yaml
+    run_answer: fqdn
+    destination: /tmp/ansiwise-certificate-values.yaml
     file_mode: 420
     on_failure: exit
 
@@ -2859,33 +2853,3 @@ answers:
       Write this cluster's own domain unless another machine carries the build plane, in which case
       write that machine's. Nothing derives it: a cluster that silently made itself the build plane
       would start building images nobody asked it to build.
-
-  # The public authority's contact and directory, which the run's values file gives the issuers when
-  # this installation's certificates come from it. Declared as deploy-cluster declares them, and the
-  # same answers reach both programs.
-  - name: letsencrypt_email
-    kind: text
-    describes: >-
-      The mailbox the certificate authority writes to before a certificate expires. Nothing here
-      judges the address — it is yours, and a rule that recognised an example would refuse an
-      operator whose own mailbox reads like one. The authority itself refuses some: a mailbox at a
-      domain reserved for documentation comes back as "contact email has forbidden domain", which is
-      what an address ending in example.com, test.com or localhost will do.
-
-  - name: letsencrypt_server
-    kind: text
-    describes: >-
-      The certificate authority this installation registers with, written as the address of its
-      directory. Every installation of this platform answers Google Trust Services,
-      https://dv.acme-v02.api.pki.goog/directory, and the first step of deploy-cluster refuses every
-      other: the installation's one ACME account is registered there. Never a test directory: its
-      certificates are signed by a root no machine carries, so an installation that answers one
-      cannot reach its own secret store.
-
-  - name: acme_eab_key_id
-    kind: text
-    required: false
-    describes: >-
-      The key id of the External Account Binding of this installation's one ACME account, as the
-      cluster's map states it. The issuers bind that account, and hostyour-cloud's issuer chart
-      refuses a cluster whose values carry no key id by this key's name: there is no form without it.
