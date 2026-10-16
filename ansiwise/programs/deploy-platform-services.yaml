@@ -1982,13 +1982,6 @@ steps:
   # Deployed by this program and never by the reconciler. The reconciler authenticates through it,
   # so a self-managing loop makes a broken identity provider unrecoverable: no way in to fix the
   # thing that is keeping everybody out.
-  - step: helm_repository
-    rests_on_an_earlier_step: true
-    name: authentik
-    url: https://charts.goauthentik.io
-    when: [idp_enabled, books_here_in_answers]
-    on_failure: continue
-
   - step: kubernetes_namespace
     rests_on_an_earlier_step: true
     namespace: idp
@@ -2103,7 +2096,7 @@ steps:
   - step: helm_release
     rests_on_an_earlier_step: true
     release: idp
-    chart: authentik/authentik
+    chart: oci://zot.master.digitacloud.app/simetrixch/charts.goauthentik.io/authentik
     chart_version: '2026.5.6'
     namespace: idp
     values: /srv/hostyour-cloud/clusters/bootstrap/idp/values.yaml
@@ -2213,18 +2206,6 @@ steps:
     on_failure: continue
 
   # --- the kubernetes dashboard (headlamp) ----------------------------------------------------
-  #
-  # THE PROJECT PUBLISHES ITS CHARTS UNDER kubernetes-sigs, and any other address for them answers
-  # 404. That shows as two failures for one cause — the repository cannot be added, and the release
-  # right after it fails with "repo headlamp not found", which reads like a second problem and is
-  # the same one.
-  - step: helm_repository
-    rests_on_an_earlier_step: true
-    name: headlamp
-    url: https://kubernetes-sigs.github.io/headlamp/
-    when: [idp_enabled, books_here_in_answers]
-    on_failure: continue
-
   - step: kubernetes_namespace
     rests_on_an_earlier_step: true
     namespace: headlamp
@@ -2252,7 +2233,7 @@ steps:
   - step: helm_release
     rests_on_an_earlier_step: true
     release: headlamp
-    chart: headlamp/headlamp
+    chart: oci://zot.master.digitacloud.app/simetrixch/kubernetes-sigs.github.io/headlamp/headlamp
     chart_version: '0.42.0'
     namespace: headlamp
     values: /srv/hostyour-cloud/clusters/bootstrap/headlamp/values.yaml
@@ -2577,13 +2558,6 @@ steps:
   # WHOSE BOOKS is the discriminator the tree already has, and it is not a proxy: the master's own
   # generator selects a slave BY that fact — `booksCluster: <master>` in its selector — so a cluster
   # whose books are elsewhere is exactly a cluster something else drives.
-  - step: helm_repository
-    rests_on_an_earlier_step: true
-    name: argo
-    url: https://argoproj.github.io/argo-helm
-    when: [reconciler_enabled, books_here_in_answers]
-    on_failure: continue
-
   - step: kubernetes_namespace
     rests_on_an_earlier_step: true
     namespace: argocd
@@ -2633,7 +2607,7 @@ steps:
   - step: helm_release
     rests_on_an_earlier_step: true
     release: argocd
-    chart: argo/argo-cd
+    chart: oci://zot.master.digitacloud.app/simetrixch/argoproj.github.io/argo-helm/argo-cd
     chart_version: '10.2.1'
     namespace: argocd
     values: /srv/hostyour-cloud/clusters/bootstrap/argocd/values.yaml

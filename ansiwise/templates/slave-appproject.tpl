@@ -33,7 +33,7 @@ spec:
     # observability names prometheus-community and grafana, services names postfix's. This one named
     # none, and it is the only project whose application had never been generated, so nothing had
     # ever asked it for one.
-    - https://argoproj.github.io/argo-helm
+    - oci://zot.master.digitacloud.app/simetrixch/argoproj.github.io/argo-helm
   destinations:
     - server: https://kubernetes.default.svc
       namespace: <slave-cluster-name>

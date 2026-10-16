@@ -98,6 +98,8 @@ echo 'check: NOT RUN locally — scripts/tenant-stage-proof.test.py; public CI, 
 
 echo 'check: NOT RUN locally — dart test test/checks/config_validity_test.dart; runs in the ci of the master via scripts/test.sh.'
 
+node --check "$ROOT/scripts/owned-storage.test.mjs" || fail 'owned storage check syntax'
+echo 'check: NOT RUN locally — scripts/owned-storage.test.mjs; runs in the ci of the master via scripts/test.sh.'
 node --check "$ROOT/scripts/forgejo-build-credentials.test.mjs" || fail 'Forgejo credential producer check syntax'
 bash -n "$ROOT/ansiwise/templates/forgejo-build-credentials.sh.tpl" || fail 'Forgejo credential producer Bash syntax'
 echo 'check: NOT RUN locally — scripts/forgejo-build-credentials.test.mjs; runs in the ci of the master via scripts/test.sh.'
