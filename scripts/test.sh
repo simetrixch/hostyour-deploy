@@ -53,7 +53,7 @@ node --test "$ROOT/scripts/prune-unused-images.test.mjs" || fail 'prune unused i
 node --test "$ROOT/scripts/manager-tenant-key-grants.test.mjs" || fail 'manager grants every tenant app key kind'
 node --test "$ROOT/scripts/build-platform-leaves.test.mjs" || fail 'the platform bump credentials stand on build-platform/ alone'
 node --test "$ROOT/scripts/manager-post-client-read.test.mjs" || fail 'manager reads the post client secret from its own entry alone'
-node --test "$ROOT/scripts/e2e-runner-read.test.mjs" || fail 'the e2e runner reads the E2E passwords and the test mailbox key alone'
+node --test "$ROOT/scripts/e2e-runner-read.test.mjs" || fail 'the e2e runner reads the E2E passwords alone'
 node --test "$ROOT/scripts/idp-bootstrap-read.test.mjs" || fail 'no cluster secret reader reads idp bootstrap'
 node --test "$ROOT/scripts/kubelet-image-gc.test.mjs" || fail 'kubelet collects unused images and bounds container logs'
 node --test "$ROOT/scripts/publish-mail-dkim.test.mjs" || fail 'publish-mail-dkim writes only the DKIM record'
