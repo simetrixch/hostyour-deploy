@@ -999,6 +999,28 @@ steps:
     when: [secret_store_enabled, build_plane_here_in_answers, books_here_in_answers]
     on_failure: exit
 
+  # The recovery export's own read (hostyour-cloud clusters/inventories/consumer-build, the task
+  # recovery-export): the installation's one storage box login, the same entry master-backup's and the
+  # Manager's backup and move jobs write with. The export writes the recovery folder <fqdn>/recovery/
+  # below that login's root.
+  #
+  # WHY NOT A LEAF IN THE BUILD READER ABOVE. Every build namespace's secret reader logs in under that
+  # policy, and some units belong to external parties. This login opens every backup of the
+  # installation: it reads and deletes the master backups and every backup the Manager wrote. So it
+  # gets a policy of its own on a role of its own, and only the account the writer namespaces render
+  # logs in under it.
+  #
+  # ONE ENTRY AND NOT THE TIER. The line names <stage>/app/storage-box and nothing else under
+  # <stage>/app/. No list and no metadata path: the store names its entry.
+  - step: vault_policy
+    rests_on_an_earlier_step: true
+    repository: /srv/hostyour-cloud
+    name: <cluster>-recovery-export-read
+    rules: |
+      path "secret/data/<stage>/app/storage-box" { capabilities = ["read"] }
+    when: [secret_store_enabled, build_plane_here_in_answers, books_here_in_answers]
+    on_failure: exit
+
   # The cluster manager's own policy, in the two shapes a cluster can need it in. Written whole
   # either way, so the two are separate entries and only one of them ever runs.
   #
@@ -1327,6 +1349,27 @@ steps:
       "bound_service_account_namespaces":[],
       "bound_service_account_namespace_selector":"{\"matchLabels\":{\"hostyour.cloud/build\":\"true\"}}",
       "token_policies":["<cluster>-bump-read"],"ttl":"1h"}
+    when: [secret_store_enabled, build_plane_here_in_answers, books_here_in_answers]
+    on_failure: exit
+
+  # The recovery export's identity. Both halves are the chart's: consumer-build renders ServiceAccount
+  # recovery-export-eso and the SecretStore that logs in under this role only where a run writes the
+  # recovery folder (consumer-build.writesRecoveryFolder): the build namespaces <unit>-build of the
+  # platform tree, of global.buildRegistryUnit and of the engine, which are the three named here.
+  #
+  # NAMES AND NOT THE BUILD LABEL. The label admits every build namespace, the units of external
+  # parties among them, and an account rendered there under this name would read the login that opens
+  # every backup. The names admit the three writers alone. A writer whose namespace is not named here
+  # is refused at login, and its store reports it.
+  - step: vault_auth_role
+    rests_on_an_earlier_step: true
+    repository: /srv/hostyour-cloud
+    mount: <kubernetes-mount>
+    role: build-recovery-export
+    body: >-
+      {"bound_service_account_names":["recovery-export-eso"],
+      "bound_service_account_namespaces":["hostyour-cloud-build","hostyour-manager-build","ansiwise-cli-build"],
+      "token_policies":["<cluster>-recovery-export-read"],"ttl":"24h"}
     when: [secret_store_enabled, build_plane_here_in_answers, books_here_in_answers]
     on_failure: exit
 

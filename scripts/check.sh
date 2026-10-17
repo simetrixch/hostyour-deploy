@@ -76,6 +76,8 @@ node --check "$ROOT/scripts/manager-post-client-read.test.mjs" || fail 'manager 
 echo 'check: NOT RUN locally — scripts/manager-post-client-read.test.mjs; runs in the ci of the master via scripts/test.sh.'
 node --check "$ROOT/scripts/e2e-runner-read.test.mjs" || fail 'e2e runner read check syntax'
 echo 'check: NOT RUN locally — scripts/e2e-runner-read.test.mjs; runs in the ci of the master via scripts/test.sh.'
+node --check "$ROOT/scripts/recovery-export-read.test.mjs" || fail 'recovery export read check syntax'
+echo 'check: NOT RUN locally — scripts/recovery-export-read.test.mjs; runs in the ci of the master via scripts/test.sh.'
 node --check "$ROOT/scripts/idp-bootstrap-read.test.mjs" || fail 'idp bootstrap read check syntax'
 echo 'check: NOT RUN locally — scripts/idp-bootstrap-read.test.mjs; runs in the ci of the master via scripts/test.sh.'
 node --check "$ROOT/scripts/kubelet-image-gc.test.mjs" || fail 'kubelet image gc check syntax'

@@ -543,16 +543,18 @@ answers:
     kind: text
     required: false
     describes: >-
-      A SUB-account of that storage box (uXXXXXX-subN), with SSH/SFTP enabled and its own directory.
-      Never the main account, whose password also unlocks the Hetzner Robot.
+      The main account of that storage box (uXXXXXX), with SSH/SFTP enabled. Every backup, move and
+      restore of this installation is written with it, and on the owner's master the recovery folder
+      too, each in its own folder below <fqdn>/; it opens the whole box. Its password may also unlock
+      the Hetzner Robot, and so delete the machine this installation runs on; that is not verified.
 
   - name: storage_box_password
     kind: text
     required: false
     secret: true
     describes: >-
-      The password of that storage box sub-account. Never the main account's, which also unlocks the
-      Hetzner Robot and so can delete the machine this installation runs on.
+      The password of that main account. It may also unlock the Hetzner Robot, and so delete the
+      machine this installation runs on; that is not verified.
 
   - name: acme_eab_mac_key
     kind: text
