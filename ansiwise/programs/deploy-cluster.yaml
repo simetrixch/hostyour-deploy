@@ -565,6 +565,23 @@ steps:
     rollout_timeout_seconds: 90
     on_failure: continue
 
+  # THE INGRESS CONTROLLER REQUESTS CPU. The addon's DaemonSet declares `resources: {}`, so while a
+  # heavy build saturates the node the controller gets the minimum CPU share and every service behind
+  # it answers slowly, with nothing reporting it. 400m is the controller's p95 over seven days on the
+  # master (two pods at 0.403 and 0.401 cores); hostyour-cloud counts the same figure in
+  # ciCapacity.standingCpuRequests, so a change here changes the budget there. The step replaces the
+  # running pods too, which interrupts the ingress once. scripts/traefik-cpu-request.test.mjs holds
+  # the figure.
+  - step: patch_container_resources
+    rests_on_an_earlier_step: true
+    namespace: ingress
+    kind: daemonset
+    name: traefik
+    container: traefik
+    cpu_request: 400m
+    rollout_timeout_seconds: 90
+    on_failure: continue
+
   # THE ADDON'S DASHBOARD ROUTE COMES OFF, on every run. The addon installs Traefik with its dashboard
   # on `web` under Host(dashboard.localhost), and a Host header is anybody's to send, so every cluster
   # address served the dashboard and the whole routing table to anyone. The addon takes no value
