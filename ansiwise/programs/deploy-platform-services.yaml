@@ -2707,8 +2707,8 @@ steps:
     on_failure: exit
 
   # Credentials are exchanged once, as a complete entry, on a master where Plane already ran before
-  # this run: a first installation hands Forgejo and Plane over above and skips these rows. The
-  # producer loads the module of the first row, which reaches the Forgejo pod and Plane's API pod.
+  # this run: a first installation hands Forgejo and Plane over above and skips these rows. Both
+  # producers load the module of the first row, which reaches the Forgejo pod and Plane's API pod.
   - step: write_file_from_template
     template: ansiwise/templates/forgejo-plane-access.py.tpl
     path: /run/forgejo-plane-access.py
@@ -2742,6 +2742,33 @@ steps:
     path: <stage>/app/forgejo-build
     producer: /run/forgejo-build-credentials.sh
     fields: [forgejo-user, forgejo-api-token, plane-api-token]
+    when: [secret_store_enabled, books_here_in_answers, build_plane_here_in_answers, plane_runs_here]
+    on_failure: exit
+
+  # Plane signs people in through Forgejo, which signs in only through the identity provider. The
+  # producer shares the temporary administrator of the row above, and so its name and its lock.
+  - step: write_file_from_template
+    template: ansiwise/templates/plane-sign-in.sh.tpl
+    path: /run/plane-sign-in.sh
+    file_mode: 448
+    elevated: true
+    values:
+      forgejo-bootstrap-user: forgejo-build-provisioner
+      forgejo-namespace: forgejo
+      forgejo-pod-selector: app.kubernetes.io/name=forgejo
+      forgejo-container: forgejo
+      forgejo-credential-lock: /run/forgejo-build-credentials.lock
+      forgejo-plane-access-module: /run/forgejo-plane-access.py
+    when: [secret_store_enabled, books_here_in_answers, build_plane_here_in_answers, plane_runs_here]
+    on_failure: exit
+
+  - step: vault_kv_entry_from_command
+    rests_on_an_earlier_step: true
+    repository: /srv/hostyour-cloud
+    mount: secret
+    path: <stage>/app/plane-sign-in
+    producer: /run/plane-sign-in.sh
+    fields: [client-id, client-secret]
     when: [secret_store_enabled, books_here_in_answers, build_plane_here_in_answers, plane_runs_here]
     on_failure: exit
 
