@@ -1,66 +1,65 @@
 import assert from 'node:assert/strict';
-import {spawn, execFileSync} from 'node:child_process';
+import {spawn} from 'node:child_process';
+import {createHash} from 'node:crypto';
 import {createServer} from 'node:http';
 import {readFileSync} from 'node:fs';
-import {mkdtemp, readFile, writeFile, readdir, rm} from 'node:fs/promises';
+import {mkdtemp, readFile, readdir, rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {test} from 'node:test';
+import {MODULE, forgejoCommand, installation, planeExec, planeOutput, program, rendered, root, writeProducer} from './forgejo-plane-access-fake.mjs';
 
-const root = new URL('../', import.meta.url);
+const TEMPLATE = 'ansiwise/templates/forgejo-build-credentials.sh.tpl';
 const USER = 'forgejo-build', BOOTSTRAP = 'forgejo-build-provisioner';
 const REPO = 'akadmin/hostyour-release-test';
-const PLANE = 'fixture-plane-update-status-secret';
+const PLANE = 'plane_api_fixture0forgejo0build0key';
+const OWNER_KEY = 'plane_api_fixture0owner0key';
 const TOKEN = 'fixture-forgejo-build-issued-secret';
 const PASSWORD = "fixture-bootstrap-password'$with-quotes";
 const entry = {'forgejo-user': USER, 'forgejo-api-token': TOKEN, 'plane-api-token': PLANE};
-// The engine's template rule (ansiwise-core lib/src/steps/slots.dart slotPattern, template.dart
-// filledWith): every required slot names a value of the row, every value has a slot, and a line
-// whose optional slot the row leaves out is dropped whole.
-function rendered(text, values) {
-  const slots = [...text.matchAll(/<([a-z][a-z0-9-]*)(!\?|\??)>/g)];
-  const unfilled = slots.filter(([, name, suffix]) => suffix === '' && !(name in values)).map(([slot]) => slot);
-  const unplaced = Object.keys(values).filter(name => !slots.some(([, slot]) => slot === name));
-  if (slots.some(([, , suffix]) => suffix === '!?')) throw new Error('this fixture renders no carried slot');
-  if (unfilled.length || unplaced.length) throw new Error(`template and values do not fit: unfilled ${unfilled}, unplaced ${unplaced}`);
-  return text.split('\n').filter(line => [...line.matchAll(/<([a-z][a-z0-9-]*)\?>/g)].every(([, name]) => name in values))
-    .join('\n').replace(/<([a-z][a-z0-9-]*)\??>/g, (_, name) => values[name]);
-}
-
-const yaml = file => JSON.parse(execFileSync('yq', ['-o=json', '.', new URL(file, root).pathname], {encoding: 'utf8'}));
-const program = yaml('ansiwise/programs/deploy-platform-services.yaml');
-const installation = yaml('ansiwise.yaml');
+const WORKSPACE = 'simplidigita', LABEL = 'plane-update-status';
+const PROJECTS = ['e5c01046-3739-4af7-abc4-3c13b28dd232', '7bbca0da-56a0-4c33-bf6d-aaef3eb327d1'];
+const READ = '# forgejo-build read', WRITE = '# forgejo-build write';
+const sha = text => createHash('sha256').update(text).digest('hex');
+// A read of the cluster: a get, the Forgejo user list, or the read snippet in Plane's API pod.
+const reads = c => c.includes('get') || c.includes('list') || (c.includes('manage.py') && c.at(-1).startsWith(READ + '\n'));
 
 function wiring(steps) {
   const writers = steps.filter(s => s.path === '<stage>/app/forgejo-build');
   if (writers.length !== 1 || writers[0].step !== 'vault_kv_entry_from_command') return ['not one complete-entry writer'];
   const row = writers[0], problems = [];
   if (JSON.stringify(row.fields) !== JSON.stringify(Object.keys(entry))) problems.push('not the three credential fields');
-  if (JSON.stringify(row.fields_from_answers) !== JSON.stringify(['plane-api-token=plane_api_token'])) problems.push('missing secret input');
+  if (row.fields_from_answers !== undefined) problems.push('an answer stands in for a field');
   const render = steps.find(s => s.path === row.producer);
+  const module = steps.find(s => s.template === MODULE);
   const machine = ['books_here_in_answers', 'build_plane_here_in_answers', 'plane_runs_here'];
-  if (![row, render].every(r => machine.every(c => r?.when?.includes(c)))) problems.push('wrong machine');
+  if (![row, render, module].every(r => machine.every(c => r?.when?.includes(c)))) problems.push('wrong machine');
   if (row.on_failure !== 'exit') problems.push('failure continued');
-  if (render?.step !== 'write_file_from_template' || render.template !== 'ansiwise/templates/forgejo-build-credentials.sh.tpl') problems.push('no application producer');
+  if (render?.step !== 'write_file_from_template' || render.template !== TEMPLATE) problems.push('no application producer');
+  if (module?.step !== 'write_file_from_template' || module.elevated !== true || module.file_mode !== 0o600 ||
+      render?.values?.['forgejo-plane-access-module'] !== module.path) problems.push('the producer loads no private module');
+  if (steps.indexOf(module) > steps.indexOf(render)) problems.push('the module after its producer');
   if (steps.indexOf(row) <= steps.findIndex(s => s.manifest === 'clusters/argocd/root-app.yaml')) problems.push('before Forgejo can start');
   return problems;
 }
 
-test('one installer writer follows the handoff and reads the optional secret answer', () => {
+test('one installer writer follows the handoff, loads the private module and reads no answer', () => {
   assert.deepEqual(wiring(program.steps), []);
   // Conditions are measured before the first row, so a first installation finds no Plane yet.
   assert.deepEqual(installation.conditions.plane_runs_here, {predicate: 'kubernetes_object_present', kind: 'deployments.apps',
     name: 'plane-api-wl', namespace: 'plane', kubectl: ['microk8s', 'kubectl'], kubectl_needs_root: true});
-  const answer = program.answers.find(a => a.name === 'plane_api_token');
-  assert.equal(answer?.secret, true);
-  assert.equal(answer?.required, false);
-  assert.equal(answer?.default, undefined);
+  assert.equal(program.answers.find(a => a.name === 'plane_api_token'), undefined);
+  const writer = steps => steps.find(s => s.path === '<stage>/app/forgejo-build');
   for (const defect of [
-    steps => steps.push(structuredClone(steps.find(s => s.path === '<stage>/app/forgejo-build'))),
-    steps => { steps.find(s => s.path === '<stage>/app/forgejo-build').fields.push('plane-project'); },
-    steps => { steps.find(s => s.path === '<stage>/app/forgejo-build').on_failure = 'continue'; },
-    steps => { const row = steps.find(s => s.path === '<stage>/app/forgejo-build'); row.when = row.when.filter(c => c !== 'plane_runs_here'); },
-    steps => { const row = steps.find(s => s.template === 'ansiwise/templates/forgejo-build-credentials.sh.tpl'); row.when = row.when.filter(c => c !== 'plane_runs_here'); },
+    steps => steps.push(structuredClone(writer(steps))),
+    steps => { writer(steps).fields.push('plane-project'); },
+    steps => { writer(steps).on_failure = 'continue'; },
+    steps => { const row = writer(steps); row.when = row.when.filter(c => c !== 'plane_runs_here'); },
+    steps => { const row = steps.find(s => s.template === TEMPLATE); row.when = row.when.filter(c => c !== 'plane_runs_here'); },
+    steps => { writer(steps).fields_from_answers = ['plane-api-token=plane_api_token']; },
+    steps => { steps.splice(steps.findIndex(s => s.template === MODULE), 1); },
+    steps => { steps.push(...steps.splice(steps.findIndex(s => s.template === MODULE), 1)); },
+    steps => { steps.find(s => s.template === MODULE).file_mode = 0o644; },
   ]) {
     const changed = structuredClone(program.steps); defect(changed);
     assert.notDeepEqual(wiring(changed), []);
@@ -68,12 +67,15 @@ test('one installer writer follows the handoff and reads the optional secret ans
   assert.deepEqual(wiring([...program.steps]), []);
 });
 
-test('the producer template renders under the engine\'s slot rule with exactly the row\'s values', () => {
-  const template = readFileSync(new URL('ansiwise/templates/forgejo-build-credentials.sh.tpl', root), 'utf8');
-  const {values} = program.steps.find(s => s.template === 'ansiwise/templates/forgejo-build-credentials.sh.tpl');
+test('the producer and its module render under the engine\'s slot rule with exactly their rows\' values', () => {
+  const template = readFileSync(new URL(TEMPLATE, root), 'utf8'), module = readFileSync(new URL(MODULE, root), 'utf8');
+  const {values} = program.steps.find(s => s.template === TEMPLATE);
   assert.ok(!rendered(template, values).match(/<[a-z][a-z0-9-]*\??>/));
+  assert.equal(program.steps.find(s => s.template === MODULE).values, undefined);
+  assert.ok(!rendered(module).match(/<[a-z][a-z0-9-]*\??>/));
   // PLANTED: an angle-bracketed word in a comment is a slot no row fills, and the engine refuses it.
   assert.throws(() => rendered(template.replace('# The installer', '# GET /users/<user>/tokens\n# The installer'), values), /unfilled <user>/);
+  assert.throws(() => rendered(module.replace('# The access', '# GET /users/<user>\n# The access')), /unfilled <user>/);
   assert.throws(() => rendered(template, {...values, 'forgejo-planted': 'x'}), /unplaced forgejo-planted/);
 });
 
@@ -81,21 +83,23 @@ const SCOPES = ['read:user', 'write:repository'];
 const UNRELATED = 'akadmin/unrelated';
 const SHA = 'a1b2c3d4e5f60718293a4b5c6d7e8f9012345678';
 
+// The deployed Pipeline forgejo-release as the producer reads it: its task plane names the targets.
+const pipeline = targets => ({spec: {tasks: [{name: 'release'}, {name: 'plane', params: [
+  {name: 'repository', value: '$(params.repository)'}, {name: 'plane-targets', value: targets}]}]}});
+const TARGETS = JSON.stringify({workspace: WORKSPACE, projects: [{prefixes: ['ansiwise-'], id: PROJECTS[0]}, {prefixes: ['hostyour-'], id: PROJECTS[1]}]});
+
 // A stand-in for the pinned Forgejo 15.0.10 routes the producer and a build call. It answers by the
 // token's scopes, then the repository, then the user's right, in the order routers/api/v1/api.go
 // checks them: a token needs write:<category> for POST, PUT and DELETE and read or write otherwise
 // (api.go:252-260, permissions/token_requires_scopes.go:13-39); /user and /users/<name> need the user
 // category (api.go:611, :760), /user/repos the repository category as well (api.go:722); public-only
 // hides private repositories (services/authz/public_repos_reducer.go); basic auth carries no scope.
+// Beside it a stand-in for Plane v1.4.2 answers the module's snippets by the semantics of their ORM
+// statements, one transaction each, and answers the write snippet's calls from the committed rows.
 async function fixture(options = {}) {
-  // Rendered first: a template the engine would refuse starts no server.
-  const source = await readFile(new URL('ansiwise/templates/forgejo-build-credentials.sh.tpl', root), 'utf8');
-  const render = program.steps.find(s => s.template === 'ansiwise/templates/forgejo-build-credentials.sh.tpl');
-  // The grant cases name the proof repository; `shipped` renders with the row's values as they are.
-  let script = rendered(options.mutate ? options.mutate(source) : source,
-    options.shipped ? render.values : {...render.values, 'forgejo-repositories': REPO});
+  const render = program.steps.find(s => s.template === TEMPLATE);
   const directory = await mkdtemp(join(tmpdir(), 'forgejo-credentials-'));
-  const commands = [], requests = [];
+  const commands = [], inputs = [], requests = [], snippets = [];
   const users = new Map([['akadmin', {email: 'akadmin@hostyour.invalid', admin: true, restricted: false, active: true}]]);
   if (options.exists !== false) users.set(USER, {email: USER + '@hostyour.invalid', admin: false, restricted: true, active: true, ...options.badUser});
   if (options.staleBootstrap) users.set(BOOTSTRAP, {email: BOOTSTRAP + '@hostyour.invalid', admin: true, restricted: false, active: true});
@@ -109,36 +113,70 @@ async function fixture(options = {}) {
   if (options.held) tokens.set(options.held.value, {owner: USER, name: USER, repositories: null, ...options.held});
   let generation = 0;
   const right = (login, repo) => users.get(login)?.admin ? 'admin' : repo.grants.get(login) ?? (repo.private || users.get(login)?.restricted ? null : 'read');
+  const member = place => options.planeUser === false ? null : place in (options.planeRoles ?? {}) ?
+    options.planeRoles[place] && {role: 15, is_active: true, ...options.planeRoles[place]} : {role: 15, is_active: true};
+  const plane = {
+    workspace: options.planeWorkspace === false ? null : WORKSPACE,
+    projects: new Set(PROJECTS.filter(p => p !== options.missingProject)),
+    user: options.planeUser === false ? null : {is_bot: true, is_active: true, instance_admin: false, ...options.planeUser},
+    roles: Object.fromEntries(['workspace', ...PROJECTS].map(place => [place, member(place)])),
+    tokens: options.planeTokens ?? (options.planeUser === false ? [] : [{owner: USER, label: LABEL, value: PLANE, is_active: true, expired: false}]),
+    forbid: options.planeForbid ?? null,
+    issued: 0,
+  };
+  const own = () => plane.tokens.filter(t => t.owner === USER && t.label === LABEL);
+  const accepted = t => t.is_active && !t.expired && plane.user?.is_active === true;
+  const planeAnswer = ({name, args}) => {
+    assert.deepEqual([args.email, args.label], [USER + '@hostyour.invalid', LABEL]);
+    const workspace = plane.workspace === args.workspace;
+    const found = workspace ? args.projects.filter(p => plane.projects.has(p)) : [];
+    if (name === READ) return {workspace, projects: found, user: plane.user && {
+      is_bot: plane.user.is_bot, is_active: plane.user.is_active, instance_admin: plane.user.instance_admin,
+      workspace: workspace ? plane.roles.workspace : null, projects: Object.fromEntries(found.map(p => [p, plane.roles[p]])),
+      labeled: own().length, accepted: own().filter(accepted).map(t => sha(t.value))}};
+    if (name !== WRITE) return undefined;
+    // Every refusal of the snippet comes before its first write, as a rolled back block leaves nothing.
+    const places = ['workspace', ...args.projects];
+    if (!workspace || found.length !== args.projects.length) return undefined;
+    if (plane.user && (!plane.user.is_bot || !plane.user.is_active || plane.user.instance_admin)) return undefined;
+    if (plane.user && places.some(place => plane.roles[place]?.role > 15)) return undefined;
+    if (args.issue ? own().length > 0 : !(own().length === 1 && accepted(own()[0]))) return undefined;
+    plane.user ??= {is_bot: true, is_active: true, instance_admin: false};
+    for (const place of places) plane.roles[place] = {role: 15, is_active: true};
+    if (args.issue) plane.tokens.push({owner: USER, label: LABEL, value: 'plane_api_fixture0issued' + ++plane.issued, is_active: true, expired: false});
+    const key = own()[0].value;
+    const statuses = Object.fromEntries(args.projects.map(p => [p, plane.forbid === p ? 403 : accepted(own()[0]) && plane.roles[p].is_active ? 200 : 401]));
+    return Object.values(statuses).every(s => s === 200) ? {statuses, key} : {statuses};
+  };
   const server = createServer(async (req, res) => {
     let text = ''; for await (const chunk of req) text += chunk;
     const url = new URL(req.url, 'http://fixture.invalid'), path = url.pathname;
     const send = (status, data = '') => { res.writeHead(status, {'content-type': 'application/json'}); res.end(typeof data === 'string' ? data : JSON.stringify(data)); };
     if (path === '/_command') {
-      const argv = JSON.parse(text); commands.push(argv);
-      if (argv.includes('get') && argv.includes('pods')) {
-        if (options.unreadable) return send(500, TOKEN);
-        return send(200, {items: options.absentPod ? [] : [{metadata: {name: 'fixture-pod'}, status: {podIP: '127.0.0.1', conditions: [{type: 'Ready', status: 'True'}]}}]});
+      const {argv, stdin} = JSON.parse(text); commands.push(argv); inputs.push(stdin);
+      const exec = planeExec(argv);
+      if (exec) {
+        snippets.push(exec.name);
+        if (options.planeDelay) await new Promise(resolve => setTimeout(resolve, options.planeDelay));
+        if (exec.error) return send(500, exec.error);
+        const value = planeAnswer(exec);
+        return value === undefined ? send(500, 'Traceback (most recent call last): fixture refusal') : send(200, planeOutput(argv, value, options.framing));
+      }
+      if (argv.includes('pipelines.tekton.dev')) {
+        assert.deepEqual(argv.slice(argv.indexOf('-n'), argv.indexOf('-n') + 2), ['-n', 'forgejo-build']);
+        return options.pipeline === false ? send(500, 'NotFound') : send(200, pipeline(options.targets ?? TARGETS));
       }
       const args = argv.slice(argv.indexOf('--') + 1);
-      if (args.slice(0, 3).join(' ') !== 'forgejo admin user') return send(500, TOKEN);
-      const name = args[args.indexOf('--username') + 1];
-      switch (args[3]) {
-        case 'list': return send(200, 'ID Username Email IsActive IsAdmin 2FA\n' + [...users].map(([n, v], i) => `${i + 1} ${n} ${v.email} ${v.active} ${v.admin} false`).join('\n') + '\n');
-        case 'create':
-          assert.ok(!args.includes('--password'), 'no password in arguments');
-          assert.ok(args.includes('--random-password'));
-          if (users.has(name)) return send(500, 'already exists');
-          users.set(name, {email: args[args.indexOf('--email') + 1], admin: args.includes('--admin'), restricted: args.includes('--restricted'), active: true});
-          return send(200, `generated random password is '${PASSWORD}'\nNew user created\n`);
-        case 'delete': users.delete(name); return send(200);
-        case 'generate-access-token':
-          assert.equal(args[args.indexOf('--token-name') + 1], USER);
-          assert.ok(args.includes('--raw'));
-          if ([...tokens.values()].some(t => t.owner === name && t.name === USER)) return send(500, 'same name exists');
-          generation++; tokens.set(TOKEN, {owner: name, name: USER, scopes: args[args.indexOf('--scopes') + 1].split(','), repositories: null});
-          return send(200, TOKEN + '\n');
-        default: return send(500, 'unexpected command');
+      if (args.slice(0, 4).join(' ') === 'forgejo admin user generate-access-token') {
+        const name = args[args.indexOf('--username') + 1];
+        assert.equal(args[args.indexOf('--token-name') + 1], USER);
+        assert.ok(args.includes('--raw'));
+        if ([...tokens.values()].some(t => t.owner === name && t.name === USER)) return send(500, 'same name exists');
+        generation++; tokens.set(TOKEN, {owner: name, name: USER, scopes: args[args.indexOf('--scopes') + 1].split(','), repositories: null});
+        return send(200, TOKEN + '\n');
       }
+      const answered = forgejoCommand(argv, users, PASSWORD, options);
+      return answered ? send(...answered) : send(500, TOKEN);
     }
     requests.push({method: req.method, path, body: text});
     if (options.apiFailure) return send(503, TOKEN);
@@ -198,19 +236,19 @@ async function fixture(options = {}) {
   });
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
   const port = server.address().port;
-  script = script.replace("/run/forgejo-build-credentials.lock", join(directory, "credentials.lock")).replace("PORT = 3000", 'PORT = ' + port).replace("POD_WAIT_SECONDS = 30", 'POD_WAIT_SECONDS = 0.1');
-  const producer = join(directory, 'forgejo-build-credentials.sh'), kubectl = join(directory, 'kubectl');
-  await writeFile(producer, script);
-  await writeFile(kubectl, `#!/usr/bin/env node
-const r = await fetch('http://127.0.0.1:${port}/_command', {method:'POST',body:JSON.stringify(process.argv.slice(2))});
-process.stdout.write(await r.text());process.exit(r.status===200?0:1);
-`, {mode: 0o700});
-  const run = (held, supplied = PLANE, mode = '--apply', cancel = false) => new Promise((resolve, reject) => {
+  const clean = async () => {server.closeAllConnections(); await new Promise(resolve => server.close(resolve)); await rm(directory, {recursive: true, force: true});};
+  let producer, kubectl;
+  try {
+    // The grant cases name the proof repository; `shipped` renders with the row's values as they are.
+    ({producer, kubectl} = await writeProducer(directory, TEMPLATE, options.shipped ? render.values : {...render.values, 'forgejo-repositories': REPO},
+      {mutate: options.mutate, mutateModule: options.mutateModule, port}));
+  } catch (error) {await clean(); throw error;}
+  const run = (held, mode = '--apply', cancel = false) => new Promise((resolve, reject) => {
     const child = spawn('bash', [producer, mode, '--', kubectl], {cwd: directory});
     let stdout = '', stderr = ''; child.stdout.on('data', d => stdout += d); child.stderr.on('data', d => stderr += d);
     child.on('error', reject);
     child.on('close', (code, signal) => resolve({code, signal, stdout, stderr}));
-    child.stdin.end(JSON.stringify({entry: held, inputs: supplied === null ? {} : {'plane-api-token': supplied}}));
+    child.stdin.end(JSON.stringify({entry: held, inputs: {}}));
     if (cancel) {
       const timer = setInterval(() => {
         if (users.has(BOOTSTRAP)) {clearInterval(timer); child.kill('SIGTERM');}
@@ -218,17 +256,21 @@ process.stdout.write(await r.text());process.exit(r.status===200?0:1);
       child.on('close', () => clearInterval(timer));
     }
   });
-  const clean = async () => {server.closeAllConnections(); await new Promise(resolve => server.close(resolve)); await rm(directory, {recursive: true, force: true});};
+  // No file and no command's argv or stdin holds a credential: every Plane exec gets an empty stdin.
   const privateFiles = async () => {
+    const secrets = [PLANE, OWNER_KEY, TOKEN, PASSWORD, ...plane.tokens.map(t => t.value)];
     for (const file of await readdir(directory)) {
       const text = await readFile(join(directory, file), 'utf8');
-      for (const secret of [PLANE, TOKEN, PASSWORD]) assert.ok(!text.includes(secret), file + ' holds a credential');
+      for (const secret of secrets) assert.ok(!text.includes(secret), file + ' holds a credential');
     }
-    for (const args of commands) for (const secret of [PLANE, TOKEN, PASSWORD]) assert.ok(!args.join(' ').includes(secret));
+    for (const [i, args] of commands.entries()) {
+      const carried = args.join(' ') + JSON.stringify(planeExec(args)?.args ?? null);
+      for (const secret of secrets) assert.ok(!carried.includes(secret) && !inputs[i].includes(secret));
+    }
   };
   const write = (repo, token) => fetch(`http://127.0.0.1:${port}/api/v1/repos/${repo}/statuses/${SHA}`,
     {method: 'POST', headers: {authorization: 'token ' + token}, body: '{}'}).then(r => r.status);
-  return {run, clean, privateFiles, write, users, tokens, commands, requests, get generation() {return generation;}};
+  return {run, clean, privateFiles, write, users, tokens, commands, inputs, requests, snippets, plane, own, get generation() {return generation;}};
 }
 
 test('first creation grants only the proof repository and returns exactly three fields', async () => {
@@ -272,7 +314,7 @@ test('a standing token without write scope is replaced, never returned', async (
   try {
     assert.equal(await f.write(REPO, held.value), 403, 'the read-only token cannot set a status');
     const standing = {...entry, 'forgejo-api-token': held.value};
-    const check = await f.run(standing, PLANE, '--check');
+    const check = await f.run(standing, '--check');
     assert.equal(check.code, 0, check.stderr); assert.deepEqual(JSON.parse(check.stdout), {satisfied: false});
     const r = await f.run(standing); assert.equal(r.code, 0, r.stderr);
     assert.deepEqual(JSON.parse(r.stdout), entry);
@@ -288,7 +330,7 @@ test('a public-only standing token cannot hide a private unrelated grant', async
   const f = await fixture({valid: false, held, unrelated: true, privateUnrelated: true});
   try {
     const standing = {...entry, 'forgejo-api-token': held.value};
-    const check = await f.run(standing, PLANE, '--check');
+    const check = await f.run(standing, '--check');
     assert.equal(check.code, 0, check.stderr); assert.deepEqual(JSON.parse(check.stdout), {satisfied: false});
     const r = await f.run(standing);
     assert.notEqual(r.code, 0); assert.match(r.stderr, /unrelated repository/);
@@ -298,20 +340,22 @@ test('a public-only standing token cannot hide a private unrelated grant', async
   } finally {await f.clean();}
 });
 
-test('valid credentials survive retries, later callers and Plane-only rotation without minting', async () => {
+test('valid credentials survive retries and later callers without minting or a Plane write', async () => {
   const f = await fixture();
   try {
-    for (const supplied of [PLANE, null, 'fixture-plane-replacement']) {
-      const r = await f.run(entry, supplied);
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const r = await f.run(entry);
       assert.equal(r.code, 0, r.stderr);
-      assert.deepEqual(JSON.parse(r.stdout), {...entry, 'plane-api-token': supplied ?? PLANE});
+      assert.deepEqual(JSON.parse(r.stdout), entry);
     }
     assert.equal(f.generation, 0);
     assert.equal(f.commands.filter(c => c.includes('create') || c.includes('delete')).length, 0);
-    const before = f.requests.length;
-    const check = await f.run(entry, PLANE, '--check');
+    assert.ok(!f.snippets.includes(WRITE));
+    const before = f.requests.length, commands = f.commands.length;
+    const check = await f.run(entry, '--check');
     assert.equal(check.code, 0, check.stderr); assert.deepEqual(JSON.parse(check.stdout), {satisfied: true});
     assert.ok(f.requests.slice(before).every(r => r.method === 'GET'), 'a check only reads');
+    assert.ok(f.commands.slice(commands).every(reads), 'a check only reads');
     await f.privateFiles();
   } finally {await f.clean();}
 });
@@ -322,7 +366,7 @@ test('with Forgejo holding no repository, the row\'s values keep a valid held to
   // PLANTED DEFECT: a row that names a repository Forgejo does not hold fails as run 20261017T090957Z did.
   const named = await fixture({repositories: false});
   try {
-    const check = await named.run(entry, PLANE, '--check');
+    const check = await named.run(entry, '--check');
     assert.equal(check.code, 0, check.stderr); assert.deepEqual(JSON.parse(check.stdout), {satisfied: false});
     const r = await named.run(entry);
     assert.equal(r.code, 1); assert.equal(r.stdout, '');
@@ -331,12 +375,12 @@ test('with Forgejo holding no repository, the row\'s values keep a valid held to
   } finally {await named.clean();}
   const f = await fixture({shipped: true, repositories: false});
   try {
-    const check = await f.run(entry, PLANE, '--check');
+    const check = await f.run(entry, '--check');
     assert.equal(check.code, 0, check.stderr); assert.deepEqual(JSON.parse(check.stdout), {satisfied: true});
     const r = await f.run(entry); assert.equal(r.code, 0, r.stderr);
     assert.deepEqual(JSON.parse(r.stdout), entry);
     assert.ok(f.requests.every(r => r.method === 'GET'), 'no PUT and no DELETE');
-    assert.ok(f.commands.every(c => c.includes('get') || c.includes('list')), 'no user created and no token generated');
+    assert.ok(f.commands.every(reads), 'no user created, no token generated and no Plane write');
     assert.equal(f.generation, 0); assert.ok(!f.users.has(BOOTSTRAP));
     await f.privateFiles();
   } finally {await f.clean();}
@@ -393,51 +437,221 @@ test('read failures, absent pods and broad identity rights cannot mint or claim 
   }
 });
 
-test('missing Plane input fails before provisioning, while check/dry only observes', async () => {
-  const f = await fixture({exists: false, granted: false});
+// Criterion 5 of #82: a master without the entry gets the key from its own Plane, with no answer.
+test('a master without the entry gets all three fields, the Plane key issued in Plane or reused there', async () => {
+  const completes = async (options, mutate) => {
+    const f = await fixture({exists: false, valid: false, ...options, mutate});
+    try {
+      const r = await f.run(null);
+      const own = f.own();
+      const done = r.code === 0 && own.length === 1 &&
+        JSON.stringify(JSON.parse(r.stdout)) === JSON.stringify({...entry, 'plane-api-token': own[0].value});
+      if (done) await f.privateFiles();
+      return {done, issued: f.plane.issued, user: f.plane.user, roles: Object.values(f.plane.roles)};
+    } finally {await f.clean();}
+  };
+  const fresh = await completes({planeUser: false});
+  assert.equal(fresh.done, true);
+  assert.equal(fresh.issued, 1);
+  assert.deepEqual(fresh.user, {is_bot: true, is_active: true, instance_admin: false});
+  assert.ok(fresh.roles.every(r => r.role === 15 && r.is_active));
+  // INNOCENT: Plane already holds the labeled key, which is reused, with no second key.
+  const reused = await completes({});
+  assert.equal(reused.done, true); assert.equal(reused.issued, 0);
+  // PLANTED DEFECTS: the refusal of a master without the entry, and an entry without the Plane key.
+  assert.equal((await completes({planeUser: false}, text => text.replace("        refuse('the held Forgejo credential entry is unreadable')\n",
+    "        refuse('the held Forgejo credential entry is unreadable')\n    if not entry:\n        refuse('plane-api-token is absent')\n"))).done, false);
+  assert.equal((await completes({planeUser: false}, text => text.replace("    return {'forgejo-user': USER, 'forgejo-api-token': token, 'plane-api-token': key}\n",
+    "    return {'forgejo-user': USER, 'forgejo-api-token': token}\n"))).done, false);
+});
+
+// Criterion 3 of #82, one case each: whose key, which role, which projects, which workspace.
+test('forgejo-build becomes a Member of the Pipeline\'s targets and only its own labeled key is kept', async () => {
+  const outcome = async (options, held = entry, mutate) => {
+    const f = await fixture({...options, mutate});
+    try {
+      const check = await f.run(held, '--check');
+      const r = await f.run(held);
+      return {satisfied: check.code === 0 ? JSON.parse(check.stdout).satisfied : null, code: r.code, stderr: r.stderr,
+        key: r.code === 0 ? JSON.parse(r.stdout)['plane-api-token'] : null, own: f.own(), plane: f.plane, written: f.snippets.includes(WRITE)};
+    } finally {await f.clean();}
+  };
+  // INNOCENT: user, both memberships and the labeled key stand; the check is satisfied and nothing is written.
+  const standing = await outcome({});
+  assert.deepEqual([standing.satisfied, standing.code, standing.key, standing.written, standing.own.length], [true, 0, PLANE, false, 1]);
+
+  // Another user's key in the entry, as the owner's key stands there today, is replaced by forgejo-build's own.
+  const ownersKey = {planeTokens: [{owner: USER, label: LABEL, value: PLANE, is_active: true, expired: false},
+    {owner: 'akadmin', label: LABEL, value: OWNER_KEY, is_active: true, expired: false}]};
+  const replaced = await outcome(ownersKey, {...entry, 'plane-api-token': OWNER_KEY});
+  assert.deepEqual([replaced.satisfied, replaced.code, replaced.key, replaced.own.length], [false, 0, PLANE, 1]);
+  assert.deepEqual(replaced.plane.tokens.find(t => t.owner === 'akadmin'), ownersKey.planeTokens[1], 'no other key is changed');
+  // PLANTED DEFECT: a producer that takes any held key as forgejo-build's.
+  const anyKey = await outcome(ownersKey, {...entry, 'plane-api-token': OWNER_KEY}, text => text.replace(
+    "isinstance(held, str) and\n                hashlib.sha256(held.encode()).hexdigest() == user['accepted'][0])", 'isinstance(held, str))'));
+  assert.deepEqual([anyKey.satisfied, anyKey.key], [true, OWNER_KEY]);
+
+  // A role below Member, or an inactive membership, is raised to an active Member.
+  const asMember = text => text.replace("r['role'] == MEMBER and r['is_active'] is True", "r['role'] <= MEMBER");
+  for (const planeRoles of [{workspace: {role: 5}}, {[PROJECTS[1]]: {role: 5}}, {[PROJECTS[0]]: {is_active: false}}]) {
+    const raised = await outcome({planeRoles});
+    assert.deepEqual([raised.satisfied, raised.code, raised.key, raised.own.length], [false, 0, PLANE, 1], JSON.stringify(planeRoles));
+    assert.ok(Object.values(raised.plane.roles).every(r => r.role === 15 && r.is_active));
+    // PLANTED DEFECT: a producer that leaves a role below Member, or an inactive one.
+    assert.equal((await outcome({planeRoles}, entry, asMember)).satisfied, true);
+  }
+
+  // A role above Member refuses by name, before any write.
+  for (const [planeRoles, place] of [[{workspace: {role: 20}}, 'workspace ' + WORKSPACE], [{[PROJECTS[1]]: {role: 20}}, 'project ' + PROJECTS[1]]]) {
+    const above = await outcome({planeRoles});
+    assert.deepEqual([above.satisfied, above.code, above.written], [null, 1, false]);
+    assert.ok(above.stderr.includes('forgejo-build holds a Plane role above Member in ' + place + '; Plane was not changed'), above.stderr);
+    // PLANTED DEFECT: a producer that accepts a role above Member.
+    const accepted = await outcome({planeRoles}, entry, text => text.replace("held_role is not None and held_role['role'] > MEMBER", 'False'));
+    assert.ok(accepted.written && !accepted.stderr.includes('above Member'));
+  }
+
+  // A named project without the membership gets it.
+  const missing = await outcome({planeRoles: {[PROJECTS[1]]: null}});
+  assert.deepEqual([missing.satisfied, missing.code, missing.plane.roles[PROJECTS[1]]], [false, 0, {role: 15, is_active: true}]);
+  // PLANTED DEFECT: a producer that looks at the workspace membership alone.
+  assert.equal((await outcome({planeRoles: {[PROJECTS[1]]: null}}, entry,
+    text => text.replace("        roles.update({'project ' + p: user['projects'][p] for p in projects})\n", ''))).satisfied, true);
+
+  // A Plane without the workspace or a named project refuses by its name and creates nothing.
+  const unchecked = text => text.replace("        if seen['workspace'] is not True:\n", '        if False:\n')
+    .replace("            if project not in seen['projects']:\n", '            if False:\n');
+  for (const [options, refusal] of [[{planeWorkspace: false, planeUser: false}, 'Plane has no workspace simplidigita; create it in Plane, then redeploy'],
+    [{missingProject: PROJECTS[1], planeUser: false}, 'Plane has no project ' + PROJECTS[1] + ' in workspace simplidigita; create it in Plane, then redeploy']]) {
+    const absent = await outcome(options);
+    assert.deepEqual([absent.satisfied, absent.code, absent.written, absent.plane.user, absent.plane.tokens], [null, 1, false, null, []]);
+    assert.ok(absent.stderr.includes(refusal), absent.stderr);
+    // PLANTED DEFECT: a producer that goes on to write on a Plane without them.
+    assert.equal((await outcome(options, entry, unchecked)).written, true);
+  }
+
+  // A Plane user that is no active bot, or an instance administrator, and more than one labeled key
+  // or an inactive or expired one (expired or inactive keys count), refuse by name and write nothing.
+  for (const [options, refusal] of [
+    [{planeUser: {is_bot: false}}, /is not an active bot without instance administration/],
+    [{planeUser: {instance_admin: true}}, /is not an active bot without instance administration/],
+    [{planeTokens: [{owner: USER, label: LABEL, value: PLANE, is_active: true, expired: false},
+      {owner: USER, label: LABEL, value: 'plane_api_fixture0expired', is_active: true, expired: true}]}, /more than one key of forgejo-build labeled plane-update-status/],
+    [{planeTokens: [{owner: USER, label: LABEL, value: PLANE, is_active: false, expired: false}]}, /labeled plane-update-status is inactive or expired/],
+  ]) {
+    const refused = await outcome(options);
+    assert.deepEqual([refused.satisfied, refused.code, refused.written], [null, 1, false], JSON.stringify(options));
+    assert.match(refused.stderr, refusal);
+  }
+});
+
+test('a call refused after the commit leaves the rows a correct apply holds, and the next apply reuses them', async () => {
+  const held = {...entry, 'plane-api-token': OWNER_KEY};
+  const rounds = async mutate => {
+    const f = await fixture({planeUser: false, planeForbid: PROJECTS[1], mutate});
+    try {
+      const first = await f.run(held), again = await f.run(held);
+      const before = {user: f.plane.user, own: f.own().length, issued: f.plane.issued};
+      f.plane.forbid = null;
+      const last = await f.run(held);
+      await f.privateFiles();
+      return {first, again, before, last, own: f.own(), issued: f.plane.issued};
+    } finally {await f.clean();}
+  };
+  const refusal = 'Plane refused the key of forgejo-build for project ' + PROJECTS[1] + ': HTTP 403; the user, the memberships and the key stay in Plane';
+  const shipped = await rounds();
+  for (const r of [shipped.first, shipped.again]) {
+    assert.equal(r.code, 1); assert.equal(r.stdout, ''); assert.ok(r.stderr.includes(refusal), r.stderr);
+    assert.ok(!r.stderr.includes('plane_api_'), 'no key in the refusal');
+  }
+  assert.deepEqual(shipped.before, {user: {is_bot: true, is_active: true, instance_admin: false}, own: 1, issued: 1});
+  assert.equal(shipped.last.code, 0, shipped.last.stderr);
+  assert.equal(JSON.parse(shipped.last.stdout)['plane-api-token'], shipped.own[0].value);
+  assert.deepEqual([shipped.own.length, shipped.issued], [1, 1], 'the rerun keeps the one key');
+  // PLANTED DEFECTS: a producer that swallows the refused call and writes the held key, and one that
+  // issues a key again on the rerun, which the write snippet refuses.
+  const swallowed = await rounds(text => text.replace("    key = held_key if kept else plane_key(arguments, seen)\n",
+    "    try:\n        key = held_key if kept else plane_key(arguments, seen)\n    except access.Refused:\n        key = held_key\n"));
+  assert.equal(swallowed.first.code, 0);
+  const reissued = await rounds(text => text.replace("issue=seen['user'] is None or seen['user']['labeled'] == 0", 'issue=not kept'));
+  assert.notEqual(reissued.last.code, 0);
+});
+
+test('a check sends only the read snippet, and every exec quiets Django and carries no key', async () => {
+  const quiet = argv => argv.includes('--no-imports') && argv[argv.indexOf('-v') + 1] === '0';
+  const execs = f => f.commands.filter(c => c.includes('manage.py'));
+  const f = await fixture({planeUser: false});
   try {
-    for (const value of [null, '']) {
-      const r = await f.run(null, value);
-      assert.notEqual(r.code, 0); assert.match(r.stderr, /plane-api-token/);
-      assert.equal(f.commands.length, 0);
-    }
-    const r = await f.run(null, PLANE, '--check');
-    assert.equal(r.code, 0, r.stderr); assert.deepEqual(JSON.parse(r.stdout), {satisfied: false});
-    assert.equal(f.generation, 0);
-    assert.ok(f.commands.every(c => c.includes('get') || c.includes('list')));
-    assert.ok(f.requests.every(r => r.method === 'GET'));
+    const check = await f.run(null, '--check');
+    assert.equal(check.code, 0, check.stderr); assert.deepEqual(JSON.parse(check.stdout), {satisfied: false});
+    assert.deepEqual(f.snippets, [READ]);
+    assert.ok(f.commands.every(reads));
+    const r = await f.run(null); assert.equal(r.code, 0, r.stderr);
+    assert.deepEqual(f.snippets, [READ, READ, WRITE]);
+    assert.ok(execs(f).every(quiet));
+    assert.deepEqual(execs(f).map(c => c.slice(c.indexOf('-n'), c.indexOf('-c') + 2)), Array(3).fill(['-n', 'plane', 'exec', '-i', 'deploy/plane-api-wl', '-c', 'plane-api']));
     await f.privateFiles();
   } finally {await f.clean();}
-});
-
-// Run 20261015T181634Z-3907389-2ef68b25 on the master: Vault held no forgejo-build entry, the run's
-// answers carried no plane_api_token, and the check exited 1 with one line in 55 ms, before any
-// cluster command (the fastest elevated microk8s call of that run took 141 ms).
-test('a check with no held entry and no Plane answer refuses with exit 1 before any cluster command', async () => {
-  const refusesFirst = async f => {
-    const r = await f.run(null, null, '--check');
-    return r.code === 1 && /plane-api-token is absent/.test(r.stderr) && r.stdout === '' && f.commands.length === 0;
-  };
-  const f = await fixture();
+  // PLANTED DEFECT: a producer that fetches the key before it knows it only checks.
+  const early = await fixture({planeUser: false, mutate: text => text.replace("    if not APPLY:\n        return {'satisfied': kept",
+    "    key = held_key if kept else plane_key(arguments, seen)\n    if not APPLY:\n        return {'satisfied': kept")});
   try {
-    assert.equal(await refusesFirst(f), true);
-    // INNOCENT: with the answer the same check reads the pod and answers its verdict.
-    const r = await f.run(null, PLANE, '--check');
-    assert.equal(r.code, 0, r.stderr); assert.deepEqual(JSON.parse(r.stdout), {satisfied: false});
-    assert.ok(f.commands[0].includes('pods'));
-  } finally {await f.clean();}
-  // PLANTED DEFECT: a producer that reads the pod before it holds the Plane input reaches the cluster.
-  const early = await fixture({mutate: text => text.replace('def exchange():\n', 'def exchange():\n    ready_pod()\n')});
-  try {
-    assert.equal(await refusesFirst(early), false);
+    await early.run(null, '--check');
+    assert.ok(early.snippets.includes(WRITE));
   } finally {await early.clean();}
+  // PLANTED DEFECT: a shell that is not quieted; the banner it writes is read past all the same.
+  const loud = await fixture({mutateModule: text => text.replace("'shell', '--no-imports', '-v', '0', '-c']", "'shell', '-c']")});
+  try {
+    const r = await loud.run(entry); assert.equal(r.code, 0, r.stderr);
+    assert.ok(!execs(loud).every(quiet));
+  } finally {await loud.clean();}
 });
 
+test('the one marked line is read past a log line, and a missing or doubled one refuses by name', async () => {
+  const answered = async (framing, mutateModule) => {
+    const f = await fixture({framing, mutateModule});
+    try {return await f.run(entry, '--check');} finally {await f.clean();}
+  };
+  const logged = await answered('log');
+  assert.equal(logged.code, 0, logged.stderr); assert.deepEqual(JSON.parse(logged.stdout), {satisfied: true});
+  // PLANTED DEFECT: a reader that takes the last line.
+  assert.notEqual((await answered('log', text => text.replace(
+    '    lines = [line for line in result.stdout.splitlines() if line.startswith(MARK)]\n', '    lines = result.stdout.splitlines()[-1:]\n'))).code, 0);
+  // PLANTED DEFECT: a snippet that reads a name it never defines, which Django's shell refuses.
+  const typo = await fixture({mutate: text => text.replace('answer(seen())', 'answer(sen())')});
+  try {
+    const r = await typo.run(entry, '--check');
+    assert.equal(r.code, 1); assert.match(r.stderr, /the Plane pod command was refused; output withheld/);
+  } finally {await typo.clean();}
+  for (const framing of ['none', 'twice']) {
+    const r = await answered(framing);
+    assert.equal(r.code, 1); assert.equal(r.stdout, '');
+    assert.match(r.stderr, /the Plane pod answer could not be read; output withheld/);
+  }
+});
+
+test('a Plane exec past its bound, an absent Pipeline and unreadable targets refuse by name', async () => {
+  const bounded = text => text.replace('PLANE_EXEC_SECONDS = 30', 'PLANE_EXEC_SECONDS = 1');
+  for (const [options, refusal] of [[{planeDelay: 3000, mutateModule: bounded}, /the Plane pod did not answer within its deadline/],
+    [{pipeline: false}, /the Pipeline forgejo-release was refused; output withheld/],
+    [{targets: JSON.stringify({workspace: WORKSPACE, projects: [{id: 'not-a-project-id'}]})}, /names no readable plane-targets in its task plane/],
+    [{targets: '{'}, /names no readable plane-targets in its task plane/]]) {
+    const f = await fixture(options);
+    try {
+      const r = await f.run(entry);
+      assert.equal(r.code, 1); assert.equal(r.stdout, ''); assert.match(r.stderr, refusal);
+      assert.ok(!f.snippets.includes(WRITE));
+    } finally {await f.clean();}
+  }
+  // INNOCENT: the same bound with a prompt Plane.
+  const f = await fixture({mutateModule: bounded});
+  try {assert.equal((await f.run(entry)).code, 0);} finally {await f.clean();}
+});
 
 test('cancellation removes temporary bootstrap authorization and keeps output and files private', async () => {
   const f = await fixture({valid: false, pause: true});
   try {
-    const r = await f.run(null, PLANE, '--apply', true);
+    const r = await f.run(null, '--apply', true);
     assert.notEqual(r.code, 0);
     assert.ok(!f.users.has(BOOTSTRAP));
     assert.ok(!r.stderr.includes(PASSWORD) && !r.stderr.includes(TOKEN));

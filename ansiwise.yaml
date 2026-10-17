@@ -202,10 +202,11 @@ conditions:
     kubectl: [microk8s, kubectl]
     kubectl_needs_root: true
 
-  # WHETHER PLANE ALREADY RUNS HERE. Plane issues the token the Forgejo build credentials carry, so
-  # they are provisioned only on a master where it runs. Conditions are measured before the first
-  # row, so a first installation, which hands Plane over in this same run, skips them; every later
-  # run on that master provisions or validates them and refuses by name without the token.
+  # WHETHER PLANE ALREADY RUNS HERE. Plane issues the key the Forgejo build credentials carry and
+  # takes the client of its Forgejo sign-in, so both are provisioned only on a master where it runs.
+  # Conditions are measured before the first row, so a first installation, which hands Plane over in
+  # this same run, skips them; every later run on that master provisions or validates them inside
+  # Plane's own pod.
   plane_runs_here:
     predicate: kubernetes_object_present
     kind: deployments.apps

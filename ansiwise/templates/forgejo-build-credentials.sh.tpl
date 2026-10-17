@@ -1,26 +1,26 @@
 #!/usr/bin/env bash
 # The installer captures both streams as secret output; only this process holds issued values.
 set -euo pipefail
-exec python3 -c "$(cat <<'PY'
-import base64
-import fcntl
+exec python3 -I -B -c "$(cat <<'PY'
+import hashlib
+import importlib.util
 import json
-import os
 import re
-import signal
-import subprocess
 import sys
-import time
-import urllib.error
 import urllib.parse
-import urllib.request
+import uuid
+
+try:
+    spec = importlib.util.spec_from_file_location('forgejo_plane_access', '<forgejo-plane-access-module>')
+    access = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(access)
+except Exception:
+    sys.exit('the Forgejo and Plane access module could not be loaded')
+refuse = access.refuse
 
 USER = '<forgejo-user>'
 TOKEN_NAME = '<forgejo-token-name>'
 BOOTSTRAP = '<forgejo-bootstrap-user>'
-NAMESPACE = '<forgejo-namespace>'
-SELECTOR = '<forgejo-pod-selector>'
-CONTAINER = '<forgejo-container>'
 # The engine drops the slot's line where the row names no repository, and forgejo-build then may
 # write to none.
 REPOSITORIES = []
@@ -30,145 +30,200 @@ LOCK = '<forgejo-credential-lock>'
 # its own scopes and its rights (GET /user, /users/forgejo-build/tokens, /user/repos), so a check
 # needs no administrator and stays read-only.
 SCOPES = 'write:repository,read:user'
-PORT = 3000
-POD_WAIT_SECONDS = 30
+# The Plane key the Task plane-update-status spends belongs to a Plane bot of the same name, which
+# signs in nowhere, and carries the Task's name as its label.
+PLANE_EMAIL = USER + '@hostyour.invalid'
+PLANE_LABEL = 'plane-update-status'
+# Plane's role Member: the least that lets the Task write work items, modules and states.
+MEMBER = 15
+APPLY = access.start('Forgejo credential provisioning', '<forgejo-namespace>', '<forgejo-pod-selector>',
+                     '<forgejo-container>', BOOTSTRAP)
+
+# What the read and the write exec in Plane's API pod both know of forgejo-build. No key leaves the
+# pod in a read: a key is judged by its SHA-256 under the test Plane's API middleware applies.
+PLANE_STATE = r'''
+import hashlib
+from django.db.models import Q
+from django.utils import timezone
+from plane.db.models import APIToken, Project, ProjectMember, User, Workspace, WorkspaceMember
+from plane.license.models import InstanceAdmin
 
 
-class Refused(Exception):
-    pass
+def accepted(tokens):
+    # The test of plane/api/middleware/api_authentication.py, without the last_used it writes.
+    return tokens.filter(Q(expired_at__gt=timezone.now()) | Q(expired_at__isnull=True),
+                         is_active=True, user__is_active=True)
 
 
-def refuse(message):
-    raise Refused(message)
+def role(member):
+    return None if member is None else {'role': member.role, 'is_active': member.is_active}
 
 
-def cancelled(signum, frame):
-    refuse('Forgejo credential provisioning was cancelled')
+def instance_admin(user):
+    return user.is_superuser or InstanceAdmin.objects.filter(user=user).exists()
 
 
-signal.signal(signal.SIGINT, cancelled)
-signal.signal(signal.SIGTERM, cancelled)
-if len(sys.argv) < 4 or sys.argv[1] not in ('--check', '--apply') or sys.argv[2] != '--':
-    sys.exit('Forgejo credential producer expects --check or --apply and the cluster invocation')
-APPLY = sys.argv[1] == '--apply'
-KUBE = sys.argv[3:]
-DEADLINE = time.monotonic() + 100
-POD = None
-URL = None
+def seen():
+    workspace = Workspace.objects.filter(slug=ARGUMENTS['workspace']).first()
+    projects = [] if workspace is None else [
+        str(p.id) for p in Project.objects.filter(workspace=workspace, id__in=ARGUMENTS['projects'])]
+    user = User.objects.filter(email=ARGUMENTS['email']).first()
+    if user is None:
+        return {'workspace': workspace is not None, 'projects': projects, 'user': None}
+    labeled = APIToken.objects.filter(user=user, label=ARGUMENTS['label'])
+    return {'workspace': workspace is not None, 'projects': projects, 'user': {
+        'is_bot': user.is_bot, 'is_active': user.is_active, 'instance_admin': instance_admin(user),
+        'workspace': None if workspace is None else
+            role(WorkspaceMember.objects.filter(workspace=workspace, member=user).first()),
+        'projects': {p: role(ProjectMember.objects.filter(project_id=p, member=user).first()) for p in projects},
+        'labeled': labeled.count(),
+        'accepted': [hashlib.sha256(t.token.encode()).hexdigest() for t in accepted(labeled)]}}
+'''
+PLANE_READ = '# forgejo-build read' + PLANE_STATE + r'''
+answer(seen())
+'''
+# Makes forgejo-build a Member of the workspace and of each project, and issues its key or keeps the
+# one it holds, as the producer decided. It commits first, then calls Plane's API with the key.
+PLANE_WRITE = '# forgejo-build write' + PLANE_STATE + r'''
+import os
+import urllib.error
+import urllib.request
+import uuid
+from django.db import transaction
+from plane.db.models import Profile, ProjectUserProperty
 
 
-def timeout(cleanup=False):
-    remaining = DEADLINE - time.monotonic()
-    if not cleanup and remaining <= 0:
-        refuse('Forgejo credential provisioning exceeded its deadline')
-    return 10 if cleanup else min(10, remaining)
+def member(model, user, **where):
+    held = model.objects.filter(member=user, **where).first()
+    if held is None:
+        return model.objects.create(member=user, role=15, **where)
+    if held.role > 15:
+        raise RuntimeError('forgejo-build holds a role above Member')
+    if held.role != 15 or not held.is_active:
+        held.role, held.is_active = 15, True
+        held.save()
+    return held
 
 
-def kube(args, cleanup=False):
+with transaction.atomic():
+    workspace = Workspace.objects.get(slug=ARGUMENTS['workspace'])
+    projects = list(Project.objects.filter(workspace=workspace, id__in=ARGUMENTS['projects']))
+    if len(projects) != len(ARGUMENTS['projects']):
+        raise RuntimeError('a target project is missing')
+    user = User.objects.filter(email=ARGUMENTS['email']).first()
+    if user is None:
+        # As Plane's sign-up creates a user and its Profile (plane/authentication/adapter/base.py),
+        # as a bot without a usable password.
+        user = User(email=ARGUMENTS['email'], username=uuid.uuid4().hex, is_bot=True, is_password_autoset=True)
+        user.set_unusable_password()
+        user.save()
+        Profile.objects.create(user=user)
+    elif not user.is_bot or not user.is_active or instance_admin(user):
+        raise RuntimeError('forgejo-build is not an active bot without instance administration')
+    member(WorkspaceMember, user, workspace=workspace)
+    for project in projects:
+        member(ProjectMember, user, project=project)
+        # As plane/db/management/commands/create_project_member.py completes a project member.
+        ProjectUserProperty.objects.get_or_create(user=user, project=project)
+    labeled = APIToken.objects.filter(user=user, label=ARGUMENTS['label'])
+    if ARGUMENTS['issue']:
+        if labeled.exists():
+            raise RuntimeError('forgejo-build already holds a labeled key')
+        # As Plane's own token view issues a key (plane/app/views/api.py), of a bot.
+        token = APIToken.objects.create(label=ARGUMENTS['label'], description='', user=user, user_type=1,
+                                        expired_at=None)
+    elif labeled.count() == 1:
+        token = accepted(labeled).get()
+    else:
+        raise RuntimeError('forgejo-build holds no single labeled key to keep')
+# Leaving the block committed its rows. Gunicorn answers these calls on its own database connection,
+# which sees no uncommitted row, so a call inside the block would find no key.
+opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+statuses = {}
+for project in projects:
+    url = ('http://127.0.0.1:' + os.environ.get('PORT', '8000') + '/api/v1/workspaces/' + workspace.slug +
+           '/projects/' + str(project.id) + '/issues/')
     try:
-        result = subprocess.run(KUBE + ['--request-timeout=10s', '-n', NAMESPACE] + args,
-                                capture_output=True, text=True, timeout=timeout(cleanup))
-    except (OSError, subprocess.SubprocessError):
-        refuse('the Forgejo pod command could not be read within its deadline')
-    if result.returncode != 0:
-        refuse('the Forgejo pod command was refused; output withheld')
-    return result.stdout
-
-
-def cli(args, cleanup=False):
-    return kube(['exec', POD, '-c', CONTAINER, '--', 'forgejo', 'admin', 'user'] + args, cleanup)
-
-
-def object_json(text, name):
-    try:
-        return json.loads(text)
-    except (ValueError, TypeError):
-        refuse(name + ' returned unreadable JSON; output withheld')
-
-
-def ready_pod():
-    global POD, URL
-    until = time.monotonic() + POD_WAIT_SECONDS
-    while True:
-        result = object_json(kube(['get', 'pods', '-l', SELECTOR, '-o', 'json']), 'Forgejo')
-        if not isinstance(result, dict) or not isinstance(result.get('items'), list):
-            refuse('the Forgejo pod list could not be read')
-        ready = [p for p in result['items'] if p.get('status', {}).get('podIP') and
-                 any(c.get('type') == 'Ready' and c.get('status') == 'True'
-                     for c in p.get('status', {}).get('conditions', []))]
-        if len(ready) == 1:
-            POD = ready[0]['metadata']['name']
-            address = ready[0]['status']['podIP']
-            # A Kubernetes pod address is an IP, never an API-provided URL or redirect target.
-            import ipaddress
-            address = str(ipaddress.ip_address(address))
-            URL = 'http://' + ('[' + address + ']' if ':' in address else address) + ':' + str(PORT) + '/api/v1'
-            return
-        if len(ready) > 1:
-            refuse('Forgejo has multiple ready pods; no credential was changed')
-        if time.monotonic() >= until:
-            refuse('the Forgejo pod was not ready before its deadline')
-        time.sleep(min(1, POD_WAIT_SECONDS))
-
-
-def users(cleanup=False):
-    result = {}
-    lines = cli(['list'], cleanup).splitlines()
-    if not lines or lines[0].split() != ['ID', 'Username', 'Email', 'IsActive', 'IsAdmin', '2FA']:
-        refuse('the Forgejo user list could not be read')
-    for line in lines[1:]:
-        if not line.strip():
-            continue
-        cells = line.split()
-        if len(cells) != 6 or not cells[0].isdigit() or cells[3] not in ('true', 'false') or cells[4] not in ('true', 'false'):
-            refuse('the Forgejo user list could not be read')
-        result[cells[1]] = {'email': cells[2], 'active': cells[3] == 'true', 'admin': cells[4] == 'true'}
-    return result
-
-
-class NoRedirect(urllib.request.HTTPRedirectHandler):
-    def redirect_request(self, req, fp, code, msg, headers, newurl):
-        return None
-
-
-HTTP = urllib.request.build_opener(urllib.request.ProxyHandler({}), NoRedirect())
-
-
-def api(method, path, authorization, expected, body=None):
-    headers = {'Authorization': authorization, 'Accept': 'application/json'}
-    data = None if body is None else json.dumps(body).encode()
-    if data is not None:
-        headers['Content-Type'] = 'application/json'
-    request = urllib.request.Request(URL + path, method=method, headers=headers, data=data)
-    try:
-        with HTTP.open(request, timeout=timeout()) as response:
-            status, raw = response.status, response.read()
+        with opener.open(urllib.request.Request(url, headers={'X-Api-Key': token.token}), timeout=5) as response:
+            statuses[str(project.id)] = response.status
     except urllib.error.HTTPError as error:
-        status, raw = error.code, error.read()
-    except (OSError, ValueError):
-        refuse('Forgejo API could not be read within its deadline')
-    if status not in expected:
-        refuse('Forgejo API refused ' + method + ' ' + path + ' with HTTP ' + str(status) + '; body withheld')
-    return status, raw
+        statuses[str(project.id)] = error.code
+    except OSError:
+        statuses[str(project.id)] = None
+if all(status == 200 for status in statuses.values()):
+    answer({'statuses': statuses, 'key': token.token})
+else:
+    answer({'statuses': statuses})
+'''
 
 
-def permission_path(repo, user):
-    return '/repos/' + repo + '/collaborators/' + user + '/permission'
+def plane_targets():
+    """The workspace and the project ids the Task plane-update-status writes to, as the deployed
+    Pipeline names them, so the producer holds no second copy."""
+    pipeline = access.object_json(access.kube(['get', 'pipelines.tekton.dev', 'forgejo-release', '-o', 'json'],
+                                              namespace='forgejo-build', what='the Pipeline forgejo-release'),
+                                  'the Pipeline forgejo-release')
+    try:
+        task, = [t for t in pipeline['spec']['tasks'] if t.get('name') == 'plane']
+        value, = [p['value'] for p in task['params'] if p.get('name') == 'plane-targets']
+        targets = json.loads(value)
+        workspace = targets['workspace']
+        projects = [str(uuid.UUID(p['id'])) for p in targets['projects']]
+    except (KeyError, TypeError, ValueError, AttributeError):
+        refuse('the Pipeline forgejo-release names no readable plane-targets in its task plane')
+    if not isinstance(workspace, str) or not re.fullmatch(r'[a-z0-9][a-z0-9_-]*', workspace) or \
+            not projects or len(set(projects)) != len(projects):
+        refuse('the Pipeline forgejo-release names no readable plane-targets in its task plane')
+    return workspace, projects
 
 
-def pages(path, auth):
-    page = 1
-    while True:
-        _, raw = api('GET', path + '?limit=50&page=' + str(page), auth, (200,))
-        listed = object_json(raw, 'Forgejo ' + path)
-        if not isinstance(listed, list):
-            refuse('Forgejo returned no list for GET ' + path)
-        yield from listed
-        if len(listed) < 50:
-            return
-        page += 1
-        if page > 100:
-            refuse('Forgejo ' + path + ' exceeded the page bound')
+def plane_kept(seen, workspace, projects, held):
+    """Refuses, before any write, a Plane state the producer must not change; answers whether the
+    held key is the one labeled key of forgejo-build and every role is an active Member."""
+    try:
+        if seen['workspace'] is not True:
+            refuse('Plane has no workspace ' + workspace + '; create it in Plane, then redeploy')
+        for project in projects:
+            if project not in seen['projects']:
+                refuse('Plane has no project ' + project + ' in workspace ' + workspace +
+                       '; create it in Plane, then redeploy')
+        user = seen['user']
+        if user is None:
+            return False
+        if user['is_bot'] is not True or user['is_active'] is not True or user['instance_admin'] is not False:
+            refuse('the Plane user ' + PLANE_EMAIL + ' is not an active bot without instance administration; '
+                   'Plane was not changed')
+        roles = {'workspace ' + workspace: user['workspace']}
+        roles.update({'project ' + p: user['projects'][p] for p in projects})
+        for place, held_role in roles.items():
+            if held_role is not None and held_role['role'] > MEMBER:
+                refuse('forgejo-build holds a Plane role above Member in ' + place + '; Plane was not changed')
+        if user['labeled'] > 1:
+            refuse('Plane holds more than one key of forgejo-build labeled ' + PLANE_LABEL + '; Plane was not changed')
+        if user['labeled'] == 1 and len(user['accepted']) != 1:
+            refuse('the key of forgejo-build labeled ' + PLANE_LABEL + ' is inactive or expired; Plane was not changed')
+        return (all(r is not None and r['role'] == MEMBER and r['is_active'] is True for r in roles.values()) and
+                len(user['accepted']) == 1 and isinstance(held, str) and
+                hashlib.sha256(held.encode()).hexdigest() == user['accepted'][0])
+    except (KeyError, TypeError, AttributeError):
+        refuse('the Plane pod answer could not be read; output withheld')
+
+
+def plane_key(arguments, seen):
+    """The key the write exec issued or kept, which Plane's API accepted for every target project."""
+    answer = access.plane(PLANE_WRITE, dict(arguments, issue=seen['user'] is None or seen['user']['labeled'] == 0))
+    statuses = answer.get('statuses')
+    if not isinstance(statuses, dict) or sorted(statuses) != sorted(arguments['projects']):
+        refuse('the Plane pod answer could not be read; output withheld')
+    for project in arguments['projects']:
+        if statuses[project] != 200:
+            refuse('Plane refused the key of forgejo-build for project ' + project + ': ' +
+                   ('HTTP ' + str(statuses[project]) if statuses[project] is not None else 'no answer') +
+                   '; the user, the memberships and the key stay in Plane')
+    key = answer.get('key')
+    if not isinstance(key, str) or not key:
+        refuse('the Plane pod answer could not be read; output withheld')
+    return key
 
 
 def issued_here(tokens, token):
@@ -188,19 +243,19 @@ def inspect(token):
     auth = 'token ' + token
     # 401: Forgejo knows no such token; 403: it lacks read:user, so it is not the one issued here.
     # Neither mints by itself: apply asks the administrator's listing first.
-    status, raw = api('GET', '/user', auth, (200, 401, 403))
+    status, raw = access.api('GET', '/user', auth, (200, 401, 403))
     if status != 200:
         return 'invalid'
-    actor = object_json(raw, 'Forgejo user')
+    actor = access.object_json(raw, 'Forgejo user')
     if actor.get('login') != USER:
         refuse('the held Forgejo credential belongs to another account; no token was minted')
     if actor.get('is_admin') is not False or actor.get('restricted') is not True or actor.get('active') is not True:
         refuse('forgejo-build is not an active restricted non-admin user')
-    if not issued_here(list(pages('/users/' + USER + '/tokens', auth)), token):
+    if not issued_here(list(access.pages('/users/' + USER + '/tokens', auth)), token):
         return 'invalid'
     # The token reaches every repository, so this list is every repository the user has a right on.
     pushed = set()
-    for repo in pages('/user/repos', auth):
+    for repo in access.pages('/user/repos', auth):
         rights = repo.get('permissions') if isinstance(repo, dict) else None
         if not isinstance(rights, dict) or not isinstance(rights.get('push'), bool):
             refuse('Forgejo repository write rights are unreadable')
@@ -213,56 +268,36 @@ def inspect(token):
     return 'valid' if pushed == set(REPOSITORIES) else 'ungranted'
 
 
-def remove_bootstrap():
-    held = users(cleanup=True).get(BOOTSTRAP)
-    if held is None:
-        return
-    if held['email'] != BOOTSTRAP + '@hostyour.invalid':
-        refuse('the reserved Forgejo provisioner name is held by an unrelated account')
-    cli(['delete', '--username', BOOTSTRAP], cleanup=True)
-    if BOOTSTRAP in users(cleanup=True):
-        refuse('the temporary Forgejo provisioner was not removed')
+def permission_path(repo, user):
+    return '/repos/' + repo + '/collaborators/' + user + '/permission'
 
 
 def provision(token):
-    bootstrap_created = False
-    try:
-        # The reserved account is purpose-owned; a cancelled prior attempt must leave no admin.
-        remove_bootstrap()
-        bootstrap_created = True
-        output = cli(['create', '--username', BOOTSTRAP, '--email', BOOTSTRAP + '@hostyour.invalid',
-                      '--admin', '--random-password', '--must-change-password=false'])
-        password = re.search(r"^generated random password is '(.*)'$", output, re.MULTILINE)
-        if password is None:
-            refuse('the temporary Forgejo provisioner returned no generated password; output withheld')
-        auth = 'Basic ' + base64.b64encode((BOOTSTRAP + ':' + password.group(1)).encode()).decode()
+    with access.administrator() as auth:
         for repo in REPOSITORIES:
-            status, raw = api('GET', permission_path(repo, USER), auth, (200, 404))
-            if status == 404 or object_json(raw, 'Forgejo collaborator').get('permission') != 'write':
-                api('PUT', '/repos/' + repo + '/collaborators/' + USER, auth, (204,), {'permission': 'write'})
-            _, raw = api('GET', permission_path(repo, USER), auth, (200,))
-            person = object_json(raw, 'Forgejo collaborator').get('user', {})
+            status, raw = access.api('GET', permission_path(repo, USER), auth, (200, 404))
+            if status == 404 or access.object_json(raw, 'Forgejo collaborator').get('permission') != 'write':
+                access.api('PUT', '/repos/' + repo + '/collaborators/' + USER, auth, (204,), {'permission': 'write'})
+            _, raw = access.api('GET', permission_path(repo, USER), auth, (200,))
+            person = access.object_json(raw, 'Forgejo collaborator').get('user', {})
             if person.get('login') != USER or person.get('is_admin') is not False or person.get('restricted') is not True or person.get('active') is not True:
                 refuse('forgejo-build is not an active restricted non-admin user')
         if inspect(token) == 'valid':
             return token
         # The administrator's listing decides what Forgejo issued: a held token it lists as issued
         # here failed for a reason a new token cannot fix, so it is kept and the run stops.
-        listed = list(pages('/users/' + USER + '/tokens', auth))
+        listed = list(access.pages('/users/' + USER + '/tokens', auth))
         if isinstance(token, str) and len(token) >= 8 and issued_here(listed, token):
             refuse('Forgejo lists the held credential as issued, yet it did not validate; no token was minted')
         # Forgejo 15 has no token-delete CLI. Its self/admin Basic-auth endpoint removes a
         # confirmed lost or invalid same-name token before the CLI can issue the replacement.
         if any(isinstance(held, dict) and held.get('name') == TOKEN_NAME for held in listed):
-            api('DELETE', '/users/' + USER + '/tokens/' + urllib.parse.quote(TOKEN_NAME, safe=''), auth, (204,))
-        issued = cli(['generate-access-token', '--username', USER, '--token-name', TOKEN_NAME,
-                      '--scopes', SCOPES, '--raw']).strip()
+            access.api('DELETE', '/users/' + USER + '/tokens/' + urllib.parse.quote(TOKEN_NAME, safe=''), auth, (204,))
+        issued = access.cli(['generate-access-token', '--username', USER, '--token-name', TOKEN_NAME,
+                             '--scopes', SCOPES, '--raw']).strip()
         if inspect(issued) != 'valid':
             refuse('the issued Forgejo credential did not validate')
         return issued
-    finally:
-        if bootstrap_created:
-            remove_bootstrap()
 
 
 def exchange():
@@ -275,42 +310,33 @@ def exchange():
     entry = incoming.get('entry') or {}
     if not isinstance(entry, dict):
         refuse('the held Forgejo credential entry is unreadable')
-    plane = incoming['inputs'].get('plane-api-token', entry.get('plane-api-token'))
-    if not isinstance(plane, str) or not plane.strip():
-        refuse('plane-api-token is absent; supply the plane_api_token secret answer')
-    ready_pod()
-    people = users()
+    workspace, projects = plane_targets()
+    arguments = {'workspace': workspace, 'projects': projects, 'email': PLANE_EMAIL, 'label': PLANE_LABEL}
+    seen = access.plane(PLANE_READ, arguments)
+    held_key = entry.get('plane-api-token')
+    kept = plane_kept(seen, workspace, projects, held_key)
+    access.ready_pod()
+    people = access.users()
     person = people.get(USER)
     if person is not None and (person['admin'] or not person['active']):
         refuse('forgejo-build must be an active non-admin user')
     token = entry.get('forgejo-api-token') if entry.get('forgejo-user') == USER else None
     state = inspect(token) if person is not None else 'invalid'
     if not APPLY:
-        return {'satisfied': state == 'valid' and BOOTSTRAP not in people and
-                entry == {'forgejo-user': USER, 'forgejo-api-token': token, 'plane-api-token': plane}}
+        return {'satisfied': kept and state == 'valid' and BOOTSTRAP not in people and
+                entry == {'forgejo-user': USER, 'forgejo-api-token': token, 'plane-api-token': held_key}}
+    # Plane first: it keeps an issued key in clear, so a later refusal in Forgejo loses nothing there.
+    key = held_key if kept else plane_key(arguments, seen)
     if BOOTSTRAP in people:
-        remove_bootstrap()
+        access.remove_bootstrap()
     if person is None:
-        cli(['create', '--username', USER, '--email', USER + '@hostyour.invalid',
-             '--restricted', '--random-password', '--must-change-password=false'])
+        access.cli(['create', '--username', USER, '--email', USER + '@hostyour.invalid',
+                    '--restricted', '--random-password', '--must-change-password=false'])
     if state != 'valid':
         token = provision(token)
-    return {'forgejo-user': USER, 'forgejo-api-token': token, 'plane-api-token': plane}
+    return {'forgejo-user': USER, 'forgejo-api-token': token, 'plane-api-token': key}
 
 
-lock = None
-try:
-    if APPLY:
-        lock = os.open(LOCK, os.O_CREAT | os.O_WRONLY | os.O_NOFOLLOW, 0o600)
-        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-    result = exchange()
-    print(json.dumps(result))
-except Refused as error:
-    sys.exit(str(error))
-except Exception:
-    sys.exit('Forgejo credential exchange could not complete; exception details withheld')
-finally:
-    if lock is not None:
-        os.close(lock)
+access.finish(exchange, LOCK)
 PY
 )" "$@"
