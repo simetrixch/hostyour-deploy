@@ -1044,9 +1044,12 @@ steps:
   # and replaces it with what an operator types; it never reads it back.
   #
   # THE DEPLOY REPOSITORY'S BUMP CREDENTIAL, build-platform/deploy/repo-pat, is the one leaf of the
-  # platform tier the manager writes, and only where the build plane runs: it rewrites it from the
-  # platform's GitHub App on the timer that refreshes every unit's build/<unit>/repo-pat, because a
-  # token GitHub issues for an hour cannot be seeded once. One literal leaf, write-only like the units'.
+  # platform tier the manager writes, and only where the build plane runs: on GitHub it rewrites it from
+  # the platform's GitHub App on the timer that refreshes every unit's build/<unit>/repo-pat, because a
+  # token GitHub issues for an hour cannot be seeded once. On Forgejo the machine user deploy-bump holds
+  # it, minted below, and the manager READS it to open the deploy repository: it has no other identity
+  # there. One literal line for the write and one for the read, on the only leaf of the platform tier
+  # the manager reaches.
   - step: vault_policy
     rests_on_an_earlier_step: true
     repository: /srv/hostyour-cloud
@@ -1057,6 +1060,7 @@ steps:
       path "secret/data/build/+/repo-pat" { capabilities = ["create", "update"] }
       path "secret/metadata/build/+/repo-pat" { capabilities = ["delete"] }
       path "secret/data/build-platform/deploy/repo-pat" { capabilities = ["create", "update"] }
+      path "secret/data/build-platform/deploy/repo-pat" { capabilities = ["read"] }
       path "secret/data/+/consumer/+/app" { capabilities = ["create", "update", "patch"] }
       path "secret/metadata/+/consumer/+/app" { capabilities = ["delete"] }
       path "secret/data/+/consumer/+/postgres" { capabilities = ["create", "update"] }

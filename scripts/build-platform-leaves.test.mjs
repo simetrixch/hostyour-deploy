@@ -9,8 +9,9 @@ import {pathPattern, reaches} from './vault-policy-reaches.mjs';
 // their own, build-platform/, and never at build/<unit>/repo-pat: that leaf is a unit's own entry,
 // written whole by the Manager, and a unit named hostyour-cloud or deploy would otherwise share it
 // with the platform. The bootstrap seeds the hostyour-cloud leaf,
-// the Manager writes the deploy leaf from the App, every build namespace's secret reader reads both
-// by their literal paths, and nothing else on this host reaches the tier.
+// the Manager writes the deploy leaf from the App and reads it where the forge holds the machine user
+// deploy-bump, every build namespace's secret reader reads both by their literal paths, and nothing
+// else on this host reaches the tier.
 const CLOUD = 'build-platform/hostyour-cloud/repo-pat';
 const DEPLOY = 'build-platform/deploy/repo-pat';
 const READ = leaf => `path "secret/data/${leaf}" { capabilities = ["read"] }`;
@@ -33,7 +34,7 @@ function findings(steps) {
   if (managerHere.length !== 1) found.push(`${managerHere.length} manager policies where the build plane runs, not 1`);
   const allowed = new Set([
     ...buildRead.flatMap(row => [`${row.name} ${READ(CLOUD)}`, `${row.name} ${READ(DEPLOY)}`]),
-    ...managerHere.map(row => `${row.name} ${WRITE(DEPLOY)}`),
+    ...managerHere.flatMap(row => [`${row.name} ${WRITE(DEPLOY)}`, `${row.name} ${READ(DEPLOY)}`]),
   ]);
   for (const grant of allowed) if (!policies.some(row => row.rules.split('\n').some(line => `${row.name} ${line.trim()}` === grant))) found.push(`no grant ${grant}`);
   // The administrators' policy reaches every path by design and is handed to no workload.
@@ -68,7 +69,9 @@ test('PLANTED DEFECT: an old leaf, a missing seed or grant, a templated or extra
     'a templated read of the tier': rows => { const p = policy(rows, '<cluster>-build-read'); p.rules += 'path "secret/data/build-platform/{{identity.entity.aliases.<accessor>.metadata.unit}}/*" { capabilities = ["read"] }\n'; },
     'a wildcard read of the tier': rows => { const p = policy(rows, '<cluster>-bump-read'); p.rules += 'path "secret/data/build-platform/+/repo-pat" { capabilities = ["read"] }\n'; },
     'the manager writes no deploy leaf': rows => { const p = policy(rows, 'manager'); p.rules = p.rules.replace(WRITE(DEPLOY), ''); },
-    'the manager reads the deploy leaf': rows => { const p = policy(rows, 'manager'); p.rules = p.rules.replace(WRITE(DEPLOY), 'path "secret/data/build-platform/deploy/repo-pat" { capabilities = ["create", "read", "update"] }'); },
+    'the manager does not read the deploy leaf': rows => { const p = policy(rows, 'manager'); p.rules = p.rules.replace(READ(DEPLOY), ''); },
+    'the manager reads the deploy leaf in one merged line': rows => { const p = policy(rows, 'manager'); p.rules = p.rules.replace(WRITE(DEPLOY), 'path "secret/data/build-platform/deploy/repo-pat" { capabilities = ["create", "read", "update"] }'); },
+    'the manager reads the hostyour-cloud leaf': rows => { const p = policy(rows, 'manager'); p.rules += `${READ(CLOUD)}\n`; },
     'the manager writes the hostyour-cloud leaf': rows => { const p = policy(rows, 'manager'); p.rules += `${WRITE(CLOUD)}\n`; },
     'a role takes the deleted policy': rows => { const r = rows.find(row => row.step === 'vault_auth_role' && row.role === 'external-secrets'); r.body = r.body.replace('"<cluster>-eso"', '"<cluster>-eso","<cluster>-deploy-pat-read"'); },
   };
