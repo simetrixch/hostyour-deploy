@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import {execFileSync} from 'node:child_process';
 import {test} from 'node:test';
 import {fileURLToPath} from 'node:url';
+import {pathPattern, reaches} from './vault-policy-reaches.mjs';
 
 // The two credentials every release bump pushes the platform repositories with stand on a tier of
 // their own, build-platform/, and never at build/<unit>/repo-pat: that leaf is a unit's own entry,
@@ -15,13 +16,6 @@ const READ = leaf => `path "secret/data/${leaf}" { capabilities = ["read"] }`;
 const WRITE = leaf => `path "secret/data/${leaf}" { capabilities = ["create", "update"] }`;
 const program = JSON.parse(execFileSync('yq', ['-o=json', '.',
   fileURLToPath(new URL('../ansiwise/programs/deploy-platform-services.yaml', import.meta.url))], {encoding: 'utf8'}));
-
-/** Whether the Vault path pattern of a policy rule matches `path`: `+` and a template are one segment, a trailing `*` any rest. */
-function reaches(pattern, path) {
-  const source = pattern.replace(/\{\{[^}]*\}\}/g, '\0').replace(/[.?^$|()[\]\\]/g, '\\$&')
-    .replace(/\0|\+/g, '[^/]+').replace(/\*$/, '.*');
-  return new RegExp(`^${source}$`).test(path);
-}
 
 /** Every way the program departs from the build-platform tier above. */
 function findings(steps) {
@@ -44,7 +38,7 @@ function findings(steps) {
   // The administrators' policy reaches every path by design and is handed to no workload.
   for (const row of policies.filter(row => row.name !== 'admin')) {
     for (const line of row.rules.split('\n').map(l => l.trim()).filter(Boolean)) {
-      const pattern = /^path "([^"]+)"/.exec(line)?.[1] ?? '';
+      const pattern = pathPattern(line);
       const hits = [CLOUD, DEPLOY].flatMap(leaf => [`secret/data/${leaf}`, `secret/metadata/${leaf}`]).filter(path => reaches(pattern, path));
       if (hits.length > 0 && !allowed.has(`${row.name} ${line}`)) found.push(`${row.name} reaches ${hits.join(', ')} with ${line}`);
     }
