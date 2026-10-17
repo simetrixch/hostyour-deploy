@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import {execFileSync} from 'node:child_process';
+import {readdirSync} from 'node:fs';
 import {test} from 'node:test';
 import {fileURLToPath} from 'node:url';
 import {pathPattern, reaches} from './vault-policy-reaches.mjs';
@@ -78,4 +79,65 @@ test('PLANTED DEFECT: an old leaf, a missing seed or grant, a templated or extra
   }
   assert.deepEqual(findings(structuredClone(program.steps)), [], 'the planted innocent: the program as it is');
   assert.ok(!reaches('secret/data/build/{{identity.entity.aliases.<accessor>.metadata.unit}}/*', `secret/data/${DEPLOY}`), 'the planted innocent: the unit-templated build read reaches no build-platform leaf');
+});
+
+// The installation's one storage box login, <stage>/app/storage-box, opens every backup of the installation,
+// and the units of external parties build in build namespaces too, so no role a build namespace logs in
+// under reaches it, on any program of this repository.
+const BOX = ['secret/data/<stage>/app/storage-box', 'secret/metadata/<stage>/app/storage-box'];
+const BOX_READ = 'path "secret/data/<stage>/app/storage-box" { capabilities = ["read"] }';
+const PROGRAMS = fileURLToPath(new URL('../ansiwise/programs/', import.meta.url));
+const programs = readdirSync(PROGRAMS).filter(file => file.endsWith('.yaml'))
+  .map(file => ({file, steps: JSON.parse(execFileSync('yq', ['-o=json', '.', `${PROGRAMS}${file}`], {encoding: 'utf8'})).steps ?? []}));
+
+/** Whether a role's binding admits a build namespace: by the build label, by a name of one, by a glob or by an empty selector. */
+function admitsBuildNamespace(body) {
+  const role = JSON.parse(body);
+  if ((role.bound_service_account_namespaces ?? []).some(name => name.includes('*') || name.endsWith('-build'))) return true;
+  const selector = role.bound_service_account_namespace_selector;
+  if (!selector) return false;
+  const labels = JSON.parse(selector).matchLabels ?? {};
+  return Object.keys(labels).length === 0 || labels['hostyour.cloud/build'] === 'true';
+}
+
+/** Every policy line, handed to a role a build namespace logs in under, that reaches the storage box login. */
+function boxFindings(steps) {
+  const found = [];
+  for (const role of steps.filter(row => row.step === 'vault_auth_role' && admitsBuildNamespace(row.body))) {
+    for (const name of JSON.parse(role.body).token_policies ?? []) {
+      for (const policy of steps.filter(row => row.step === 'vault_policy' && row.name === name)) {
+        for (const line of (policy.rules ?? '').split('\n').map(l => l.trim()).filter(Boolean)) {
+          const hits = BOX.filter(path => reaches(pathPattern(line), path));
+          if (hits.length > 0) found.push(`the role ${role.role} reaches ${hits.join(', ')} through ${name} with ${line}`);
+        }
+      }
+    }
+  }
+  return found;
+}
+
+test('no role a build namespace logs in under reaches the storage box login', () => {
+  assert.deepEqual(programs.flatMap(({file, steps}) => boxFindings(steps).map(finding => `${file}: ${finding}`)), []);
+});
+
+test('PLANTED DEFECT: a grant on the storage box login under a role of a build namespace is found, and the workload tier and the registry read are not', () => {
+  const policy = (rows, name) => rows.find(row => row.step === 'vault_policy' && row.name === name);
+  const planted = {
+    'the login added to <cluster>-build-read': rows => { policy(rows, '<cluster>-build-read').rules += `${BOX_READ}\n`; },
+    'every stage\'s application tier in <cluster>-build-read': rows => { policy(rows, '<cluster>-build-read').rules += 'path "secret/data/+/app/*" { capabilities = ["read"] }\n'; },
+    'the bump reads the login': rows => { policy(rows, '<cluster>-bump-read').rules += `${BOX_READ}\n`; },
+    'a delete of the login\'s metadata in <cluster>-build-read': rows => { policy(rows, '<cluster>-build-read').rules += 'path "secret/metadata/<stage>/app/storage-box" { capabilities = ["delete"] }\n'; },
+    'the workload role admits a build namespace by name': rows => { for (const row of rows.filter(r => r.step === 'vault_auth_role' && r.role === 'external-secrets')) row.body = JSON.stringify({...JSON.parse(row.body), bound_service_account_namespaces: ['hostyour-cloud-build']}); },
+    'the workload role admits every namespace': rows => { for (const row of rows.filter(r => r.step === 'vault_auth_role' && r.role === 'external-secrets')) row.body = JSON.stringify({...JSON.parse(row.body), bound_service_account_namespace_selector: '{}'}); },
+  };
+  for (const [name, plant] of Object.entries(planted)) {
+    const rows = structuredClone(program.steps);
+    plant(rows);
+    assert.notDeepEqual(boxFindings(rows), [], name);
+  }
+  // The workload tier reaches the login by design, for the Manager's backups, and no build namespace logs in under it.
+  const workload = policy(program.steps, '<cluster>-eso');
+  assert.ok(workload.rules.split('\n').some(line => BOX.some(path => reaches(pathPattern(line), path))), 'the check sees a policy that reaches the login');
+  assert.ok(policy(program.steps, '<cluster>-build-read').rules.includes('path "secret/data/<stage>/app/registry" { capabilities = ["read"] }'), 'the build reader keeps its registry read');
+  for (const {file, steps} of programs) assert.deepEqual(boxFindings(structuredClone(steps)), [], `the planted innocent: ${file} as it is`);
 });
