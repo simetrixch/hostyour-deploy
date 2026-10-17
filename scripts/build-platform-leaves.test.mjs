@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import {execFileSync} from 'node:child_process';
 import {test} from 'node:test';
 import {fileURLToPath} from 'node:url';
-import {reaches} from './vault-policy-reaches.mjs';
+import {pathPattern, reaches} from './vault-policy-reaches.mjs';
 
 // The two credentials every release bump pushes the platform repositories with stand on a tier of
 // their own, build-platform/, and never at build/<unit>/repo-pat: that leaf is a unit's own entry,
@@ -38,7 +38,7 @@ function findings(steps) {
   // The administrators' policy reaches every path by design and is handed to no workload.
   for (const row of policies.filter(row => row.name !== 'admin')) {
     for (const line of row.rules.split('\n').map(l => l.trim()).filter(Boolean)) {
-      const pattern = /^path "([^"]+)"/.exec(line)?.[1] ?? '';
+      const pattern = pathPattern(line);
       const hits = [CLOUD, DEPLOY].flatMap(leaf => [`secret/data/${leaf}`, `secret/metadata/${leaf}`]).filter(path => reaches(pattern, path));
       if (hits.length > 0 && !allowed.has(`${row.name} ${line}`)) found.push(`${row.name} reaches ${hits.join(', ')} with ${line}`);
     }

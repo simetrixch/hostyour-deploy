@@ -3,7 +3,7 @@ import {execFileSync} from 'node:child_process';
 import {readdirSync} from 'node:fs';
 import {test} from 'node:test';
 import {fileURLToPath} from 'node:url';
-import {reaches} from './vault-policy-reaches.mjs';
+import {pathPattern, reaches} from './vault-policy-reaches.mjs';
 
 // The E2E runner reads the tenants' E2E passwords, <stage>/tenants/<guid>/e2e, and the test mailbox key,
 // secret/data/e2e/test-mailbox, and nothing else, and only its own store's account in its own namespace
@@ -41,7 +41,7 @@ function mailboxFindings(steps) {
   // The administrators' policy reaches every path by design and is handed to no workload.
   for (const row of steps.filter(step => step.step === 'vault_policy' && step.name !== 'admin')) {
     for (const line of (row.rules ?? '').split('\n').map(l => l.trim()).filter(Boolean)) {
-      const pattern = /^path "([^"]+)"/.exec(line)?.[1] ?? '';
+      const pattern = pathPattern(line);
       const hits = KEY.filter(path => reaches(pattern, path));
       if (hits.length > 0 && !(row.name === 'e2e-runner' && line === MAILBOX)) found.push(`${row.name} reaches ${hits.join(', ')} with ${line}`);
     }
@@ -87,6 +87,8 @@ test('PLANTED DEFECT: a grant on the test mailbox key in another policy is found
     'a slave\'s reader reads every entry under e2e/': ['register-slave.yaml', '<slave_cluster_name>-eso', 'path "secret/data/e2e/*" { capabilities = ["read"] }'],
     'a templated read of the key': ['deploy-platform-services.yaml', '<cluster>-eso', 'path "secret/data/{{identity.entity.aliases.<accessor>.metadata.service_account_namespace}}/test-mailbox" { capabilities = ["read"] }'],
     'the manager deletes the key': ['deploy-platform-services.yaml', 'manager', 'path "secret/metadata/e2e/test-mailbox" { capabilities = ["delete"] }'],
+    'a read of the key with two spaces after path': ['deploy-platform-services.yaml', '<cluster>-eso', MAILBOX.replace('path ', 'path  ')],
+    'a read of the key with a tab after path': ['deploy-platform-services.yaml', '<cluster>-eso', MAILBOX.replace('path ', 'path\t')],
   };
   for (const [name, [file, policy, line]] of Object.entries(planted)) {
     const rows = structuredClone(programs.find(p => p.file === file).steps);
