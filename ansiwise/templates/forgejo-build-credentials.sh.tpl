@@ -21,7 +21,10 @@ BOOTSTRAP = '<forgejo-bootstrap-user>'
 NAMESPACE = '<forgejo-namespace>'
 SELECTOR = '<forgejo-pod-selector>'
 CONTAINER = '<forgejo-container>'
-REPOSITORIES = '<forgejo-repositories>'.split(',')
+# The engine drops the slot's line where the row names no repository, and forgejo-build then may
+# write to none.
+REPOSITORIES = []
+REPOSITORIES = '<forgejo-repositories?>'.split(',')
 LOCK = '<forgejo-credential-lock>'
 # write:repository sets statuses and creates releases; read:user lets the token show its own account,
 # its own scopes and its rights (GET /user, /users/forgejo-build/tokens, /user/repos), so a check

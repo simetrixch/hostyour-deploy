@@ -2677,7 +2677,7 @@ steps:
       forgejo-namespace: forgejo
       forgejo-pod-selector: app.kubernetes.io/name=forgejo
       forgejo-container: forgejo
-      forgejo-repositories: akadmin/hostyour-release-test
+      # forgejo-build may write only to the repositories a forgejo-repositories value names, comma-separated.
       forgejo-credential-lock: /run/forgejo-build-credentials.lock
     when: [secret_store_enabled, books_here_in_answers, build_plane_here_in_answers, plane_runs_here]
     on_failure: exit
