@@ -15,14 +15,16 @@ const TOKEN = 'fixture-forgejo-build-issued-secret';
 const PASSWORD = "fixture-bootstrap-password'$with-quotes";
 const entry = {'forgejo-user': USER, 'forgejo-api-token': TOKEN, 'plane-api-token': PLANE};
 // The engine's template rule (ansiwise-core lib/src/steps/slots.dart slotPattern, template.dart
-// filledWith): every required slot names a value of the row, and every value has a slot.
+// filledWith): every required slot names a value of the row, every value has a slot, and a line
+// whose optional slot the row leaves out is dropped whole.
 function rendered(text, values) {
   const slots = [...text.matchAll(/<([a-z][a-z0-9-]*)(!\?|\??)>/g)];
   const unfilled = slots.filter(([, name, suffix]) => suffix === '' && !(name in values)).map(([slot]) => slot);
   const unplaced = Object.keys(values).filter(name => !slots.some(([, slot]) => slot === name));
-  if (slots.some(([, , suffix]) => suffix !== '')) throw new Error('this fixture renders no optional slot');
+  if (slots.some(([, , suffix]) => suffix === '!?')) throw new Error('this fixture renders no carried slot');
   if (unfilled.length || unplaced.length) throw new Error(`template and values do not fit: unfilled ${unfilled}, unplaced ${unplaced}`);
-  return text.replace(/<([a-z][a-z0-9-]*)>/g, (_, name) => values[name]);
+  return text.split('\n').filter(line => [...line.matchAll(/<([a-z][a-z0-9-]*)\?>/g)].every(([, name]) => name in values))
+    .join('\n').replace(/<([a-z][a-z0-9-]*)\??>/g, (_, name) => values[name]);
 }
 
 const yaml = file => JSON.parse(execFileSync('yq', ['-o=json', '.', new URL(file, root).pathname], {encoding: 'utf8'}));
@@ -69,7 +71,7 @@ test('one installer writer follows the handoff and reads the optional secret ans
 test('the producer template renders under the engine\'s slot rule with exactly the row\'s values', () => {
   const template = readFileSync(new URL('ansiwise/templates/forgejo-build-credentials.sh.tpl', root), 'utf8');
   const {values} = program.steps.find(s => s.template === 'ansiwise/templates/forgejo-build-credentials.sh.tpl');
-  assert.ok(!rendered(template, values).match(/<[a-z][a-z0-9-]*>/));
+  assert.ok(!rendered(template, values).match(/<[a-z][a-z0-9-]*\??>/));
   // PLANTED: an angle-bracketed word in a comment is a slot no row fills, and the engine refuses it.
   assert.throws(() => rendered(template.replace('# The installer', '# GET /users/<user>/tokens\n# The installer'), values), /unfilled <user>/);
   assert.throws(() => rendered(template, {...values, 'forgejo-planted': 'x'}), /unplaced forgejo-planted/);
@@ -89,13 +91,15 @@ async function fixture(options = {}) {
   // Rendered first: a template the engine would refuse starts no server.
   const source = await readFile(new URL('ansiwise/templates/forgejo-build-credentials.sh.tpl', root), 'utf8');
   const render = program.steps.find(s => s.template === 'ansiwise/templates/forgejo-build-credentials.sh.tpl');
-  let script = rendered(options.mutate ? options.mutate(source) : source, render.values);
+  // The grant cases name the proof repository; `shipped` renders with the row's values as they are.
+  let script = rendered(options.mutate ? options.mutate(source) : source,
+    options.shipped ? render.values : {...render.values, 'forgejo-repositories': REPO});
   const directory = await mkdtemp(join(tmpdir(), 'forgejo-credentials-'));
   const commands = [], requests = [];
   const users = new Map([['akadmin', {email: 'akadmin@hostyour.invalid', admin: true, restricted: false, active: true}]]);
   if (options.exists !== false) users.set(USER, {email: USER + '@hostyour.invalid', admin: false, restricted: true, active: true, ...options.badUser});
   if (options.staleBootstrap) users.set(BOOTSTRAP, {email: BOOTSTRAP + '@hostyour.invalid', admin: true, restricted: false, active: true});
-  const repos = new Map([
+  const repos = new Map(options.repositories === false ? [] : [
     [REPO, {private: false, grants: new Map(options.granted === false ? [] : [[USER, options.repoAdmin ? 'admin' : 'write']])}],
     [UNRELATED, {private: options.privateUnrelated ?? false, grants: new Map(options.unrelated ? [[USER, 'write']] : [])}],
   ]);
@@ -310,6 +314,54 @@ test('valid credentials survive retries, later callers and Plane-only rotation w
     assert.ok(f.requests.slice(before).every(r => r.method === 'GET'), 'a check only reads');
     await f.privateFiles();
   } finally {await f.clean();}
+});
+
+// Forgejo on the master holds no repository since 2026-10-17 01:39 UTC, when the proof repository
+// was deleted; the row names none, so a valid held token with no write right anywhere is kept.
+test('with Forgejo holding no repository, the row\'s values keep a valid held token without a write', async () => {
+  // PLANTED DEFECT: a row that names a repository Forgejo does not hold fails as run 20261017T090957Z did.
+  const named = await fixture({repositories: false});
+  try {
+    const check = await named.run(entry, PLANE, '--check');
+    assert.equal(check.code, 0, check.stderr); assert.deepEqual(JSON.parse(check.stdout), {satisfied: false});
+    const r = await named.run(entry);
+    assert.equal(r.code, 1); assert.equal(r.stdout, '');
+    assert.match(r.stderr, /refused PUT \/repos\/akadmin\/hostyour-release-test\/collaborators\/forgejo-build with HTTP 404/);
+    assert.ok(!named.users.has(BOOTSTRAP));
+  } finally {await named.clean();}
+  const f = await fixture({shipped: true, repositories: false});
+  try {
+    const check = await f.run(entry, PLANE, '--check');
+    assert.equal(check.code, 0, check.stderr); assert.deepEqual(JSON.parse(check.stdout), {satisfied: true});
+    const r = await f.run(entry); assert.equal(r.code, 0, r.stderr);
+    assert.deepEqual(JSON.parse(r.stdout), entry);
+    assert.ok(f.requests.every(r => r.method === 'GET'), 'no PUT and no DELETE');
+    assert.ok(f.commands.every(c => c.includes('get') || c.includes('list')), 'no user created and no token generated');
+    assert.equal(f.generation, 0); assert.ok(!f.users.has(BOOTSTRAP));
+    await f.privateFiles();
+  } finally {await f.clean();}
+});
+
+test('with no repository named, every write right is refused and a token not issued here is minted again', async () => {
+  for (const [options, refusal] of [[{}, /unrelated repository/], [{repoAdmin: true}, /administration rights/]]) {
+    const f = await fixture({shipped: true, ...options});
+    try {
+      const r = await f.run(entry);
+      assert.notEqual(r.code, 0); assert.match(r.stderr, refusal);
+      assert.equal(f.generation, 0); assert.ok(!f.users.has(BOOTSTRAP));
+    } finally {await f.clean();}
+  }
+  // A first creation, and a held token Forgejo does not know.
+  for (const [options, held] of [[{exists: false, valid: false}, null], [{valid: false}, entry]]) {
+    const f = await fixture({shipped: true, repositories: false, ...options});
+    try {
+      const r = await f.run(held); assert.equal(r.code, 0, r.stderr);
+      assert.deepEqual(JSON.parse(r.stdout), entry);
+      assert.equal(f.generation, 1); assert.ok(!f.users.has(BOOTSTRAP));
+      assert.ok(!f.requests.some(r => r.method === 'PUT'), 'no grant');
+      await f.privateFiles();
+    } finally {await f.clean();}
+  }
 });
 
 test('a confirmed invalid or lost same-name token is recovered once and reused', async () => {
