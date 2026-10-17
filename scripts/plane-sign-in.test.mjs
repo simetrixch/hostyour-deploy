@@ -208,7 +208,8 @@ const state = f => JSON.stringify({users: [...f.users], apps: f.apps, settings: 
 
 test('a first apply creates user plane and its one confidential application and turns every other sign-in off', async () => {
   const first = async mutate => {
-    const f = await fixture({planeUser: false, application: false, planeHolds: false, mutate});
+    // Plane's defaults with magic code turned on in /god-mode, so every other sign-in starts on.
+    const f = await fixture({planeUser: false, application: false, planeSettings: {...DEFAULTS, ENABLE_MAGIC_LINK_LOGIN: '1'}, mutate});
     try {
       const check = await f.run(null, '--check');
       assert.deepEqual([check.code, check.entry], [0, {satisfied: false}], check.stderr);
@@ -223,8 +224,8 @@ test('a first apply creates user plane and its one confidential application and 
   assert.deepEqual(r.entry, {'client-id': apps[0].client_id, 'client-secret': apps[0].secret});
   assert.deepEqual(settings, signIn(apps[0].client_id, apps[0].secret));
   assert.deepEqual(user, {email: EMAIL, admin: false, restricted: true, active: true});
-  // PLANTED DEFECTS: a producer that leaves open sign-up, or the password sign-in, on.
-  for (const key of ['ENABLE_SIGNUP', 'ENABLE_EMAIL_PASSWORD']) {
+  // PLANTED DEFECTS: a producer that leaves open sign-up, the password sign-in or magic code on.
+  for (const key of ['ENABLE_SIGNUP', 'ENABLE_EMAIL_PASSWORD', 'ENABLE_MAGIC_LINK_LOGIN']) {
     const left = await first(text => text.replace(`'${key}': '0', `, '').replace(`, '${key}': '0'`, ''));
     assert.equal(left.settings[key], '1', key);
   }
@@ -254,6 +255,22 @@ test('a check of a complete state only reads and is satisfied, and apply on it w
     await writing.run(held, '--check');
     assert.ok(!onlyReads(writing) && writing.users.has(USER));
   } finally {await writing.clean();}
+});
+
+test('magic code turned on in Plane is no answer for a check, and apply turns it off again', async () => {
+  const drift = async mutate => {
+    const f = await fixture({planeSettings: {...signIn(CLIENT, SECRET), ENABLE_MAGIC_LINK_LOGIN: '1'}, mutate});
+    try {
+      const check = await f.run(held, '--check');
+      const r = await f.run(held);
+      return {satisfied: check.entry?.satisfied, r, magic: f.settings.get('ENABLE_MAGIC_LINK_LOGIN')};
+    } finally {await f.clean();}
+  };
+  const shipped = await drift();
+  assert.deepEqual([shipped.satisfied, shipped.r.code, shipped.r.entry, shipped.magic], [false, 0, held, '0'], shipped.r.stderr);
+  // PLANTED DEFECT: a producer that no longer turns magic code off.
+  const left = await drift(text => text.replace(", 'ENABLE_MAGIC_LINK_LOGIN': '0'", ''));
+  assert.deepEqual([left.satisfied, left.magic], [true, '1']);
 });
 
 test('an application that takes no secret is no answer for a check, and apply makes it confidential', async () => {
