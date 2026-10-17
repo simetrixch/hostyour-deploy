@@ -1480,6 +1480,12 @@ steps:
       # acts a declaration cannot perform — adding one account to one group without owning the other
       # members of it. The provider takes it as the key of a token object its blueprints declare.
       - 'platform-api-token=IDP_PLATFORM_API_TOKEN'
+      # NOT CLIENT SECRETS EITHER: the passwords of the two accounts the blueprint
+      # 20-plane-test-accounts.yaml declares for the proof that Plane signs a person in. The provider
+      # sets them when it creates the accounts, so they are minted here, where it reads its environment;
+      # the proof reads them from <stage>/app/plane-test-account, written from these two values below.
+      - 'plane-test-account-password=IDP_PLANE_TEST_ACCOUNT_PASSWORD'
+      - 'plane-test-uninvited-password=IDP_PLANE_TEST_UNINVITED_PASSWORD'
     mint:
       - argocd-client-secret
       - manager-client-secret
@@ -1489,6 +1495,8 @@ steps:
       - post-client-secret
       - forgejo-client-secret
       - platform-api-token
+      - plane-test-account-password
+      - plane-test-uninvited-password
     when: [secret_store_enabled, books_here_in_answers]
     on_failure: exit
 
@@ -1874,6 +1882,26 @@ steps:
     when: [secret_store_enabled, idp_enabled, books_here_in_answers]
     on_failure: exit
 
+  # THE PASSWORDS OF THE TWO TEST ACCOUNTS of the proof that Plane signs a person in, for the e2e runner
+  # alone. They are minted once, in <stage>/idp/bootstrap, where the provider creates the accounts
+  # from them; this row writes them FROM there, as the copies above do, so the runner holds what the
+  # provider set. They stand in an entry of their own in the app tier, and no row of the E2E password
+  # policy reaches it: the runner reads them through the cluster's default secret reader and not through
+  # the store that holds the E2E password.
+  - step: vault_kv_entry
+    rests_on_an_earlier_step: true
+    repository: /srv/hostyour-cloud
+    mount: secret
+    path: <stage>/app/plane-test-account
+    fields:
+      - 'password=PLANE_TEST_ACCOUNT_PASSWORD'
+      - 'uninvited-password=PLANE_TEST_UNINVITED_PASSWORD'
+    copy_from:
+      - 'password=<stage>/idp/bootstrap:plane-test-account-password'
+      - 'uninvited-password=<stage>/idp/bootstrap:plane-test-uninvited-password'
+    when: [secret_store_enabled, idp_enabled, books_here_in_answers]
+    on_failure: exit
+
   # PLANE'S ENTRY: its two signing keys and the passwords of the PostgreSQL, RabbitMQ and MinIO that
   # run beside it, all minted, because nobody types them and nothing outside Plane's namespace reads
   # them. One row for all six: this step rewrites the whole entry and keeps only the minted fields of
@@ -2061,6 +2089,8 @@ steps:
       # named for the platform instead. The blueprint that declares the token reads exactly this
       # name.
       - 'PLATFORM_API_TOKEN=platform-api-token'
+      - 'IDP_PLANE_TEST_ACCOUNT_PASSWORD=plane-test-account-password'
+      - 'IDP_PLANE_TEST_UNINVITED_PASSWORD=plane-test-uninvited-password'
     staging: /run/ansiwise
     # /run belongs to root, so making the directory under it and writing the manifest into it
     # both need elevation. The manifest holds a credential on its way to the cluster and is
@@ -2700,6 +2730,11 @@ steps:
 
   # Plane signs people in through Forgejo, which signs in only through the identity provider. The
   # producer shares the temporary administrator of the row above, and so its name and its lock.
+  #
+  # IT ALSO ADMITS THE TEST ACCOUNT OF THE SIGN-IN PROOF. The two addresses are those of the blueprint
+  # clusters/bootstrap/idp/blueprints/20-plane-test-accounts.yaml and of the case cases/plane-sign-in.spec.ts
+  # of digita-testkit, which signs in as each and reads the address Plane shows. The first is invited to
+  # Plane's workspace; the second is the account Plane must refuse.
   - step: write_file_from_template
     template: ansiwise/templates/plane-sign-in.sh.tpl
     path: /run/plane-sign-in.sh
@@ -2712,6 +2747,8 @@ steps:
       forgejo-container: forgejo
       forgejo-credential-lock: /run/forgejo-build-credentials.lock
       forgejo-plane-access-module: /run/forgejo-plane-access.py
+      plane-test-account-email: simplidigita.ai+plane-sign-in@gmail.com
+      plane-test-uninvited-email: simplidigita.ai+plane-sign-in-uninvited@gmail.com
     when: [secret_store_enabled, books_here_in_answers, build_plane_here_in_answers, plane_runs_here]
     on_failure: exit
 

@@ -8,7 +8,6 @@ import json
 import re
 import sys
 import urllib.parse
-import uuid
 
 try:
     spec = importlib.util.spec_from_file_location('forgejo_plane_access', '<forgejo-plane-access-module>')
@@ -157,26 +156,6 @@ else:
 '''
 
 
-def plane_targets():
-    """The workspace and the project ids the Task plane-update-status writes to, as the deployed
-    Pipeline names them, so the producer holds no second copy."""
-    pipeline = access.object_json(access.kube(['get', 'pipelines.tekton.dev', 'forgejo-release', '-o', 'json'],
-                                              namespace='forgejo-build', what='the Pipeline forgejo-release'),
-                                  'the Pipeline forgejo-release')
-    try:
-        task, = [t for t in pipeline['spec']['tasks'] if t.get('name') == 'plane']
-        value, = [p['value'] for p in task['params'] if p.get('name') == 'plane-targets']
-        targets = json.loads(value)
-        workspace = targets['workspace']
-        projects = [str(uuid.UUID(p['id'])) for p in targets['projects']]
-    except (KeyError, TypeError, ValueError, AttributeError):
-        refuse('the Pipeline forgejo-release names no readable plane-targets in its task plane')
-    if not isinstance(workspace, str) or not re.fullmatch(r'[a-z0-9][a-z0-9_-]*', workspace) or \
-            not projects or len(set(projects)) != len(projects):
-        refuse('the Pipeline forgejo-release names no readable plane-targets in its task plane')
-    return workspace, projects
-
-
 def plane_kept(seen, workspace, projects, held):
     """Refuses, before any write, a Plane state the producer must not change; answers whether the
     held key is the one labeled key of forgejo-build and every role is an active Member."""
@@ -310,7 +289,7 @@ def exchange():
     entry = incoming.get('entry') or {}
     if not isinstance(entry, dict):
         refuse('the held Forgejo credential entry is unreadable')
-    workspace, projects = plane_targets()
+    workspace, projects = access.plane_targets()
     arguments = {'workspace': workspace, 'projects': projects, 'email': PLANE_EMAIL, 'label': PLANE_LABEL}
     seen = access.plane(PLANE_READ, arguments)
     held_key = entry.get('plane-api-token')

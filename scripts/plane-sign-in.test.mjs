@@ -1,11 +1,12 @@
 import assert from 'node:assert/strict';
-import {spawn} from 'node:child_process';
+import {execFileSync, spawn} from 'node:child_process';
 import {createHash, randomUUID} from 'node:crypto';
 import {createServer} from 'node:http';
-import {readFileSync} from 'node:fs';
+import {readFileSync, writeFileSync} from 'node:fs';
 import {mkdtemp, readFile, readdir, rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
+import {fileURLToPath} from 'node:url';
 import {test} from 'node:test';
 import {MODULE, forgejoCommand, planeExec, planeOutput, program, rendered, root, writeProducer} from './forgejo-plane-access-fake.mjs';
 
@@ -17,6 +18,15 @@ const REDIRECT = `https://${PLANE}/auth/gitea/callback/`;
 const CLIENT = '0b3a2f0e-6c7d-4e59-9d1e-7a3f1c2b4d5e', SECRET = 'gto_fixture0held0client0secret';
 const held = {'client-id': CLIENT, 'client-secret': SECRET};
 const READ = '# plane sign-in read', WRITE = '# plane sign-in write';
+const ADMISSION_READ = '# plane sign-in admission read', ADMISSION_WRITE = '# plane sign-in admission write';
+// The two Authentik accounts of the sign-in proof, as the test mailbox names them: the mailbox, a `+`, the
+// case file's name without `.spec.ts` (digita-testkit packages/e2e/settings.ts testMailboxAddressOf). Only the
+// first is invited to Plane's workspace.
+const WORKSPACE = 'simplidigita', MEMBER = 15;
+const INVITED = 'simplidigita.ai+plane-sign-in@gmail.com', UNINVITED = 'simplidigita.ai+plane-sign-in-uninvited@gmail.com';
+const LIMITS = {allow_create_organization: false, max_repo_creation: 0};
+const PROJECT = '5b0c6a3e-3b1d-4e9a-8a11-0d6f9a7c2e41';
+const STAND_IN = fileURLToPath(new URL('plane-orm-stand-in.py', import.meta.url));
 const PROBE = ['client_id', 'client_secret', 'code', 'grant_type', 'redirect_uri'];
 const sha = text => createHash('sha256').update(text).digest('hex');
 // Plane's settings as configure_instance leaves them from its defaults, and as this producer wants them.
@@ -88,6 +98,16 @@ async function fixture(options = {}) {
     redirect_uris: [REDIRECT], confidential: true, ...options.application}];
   if (options.extraApplication) apps.push({id: next++, name: 'other', owner: USER, client_id: randomUUID(), secret: 'gto_fixture0other', redirect_uris: ['https://elsewhere.invalid/'], confidential: true});
   const settings = new Map(Object.entries(options.planeSettings ?? (options.planeHolds === false ? DEFAULTS : signIn(CLIENT, SECRET))));
+  for (const [name, account] of Object.entries(options.accounts ?? {})) users.set(name, {admin: false, restricted: true, active: true, ...account});
+  // Plane's workspace tables, as the stand-in ORM keeps them: the owner's membership and, by default, the
+  // invitation of the test account.
+  const planeFile = join(directory, 'plane-orm.json');
+  const invite = {id: 1, workspace_id: 1, email: INVITED, accepted: true, role: MEMBER, token: 'fixture-invitation-token'};
+  writeFileSync(planeFile, JSON.stringify(options.plane ?? {workspaces: options.workspace === false ? [] : [{id: 1, slug: WORKSPACE}],
+    users: [{id: 1, email: 'owner@example.invalid'}], members: [{workspace_id: 1, member_id: 1, role: 20, is_active: true}],
+    invites: options.invited === false ? [] : [invite]}));
+  const admission = () => JSON.parse(readFileSync(planeFile, 'utf8'));
+  const limits = new Map();
   let changes = 0;
   const ingresses = {forgejo: options.forgejoIngresses ?? [{spec: {rules: [{host: FORGEJO, http: {}}]}}], plane: {spec: {rules: [{host: PLANE}, {host: PLANE}]}}};
   const planeAnswer = ({name, args}, stdin) => {
@@ -110,8 +130,20 @@ async function fixture(options = {}) {
       if (exec) {
         snippets.push(exec.name);
         if (exec.error) return send(500, exec.error);
+        if (exec.name === ADMISSION_READ || exec.name === ADMISSION_WRITE) {
+          assert.deepEqual(Object.keys(exec.args).sort(), ['email', 'workspace']);
+          try {
+            return send(200, execFileSync('python3', ['-I', STAND_IN, planeFile], {input: argv.at(-1), encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe']}));
+          } catch (failure) {
+            return send(500, 'Traceback (most recent call last): ' + failure.stderr);
+          }
+        }
         const value = planeAnswer(exec, stdin);
         return value === undefined ? send(500, 'Traceback (most recent call last): fixture refusal') : send(200, planeOutput(argv, value));
+      }
+      if (argv.includes('pipelines.tekton.dev')) {
+        const targets = options.targets ?? JSON.stringify({workspace: WORKSPACE, projects: [{id: PROJECT}]});
+        return send(200, {spec: {tasks: [{name: 'plane', params: [{name: 'plane-targets', value: targets}]}]}});
       }
       if (argv.includes('ingress')) {
         const namespace = argv[argv.indexOf('-n') + 1];
@@ -135,6 +167,12 @@ async function fixture(options = {}) {
     }
     const basic = req.headers.authorization === 'Basic ' + Buffer.from(BOOTSTRAP + ':' + PASSWORD).toString('base64') && users.get(BOOTSTRAP)?.admin;
     if (!basic) return send(401);
+    const limited = path.match(/^\/api\/v1\/admin\/users\/([^/]+)$/)?.[1];
+    if (limited !== undefined && req.method === 'PATCH') {
+      if (!users.has(limited)) return send(404);
+      limits.set(limited, JSON.parse(text));
+      return send(200, {login: limited});
+    }
     if (req.headers.sudo !== USER || !users.has(USER)) return send(404);
     const mine = apps.filter(a => a.owner === USER);
     if (path === '/api/v1/user/applications/oauth2' && req.method === 'GET') {
@@ -192,7 +230,7 @@ async function fixture(options = {}) {
     }
     for (const stderr of stderrs) for (const secret of secrets) assert.ok(!stderr.includes(secret), 'stderr carries a secret');
   };
-  return {run, clean, accepts, privateSecrets, users, apps, settings, commands, inputs, requests, snippets, get changes() {return changes;}};
+  return {run, clean, accepts, privateSecrets, users, apps, settings, limits, admission, commands, inputs, requests, snippets, get changes() {return changes;}};
 }
 
 // A check that only reads: GETs, the two probes and nothing else to Forgejo, no administrator, no
@@ -201,10 +239,11 @@ const onlyReads = (f, from = {requests: 0, commands: 0}) => {
   const requests = f.requests.slice(from.requests), commands = f.commands.slice(from.commands);
   return requests.every(r => r.method === 'GET' || (r.method === 'POST' && r.path === '/login/oauth/access_token')) &&
     requests.filter(r => r.method === 'POST').length <= 2 && requests.every(r => r.sudo === undefined && !r.authorization?.startsWith('Basic ')) &&
-    commands.every(c => c.includes('get') || c.includes('list') || (c.includes('manage.py') && c.at(-1).startsWith(READ + '\n')));
+    commands.every(c => c.includes('get') || c.includes('list') || (c.includes('manage.py') &&
+      [READ, ADMISSION_READ].some(name => c.at(-1).startsWith(name + '\n'))));
 };
 const mark = f => ({requests: f.requests.length, commands: f.commands.length});
-const state = f => JSON.stringify({users: [...f.users], apps: f.apps, settings: [...f.settings]});
+const state = f => JSON.stringify({users: [...f.users], apps: f.apps, settings: [...f.settings], limits: [...f.limits], admission: f.admission()});
 
 test('a first apply creates user plane and its one confidential application and turns every other sign-in off', async () => {
   const first = async mutate => {
@@ -240,7 +279,7 @@ test('a check of a complete state only reads and is satisfied, and apply on it w
     assert.ok(onlyReads(f));
     assert.equal(f.requests.filter(r => r.path === '/login/oauth/access_token').length, 2, 'two probes');
     assert.equal(state(f), before, 'the fake Forgejo and Plane changed no state');
-    assert.deepEqual(f.snippets, [READ]);
+    assert.deepEqual(f.snippets, [READ, ADMISSION_READ]);
     const r = await f.run(held);
     assert.deepEqual([r.code, r.entry], [0, held], r.stderr);
     assert.ok(!f.requests.some(q => q.path.startsWith('/api/v1/user/applications/oauth2') && q.method !== 'GET'), 'no application write');
@@ -392,4 +431,129 @@ test('the client secret goes in on the write snippet\'s stdin alone, never in it
     await f.run(held);
     await assert.rejects(f.privateSecrets(), /an argument carries a secret/);
   } finally {await f.clean();}
+});
+
+// THE TEST ACCOUNTS of the sign-in proof (digita-testkit cases/plane-sign-in.spec.ts). The producer
+// takes their two addresses from its row and invites the first alone: the second is the account Plane
+// must refuse. Both are addresses of a case in the one test mailbox, never the bare mailbox, which is the
+// owner's own.
+// A planted defect that finds no text to change would plant nothing, and its test would pass on the shipped producer.
+const swap = (from, to) => text => { assert.ok(text.includes(from), 'the producer no longer holds ' + from); return text.replace(from, to); };
+const MAILBOX = /^simplidigita\.ai\+[a-z0-9]+(-[a-z0-9]+)*@gmail\.com$/;
+function addressFindings(values) {
+  const found = [], invited = values['plane-test-account-email'], uninvited = values['plane-test-uninvited-email'];
+  for (const [name, address] of [['invited', invited], ['uninvited', uninvited]]) {
+    if (!MAILBOX.test(address ?? '')) found.push(`the ${name} address ${address} is not an address of a case in the test mailbox`);
+  }
+  if (invited === uninvited) found.push('one address is both invited and uninvited');
+  return found;
+}
+
+test('the row hands the producer the two test addresses of the sign-in proof', () => {
+  const {values} = program.steps.find(s => s.template === TEMPLATE);
+  assert.deepEqual([values['plane-test-account-email'], values['plane-test-uninvited-email']], [INVITED, UNINVITED]);
+  assert.deepEqual(addressFindings(values), []);
+  // PLANTED DEFECTS: the owner's bare mailbox, an address of another mailbox, and one address for both.
+  for (const planted of [{'plane-test-account-email': 'simplidigita.ai@gmail.com'}, {'plane-test-uninvited-email': 'someone@example.invalid'},
+    {'plane-test-uninvited-email': INVITED}]) {
+    assert.notDeepEqual(addressFindings({...values, ...planted}), [], JSON.stringify(planted));
+  }
+});
+
+test('apply invites the test account to the workspace as a Member and no other address, once, and a check only reads', async () => {
+  const outcome = async (mutate, options = {}) => {
+    const f = await fixture({invited: false, mutate, ...options});
+    try {
+      const before = state(f);
+      const check = await f.run(held, '--check');
+      assert.ok(onlyReads(f));
+      assert.equal(state(f), before, 'a check changed state');
+      const first = await f.run(held), second = await f.run(held);
+      const after = await f.run(held, '--check');
+      const invites = f.admission().invites;
+      return {check: check.entry, first, second, after: after.entry, invites, stdout: first.stdout + second.stdout, stderr: first.stderr + second.stderr,
+        written: f.snippets.filter(name => name === ADMISSION_WRITE).length};
+    } finally {await f.clean();}
+  };
+  const shipped = await outcome();
+  assert.deepEqual(shipped.check, {satisfied: false});
+  assert.deepEqual([shipped.first.code, shipped.second.code, shipped.first.entry], [0, 0, held], shipped.first.stderr + shipped.second.stderr);
+  assert.deepEqual(shipped.invites.map(({email, accepted, role, workspace_id}) => ({email, accepted, role, workspace_id})),
+    [{email: INVITED, accepted: true, role: MEMBER, workspace_id: 1}], 'one accepted Member invitation, for the invited address alone');
+  assert.deepEqual(shipped.after, {satisfied: true});
+  // The token of an invitation joins its holder to the workspace: made in Plane's pod from a random source, never from the
+  // address, and never on any output of the producer.
+  const [{token}] = shipped.invites;
+  assert.ok(token.length >= 32 && !token.includes('simplidigita') && !(shipped.stdout + shipped.stderr).includes(token));
+  // PLANTED DEFECT: the other address invited.
+  const wrong = await outcome(swap("'email': INVITED}", "'email': UNINVITED}"));
+  assert.deepEqual(wrong.invites.map(({email}) => email), [UNINVITED]);
+  // PLANTED DEFECT: an invitation that is not accepted turns into no membership; the write's own answer says so.
+  const unaccepted = await outcome(swap('accepted=True, role=15, token', 'accepted=False, role=15, token'));
+  assert.equal(unaccepted.first.code, 1);
+  assert.match(unaccepted.first.stderr, /Plane did not keep the invitation of the test account/);
+  // PLANTED INNOCENT: the same address is a member already (it signed in, which deleted the invitation): nothing is written.
+  const member = await outcome(undefined, {plane: {workspaces: [{id: 1, slug: WORKSPACE}], users: [{id: 1, email: 'owner@example.invalid'}, {id: 2, email: INVITED}],
+    members: [{workspace_id: 1, member_id: 1, role: 20, is_active: true}, {workspace_id: 1, member_id: 2, role: MEMBER, is_active: true}], invites: []}});
+  assert.deepEqual([member.check, member.first.code, member.invites], [{satisfied: true}, 0, []]);
+});
+
+test('an invitation that is not accepted or not a Member is corrected in place, and a missing workspace is refused', async () => {
+  const stale = {id: 1, workspace_id: 1, email: INVITED, accepted: false, role: 5, token: 'fixture-invitation-token'};
+  const corrected = async mutate => {
+    const f = await fixture({mutate, plane: {workspaces: [{id: 1, slug: WORKSPACE}], users: [{id: 1, email: 'owner@example.invalid'}],
+      members: [{workspace_id: 1, member_id: 1, role: 20, is_active: true}], invites: [stale]}});
+    try {
+      const check = await f.run(held, '--check'), r = await f.run(held);
+      return {check: check.entry, r, invites: f.admission().invites};
+    } finally {await f.clean();}
+  };
+  const shipped = await corrected();
+  assert.deepEqual([shipped.check, shipped.r.code], [{satisfied: false}, 0], shipped.r.stderr);
+  assert.deepEqual(shipped.invites, [{...stale, accepted: true, role: MEMBER}]);
+  // PLANTED DEFECT: a producer that makes a second invitation beside the stale one, which Plane's constraint refuses.
+  assert.equal((await corrected(swap('if invite is None:', 'if True:'))).r.code, 1);
+  const f = await fixture({workspace: false});
+  try {
+    assert.deepEqual((await f.run(held, '--check')).entry, {satisfied: false});
+    const r = await f.run(held);
+    assert.equal(r.code, 1);
+    assert.match(r.stderr, /Plane has no workspace simplidigita; create it in Plane, then redeploy/);
+  } finally {await f.clean();}
+});
+
+test('a Forgejo account of a test address is limited to no repositories and no organizations, and none may administer', async () => {
+  const accounts = {'plane-sign-in': {email: INVITED}, 'plane-sign-in-uninvited': {email: UNINVITED}, someone: {email: 'someone@example.invalid'}};
+  const outcome = async (mutate, options = {accounts}) => {
+    const f = await fixture({mutate, ...options});
+    try {
+      const before = state(f);
+      const check = await f.run(held, '--check');
+      const r = await f.run(held);
+      return {check, r, limits: Object.fromEntries(f.limits), changed: state(f) !== before, admin: f.users.has(BOOTSTRAP)};
+    } finally {await f.clean();}
+  };
+  const shipped = await outcome();
+  // A limit is no field of any user the API lists, so a check that finds the account cannot see it and does not claim it.
+  assert.deepEqual(shipped.check.entry, {satisfied: false});
+  assert.deepEqual([shipped.r.code, shipped.r.entry, shipped.admin], [0, held, false], shipped.r.stderr);
+  assert.deepEqual(shipped.limits, {'plane-sign-in': LIMITS, 'plane-sign-in-uninvited': LIMITS});
+  // PLANTED DEFECTS: no limit, a limit that still allows repositories, and one that reaches every ordinary account.
+  assert.deepEqual((await outcome(swap('        limit(auth, tested)\n', ''))).limits, {});
+  assert.deepEqual((await outcome(swap("'max_repo_creation': 0", "'max_repo_creation': -1"))).limits['plane-sign-in'].max_repo_creation, -1);
+  assert.ok('someone' in (await outcome(swap("if account['email'] in TEST_EMAILS}", "if not account['admin'] and name != USER}"))).limits);
+  // PLANTED INNOCENT: before the first sign-in no Forgejo account of a test address exists, and none is made.
+  const none = await outcome(undefined, {});
+  assert.deepEqual([none.check.entry, none.r.code, none.limits], [{satisfied: true}, 0, {}]);
+
+  const administrator = {accounts: {'plane-sign-in': {email: INVITED, admin: true}}};
+  const refused = await outcome(undefined, administrator);
+  for (const run of [refused.check, refused.r]) {
+    assert.equal(run.code, 1);
+    assert.equal(run.stdout, '');
+    assert.match(run.stderr, /a Forgejo account of a Plane test address is a site administrator; Plane sign-in was not changed/);
+  }
+  assert.deepEqual([refused.limits, refused.changed], [{}, false]);
+  // PLANTED DEFECT: a producer that lets an administrator stand as the test account.
+  assert.equal((await outcome(swap("any(account['admin'] for account in tested.values())", 'False'), administrator)).r.code, 0);
 });

@@ -110,5 +110,8 @@ python3 -I -c 'import ast, pathlib, sys; ast.parse(pathlib.Path(sys.argv[1]).rea
 node --check "$ROOT/scripts/forgejo-plane-access-fake.mjs" || fail 'Forgejo and Plane fake cluster syntax'
 node --check "$ROOT/scripts/plane-sign-in.test.mjs" || fail 'Plane sign-in producer check syntax'
 bash -n "$ROOT/ansiwise/templates/plane-sign-in.sh.tpl" || fail 'Plane sign-in producer Bash syntax'
+python3 -I -c 'import ast, pathlib, sys; ast.parse(pathlib.Path(sys.argv[1]).read_text())' "$ROOT/scripts/plane-orm-stand-in.py" || fail 'Plane ORM stand-in Python syntax'
 echo 'check: NOT RUN locally — scripts/plane-sign-in.test.mjs; runs in the ci of the master via scripts/test.sh.'
+node --check "$ROOT/scripts/plane-test-account.test.mjs" || fail 'Plane test account secrets check syntax'
+echo 'check: NOT RUN locally — scripts/plane-test-account.test.mjs; runs in the ci of the master via scripts/test.sh.'
 echo 'check: OK — every local check green'

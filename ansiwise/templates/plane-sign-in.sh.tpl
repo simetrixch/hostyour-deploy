@@ -25,6 +25,15 @@ EMAIL = USER + '@hostyour.invalid'
 APPLICATION = 'plane'
 BOOTSTRAP = '<forgejo-bootstrap-user>'
 LOCK = '<forgejo-credential-lock>'
+# The two accounts of the sign-in proof (digita-testkit cases/plane-sign-in.spec.ts). Plane admits an
+# address it has never seen only where an invitation for it exists, so the first is invited and the
+# second is the account Plane must refuse.
+INVITED = '<plane-test-account-email>'
+UNINVITED = '<plane-test-uninvited-email>'
+TEST_EMAILS = (INVITED, UNINVITED)
+# Forgejo creates an account at its first sign-in with its global defaults, which the accounts of the
+# platform's own people share, so these two are limited afterwards, one by one.
+LIMITS = {'max_repo_creation': 0, 'allow_create_organization': False}
 APPLY = access.start('Plane sign-in provisioning', '<forgejo-namespace>', '<forgejo-pod-selector>',
                      '<forgejo-container>', BOOTSTRAP)
 
@@ -75,6 +84,43 @@ if changed:
     cache.delete('/api/instances/')
     cache.delete('/api/instances/configurations/')
 answer(stored())
+'''
+# Plane makes a membership of an invitation for the address at the sign-in, but only of one that is
+# accepted (plane/bgtasks/workspace_project_join.py process_workspace_project_invitations).
+PLANE_ADMISSION = r'''
+from plane.db.models import Workspace, WorkspaceMember, WorkspaceMemberInvite
+
+
+def admission():
+    workspace = Workspace.objects.filter(slug=ARGUMENTS['workspace']).first()
+    if workspace is None:
+        return {'workspace': False, 'admitted': False}
+    email = ARGUMENTS['email']
+    member = WorkspaceMember.objects.filter(workspace=workspace, member__email=email, is_active=True).exists()
+    invited = WorkspaceMemberInvite.objects.filter(workspace=workspace, email=email, accepted=True, role=15).exists()
+    return {'workspace': True, 'admitted': member or invited}
+'''
+PLANE_ADMISSION_READ = '# plane sign-in admission read' + PLANE_ADMISSION + r'''
+answer(admission())
+'''
+# Invites the address as a Member unless it is a member or has an accepted invitation. The token is
+# random and leaves the pod nowhere: it would join its holder to the workspace.
+PLANE_ADMISSION_WRITE = '# plane sign-in admission write' + PLANE_ADMISSION + r'''
+import secrets
+from django.db import transaction
+
+with transaction.atomic():
+    seen = admission()
+    if seen['workspace'] and not seen['admitted']:
+        workspace = Workspace.objects.get(slug=ARGUMENTS['workspace'])
+        invite = WorkspaceMemberInvite.objects.filter(workspace=workspace, email=ARGUMENTS['email']).first()
+        if invite is None:
+            WorkspaceMemberInvite.objects.create(workspace=workspace, email=ARGUMENTS['email'],
+                                                 accepted=True, role=15, token=secrets.token_urlsafe(32))
+        else:
+            invite.accepted, invite.role = True, 15
+            invite.save(update_fields=['accepted', 'role'])
+answer(admission())
 '''
 HOST = re.compile(r'[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+')
 
@@ -159,6 +205,13 @@ def application(auth, redirect, held):
     return client_id, secret, True
 
 
+def limit(auth, accounts):
+    """No repositories and no organizations for the Forgejo accounts of the test addresses. These two
+    fields of the API's PATCH stand alone, so it changes nothing else of an account."""
+    for name in accounts:
+        access.api('PATCH', '/admin/users/' + urllib.parse.quote(name, safe=''), auth, (200,), LIMITS)
+
+
 def exchange():
     try:
         incoming = json.load(sys.stdin)
@@ -178,20 +231,37 @@ def exchange():
     person = people.get(USER)
     if person is not None and (person['email'] != EMAIL or person['admin'] or not person['active']):
         refuse('the Forgejo user plane is not the active non-admin machine user ' + EMAIL + '; Plane sign-in was not changed')
+    # Only an address of a test case is limited, and none of them may administer: a site administrator
+    # of Forgejo is one at every sign-in of the identity provider's group `admins`, which these must not be in.
+    tested = {name: account for name, account in people.items() if account['email'] in TEST_EMAILS}
+    if any(account['admin'] for account in tested.values()):
+        refuse('a Forgejo account of a Plane test address is a site administrator; Plane sign-in was not changed')
+    workspace, _ = access.plane_targets()
+    admitting = {'workspace': workspace, 'email': INVITED}
     wanted = dict(SIGN_IN_OFF, IS_GITEA_ENABLED='1', GITEA_HOST=gitea)
     if not APPLY:
         # Blind to a second application of user plane and to a redirect URI registered beside ours:
-        # listing them takes a Forgejo administrator, which only apply creates.
-        return {'satisfied': held is not None and person is not None and BOOTSTRAP not in people and
+        # listing them takes a Forgejo administrator, which only apply creates. Blind as well to the limits
+        # of a test account, which no listing of users shows, so a check that finds one does not call the
+        # state kept and apply sets the same limits again.
+        return {'satisfied': held is not None and person is not None and BOOTSTRAP not in people and not tested and
                 confidential(held['client-id'], held['client-secret'], redirect) and
                 holds(access.plane(PLANE_READ, {'keys': KEYS}),
-                      dict(wanted, GITEA_CLIENT_ID=held['client-id']), held['client-secret'])}
+                      dict(wanted, GITEA_CLIENT_ID=held['client-id']), held['client-secret']) and
+                access.plane(PLANE_ADMISSION_READ, admitting)['admitted'] is True}
+    # First, so that a workspace Plane does not have is refused before anything else is changed.
+    invited = access.plane(PLANE_ADMISSION_WRITE, admitting)
+    if invited.get('workspace') is not True:
+        refuse('Plane has no workspace ' + workspace + '; create it in Plane, then redeploy')
+    if invited.get('admitted') is not True:
+        refuse('Plane did not keep the invitation of the test account')
     if BOOTSTRAP in people:
         access.remove_bootstrap()
     if person is None:
         access.cli(['create', '--username', USER, '--email', EMAIL,
                     '--restricted', '--random-password', '--must-change-password=false'])
     with access.administrator() as auth:
+        limit(auth, tested)
         client_id, secret, made = application(auth, redirect, held)
     if made and not confidential(client_id, secret, redirect):
         refuse('Forgejo does not accept the client secret of the OAuth2 application plane it returned')
