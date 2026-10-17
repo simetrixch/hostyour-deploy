@@ -289,6 +289,20 @@ conditions:
     answer: build_plane_fqdn
     other_answer: fqdn
 
+  # WHETHER THIS INSTALLATION'S PLATFORM AND DEPLOY REPOSITORIES STAND ON FORGEJO. Nobody writes it
+  # down as a third answer: an installation on Forgejo names the repository of each as owner/repository,
+  # one on GitHub names neither, and the two never name the same repository, so "differ" reads as
+  # Forgejo. A run that names only one fails in the producer, by the name of the empty answer.
+  forgejo_repositories_in_answers:
+    predicate: answer_values_differ
+    answer: forgejo_platform_repository
+    other_answer: forgejo_deploy_repository
+
+  forgejo_repositories_absent_from_answers:
+    predicate: answer_values_agree
+    answer: forgejo_platform_repository
+    other_answer: forgejo_deploy_repository
+
   # WHETHER THIS INSTALLATION'S BRANCH IS ALREADY ON THE REMOTE, which is what tells a birth from a
   # regeneration. deploy-branch is one program for both acts, and the two differ in exactly one
   # thing: at a birth the branch has to be CUT from the product branch, at a regeneration the

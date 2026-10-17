@@ -1969,13 +1969,14 @@ steps:
     mount: secret
     path: build-platform/hostyour-cloud/repo-pat
     fields: ['pat=BUILD_HOSTYOUR_CLOUD_REPO_PAT']
-    when: [secret_store_enabled, build_plane_here_in_answers, books_here_in_answers]
+    when: [secret_store_enabled, build_plane_here_in_answers, books_here_in_answers, forgejo_repositories_absent_from_answers]
     on_failure: exit
 
-  # The deploy repository's bump credential, build-platform/deploy/repo-pat, is NOT seeded here: the
-  # platform's GitHub App is its identity, and the Manager writes that entry from the App's token on
-  # the timer that refreshes every unit's — a token GitHub issues for an hour
-  # cannot be seeded once by an installer. The policies above grant its write and its read.
+  # The deploy repository's bump credential, build-platform/deploy/repo-pat, is NOT seeded here: on
+  # GitHub the platform's GitHub App is its identity, and the Manager writes that entry from the App's
+  # token on the timer that refreshes every unit's — a token GitHub issues for an hour cannot be
+  # seeded once by an installer. On Forgejo the machine user deploy-bump holds it, minted below. The
+  # policies above grant its write and its read.
 
   # --- the identity provider ------------------------------------------------------------------
   #
@@ -2725,6 +2726,105 @@ steps:
     when: [secret_store_enabled, books_here_in_answers, build_plane_here_in_answers, plane_runs_here]
     on_failure: exit
 
+  # THE FORGEJO MACHINE USERS, minted where the platform and deploy repositories stand on Forgejo. A
+  # Forgejo user is created by a site administrator only, so the producer holds the temporary one of
+  # the rows above and each user is restricted: it sees only what it is granted. Argo CD reads with
+  # argocd, which only reads and reads every repository of the organisations; the two bump users
+  # each write one repository and nothing else. No user is made per unit: a unit's push is a deploy
+  # key of its own repository, minted by the Manager.
+  - step: write_file_from_template
+    template: ansiwise/templates/forgejo-machine-user.sh.tpl
+    path: /run/forgejo-machine-user-argocd.sh
+    file_mode: 448
+    elevated: true
+    values:
+      forgejo-user: argocd
+      forgejo-token-name: argocd
+      forgejo-bootstrap-user: forgejo-build-provisioner
+      forgejo-namespace: forgejo
+      forgejo-pod-selector: app.kubernetes.io/name=forgejo
+      forgejo-container: forgejo
+      forgejo-credential-lock: /run/forgejo-build-credentials.lock
+      forgejo-plane-access-module: /run/forgejo-plane-access.py
+      forgejo-permission: read
+      forgejo-token-field: password
+      forgejo-user-field: username
+      forgejo-organisations: { answer: forgejo_organisations }
+    when: [secret_store_enabled, books_here_in_answers, build_plane_here_in_answers, plane_runs_here, forgejo_repositories_in_answers]
+    on_failure: exit
+
+  - step: vault_kv_entry_from_command
+    rests_on_an_earlier_step: true
+    repository: /srv/hostyour-cloud
+    mount: secret
+    path: <stage>/app/argocd-forge
+    producer: /run/forgejo-machine-user-argocd.sh
+    fields: [username, password]
+    when: [secret_store_enabled, books_here_in_answers, build_plane_here_in_answers, plane_runs_here, forgejo_repositories_in_answers]
+    on_failure: exit
+
+  # The platform repository's bump credential: write on the platform repository alone.
+  - step: write_file_from_template
+    template: ansiwise/templates/forgejo-machine-user.sh.tpl
+    path: /run/forgejo-machine-user-hostyour-cloud-bump.sh
+    file_mode: 448
+    elevated: true
+    values:
+      forgejo-user: hostyour-cloud-bump
+      forgejo-token-name: hostyour-cloud-bump
+      forgejo-bootstrap-user: forgejo-build-provisioner
+      forgejo-namespace: forgejo
+      forgejo-pod-selector: app.kubernetes.io/name=forgejo
+      forgejo-container: forgejo
+      forgejo-credential-lock: /run/forgejo-build-credentials.lock
+      forgejo-plane-access-module: /run/forgejo-plane-access.py
+      forgejo-permission: write
+      forgejo-token-field: pat
+      forgejo-repository: { answer: forgejo_platform_repository }
+    when: [secret_store_enabled, books_here_in_answers, build_plane_here_in_answers, plane_runs_here, forgejo_repositories_in_answers]
+    on_failure: exit
+
+  - step: vault_kv_entry_from_command
+    rests_on_an_earlier_step: true
+    repository: /srv/hostyour-cloud
+    mount: secret
+    path: build-platform/hostyour-cloud/repo-pat
+    producer: /run/forgejo-machine-user-hostyour-cloud-bump.sh
+    fields: [pat]
+    when: [secret_store_enabled, books_here_in_answers, build_plane_here_in_answers, plane_runs_here, forgejo_repositories_in_answers]
+    on_failure: exit
+
+  # The deploy repository's bump credential: write on the deploy repository alone.
+  - step: write_file_from_template
+    template: ansiwise/templates/forgejo-machine-user.sh.tpl
+    path: /run/forgejo-machine-user-deploy-bump.sh
+    file_mode: 448
+    elevated: true
+    values:
+      forgejo-user: deploy-bump
+      forgejo-token-name: deploy-bump
+      forgejo-bootstrap-user: forgejo-build-provisioner
+      forgejo-namespace: forgejo
+      forgejo-pod-selector: app.kubernetes.io/name=forgejo
+      forgejo-container: forgejo
+      forgejo-credential-lock: /run/forgejo-build-credentials.lock
+      forgejo-plane-access-module: /run/forgejo-plane-access.py
+      forgejo-permission: write
+      forgejo-token-field: pat
+      forgejo-repository: { answer: forgejo_deploy_repository }
+    when: [secret_store_enabled, books_here_in_answers, build_plane_here_in_answers, plane_runs_here, forgejo_repositories_in_answers]
+    on_failure: exit
+
+  - step: vault_kv_entry_from_command
+    rests_on_an_earlier_step: true
+    repository: /srv/hostyour-cloud
+    mount: secret
+    path: build-platform/deploy/repo-pat
+    producer: /run/forgejo-machine-user-deploy-bump.sh
+    fields: [pat]
+    when: [secret_store_enabled, books_here_in_answers, build_plane_here_in_answers, plane_runs_here, forgejo_repositories_in_answers]
+    on_failure: exit
+
   # Until the account is registered, no certificate on this cluster can be issued. Recorded rather
   # than fatal, and only where this installation asks the public authority at all.
   #
@@ -2855,3 +2955,26 @@ answers:
       Write this cluster's own domain unless another machine carries the build plane, in which case
       write that machine's. Nothing derives it: a cluster that silently made itself the build plane
       would start building images nobody asked it to build.
+
+  # THE THREE FORGEJO ANSWERS, all empty on an installation whose platform and deploy repositories stand
+  # on GitHub. The organisations are configuration: nothing in the product names one.
+  - name: forgejo_platform_repository
+    kind: text
+    required: false
+    describes: >-
+      Forgejo only: the platform repository as owner/repository. The machine user hostyour-cloud-bump
+      is granted write on it and on nothing else. Leave it and the two answers below empty on GitHub.
+
+  - name: forgejo_deploy_repository
+    kind: text
+    required: false
+    describes: >-
+      Forgejo only: the deploy repository as owner/repository. The machine user deploy-bump is granted
+      write on it and on nothing else.
+
+  - name: forgejo_organisations
+    kind: text
+    required: false
+    describes: >-
+      Forgejo only: the organisations whose repositories Argo CD reads, comma-separated. The machine
+      user argocd joins a read-only team of each, which covers a repository created later as well.
