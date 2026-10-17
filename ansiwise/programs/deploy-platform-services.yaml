@@ -1376,11 +1376,14 @@ steps:
 
   # The E2E runner's own reader (hostyour-cloud clusters/inventories/e2e-runner). Its namespace
   # holds the passwords of the tenants' E2E accounts, which the Manager writes to
-  # <stage>/tenants/<guid>/e2e, so it gets a role of its own: the role every workload namespace
-  # logs in under reads the application tier and must not reach these, and this one reads these
-  # and nothing else. One master serves the tenants of every stage from its one Vault, so the stage
-  # segment is `+`, as in the Manager's grant that writes them. No `list`: a run names its target,
-  # so nothing needs to enumerate the tenants.
+  # <stage>/tenants/<guid>/e2e, and the test mailbox key, e2e/test-mailbox, the read-only mail key
+  # the contact cases check their mail with. So it gets a role of its own: the role every workload
+  # namespace logs in under reads the application tier and must not reach these, and this one reads
+  # secret/data/+/tenants/+/e2e and secret/data/e2e/test-mailbox and nothing else. The mailbox also
+  # holds the owner's own mail, and the runner's TaskRuns are the key's only reader. One master
+  # serves the tenants of every stage from its one Vault, so the stage segment is `+`, as in the
+  # Manager's grant that writes them; the key serves every stage and has no stage segment. No
+  # `list` and no metadata path: a run names its target, so nothing needs to enumerate either.
   #
   # As with the manager-host rows, the names are the reader's: the e2e-runner chart renders the
   # store that logs in under this role, as the account below, in that namespace.
@@ -1390,6 +1393,7 @@ steps:
     name: e2e-runner
     rules: |
       path "secret/data/+/tenants/+/e2e" { capabilities = ["read"] }
+      path "secret/data/e2e/test-mailbox" { capabilities = ["read"] }
     when: [secret_store_enabled, books_here_in_answers]
     on_failure: exit
 

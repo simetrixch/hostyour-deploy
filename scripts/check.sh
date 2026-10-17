@@ -69,6 +69,7 @@ node --check "$ROOT/scripts/prune-unused-images.test.mjs" || fail 'prune unused 
 echo 'check: NOT RUN locally — scripts/prune-unused-images.test.mjs; runs in the ci of the master via scripts/test.sh.'
 node --check "$ROOT/scripts/manager-tenant-key-grants.test.mjs" || fail 'manager tenant key grants check syntax'
 echo 'check: NOT RUN locally — scripts/manager-tenant-key-grants.test.mjs; runs in the ci of the master via scripts/test.sh.'
+node --check "$ROOT/scripts/vault-policy-reaches.mjs" || fail 'vault policy reaches syntax'
 node --check "$ROOT/scripts/build-platform-leaves.test.mjs" || fail 'build-platform leaves check syntax'
 echo 'check: NOT RUN locally — scripts/build-platform-leaves.test.mjs; runs in the ci of the master via scripts/test.sh.'
 node --check "$ROOT/scripts/manager-post-client-read.test.mjs" || fail 'manager post client read check syntax'
