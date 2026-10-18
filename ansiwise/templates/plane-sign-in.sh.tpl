@@ -31,6 +31,13 @@ LOCK = '<forgejo-credential-lock>'
 INVITED = '<plane-test-account-email>'
 UNINVITED = '<plane-test-uninvited-email>'
 TEST_EMAILS = (INVITED, UNINVITED)
+# Plane's workspace roles (plane/db/models/workspace.py ROLE_CHOICES in v1.4.2).
+ROLES = {'admin': 20, 'member': 15, 'guest': 5}
+# The people the installation names beside its administrators, one per line as an address and a role. The
+# installation's own answer fills this: no address of a person stands in a repository.
+FURTHER_PEOPLE = r'''
+<plane-further-people?>
+'''
 # Forgejo creates an account at its first sign-in with its global defaults, which the accounts of the
 # platform's own people share, so these two are limited afterwards, one by one.
 LIMITS = {'max_repo_creation': 0, 'allow_create_organization': False}
@@ -86,42 +93,50 @@ if changed:
 answer(stored())
 '''
 # Plane makes a membership of an invitation for the address at the sign-in, but only of one that is
-# accepted (plane/bgtasks/workspace_project_join.py process_workspace_project_invitations).
+# accepted (plane/bgtasks/workspace_project_join.py process_workspace_project_invitations). A person who is
+# a member already keeps the role Plane holds for them.
 PLANE_ADMISSION = r'''
 from plane.db.models import Workspace, WorkspaceMember, WorkspaceMemberInvite
+
+
+def admitted(workspace, person):
+    member = WorkspaceMember.objects.filter(workspace=workspace, member__email=person['email'], is_active=True).exists()
+    invited = WorkspaceMemberInvite.objects.filter(workspace=workspace, email=person['email'], accepted=True, role=person['role']).exists()
+    return member or invited
 
 
 def admission():
     workspace = Workspace.objects.filter(slug=ARGUMENTS['workspace']).first()
     if workspace is None:
         return {'workspace': False, 'admitted': False}
-    email = ARGUMENTS['email']
-    member = WorkspaceMember.objects.filter(workspace=workspace, member__email=email, is_active=True).exists()
-    invited = WorkspaceMemberInvite.objects.filter(workspace=workspace, email=email, accepted=True, role=15).exists()
-    return {'workspace': True, 'admitted': member or invited}
+    return {'workspace': True, 'admitted': all([admitted(workspace, person) for person in ARGUMENTS['people']])}
 '''
 PLANE_ADMISSION_READ = '# plane sign-in admission read' + PLANE_ADMISSION + r'''
 answer(admission())
 '''
-# Invites the address as a Member unless it is a member or has an accepted invitation. The token is
-# random and leaves the pod nowhere: it would join its holder to the workspace.
+# Invites each person in their role unless they are a member or have an accepted invitation, and corrects
+# an invitation of the address that is not accepted or has another role. The token is random and leaves
+# the pod nowhere: it would join its holder to the workspace.
 PLANE_ADMISSION_WRITE = '# plane sign-in admission write' + PLANE_ADMISSION + r'''
 import secrets
 from django.db import transaction
 
 with transaction.atomic():
-    seen = admission()
-    if seen['workspace'] and not seen['admitted']:
+    if admission()['workspace']:
         workspace = Workspace.objects.get(slug=ARGUMENTS['workspace'])
-        invite = WorkspaceMemberInvite.objects.filter(workspace=workspace, email=ARGUMENTS['email']).first()
-        if invite is None:
-            WorkspaceMemberInvite.objects.create(workspace=workspace, email=ARGUMENTS['email'],
-                                                 accepted=True, role=15, token=secrets.token_urlsafe(32))
-        else:
-            invite.accepted, invite.role = True, 15
-            invite.save(update_fields=['accepted', 'role'])
+        for person in ARGUMENTS['people']:
+            if admitted(workspace, person):
+                continue
+            invite = WorkspaceMemberInvite.objects.filter(workspace=workspace, email=person['email']).first()
+            if invite is None:
+                WorkspaceMemberInvite.objects.create(workspace=workspace, email=person['email'], accepted=True,
+                                                     role=person['role'], token=secrets.token_urlsafe(32))
+            else:
+                invite.accepted, invite.role = True, person['role']
+                invite.save(update_fields=['accepted', 'role'])
 answer(admission())
 '''
+ADDRESS = re.compile(r'[^@\s,]+@[^@\s,]+\.[^@\s,]+')
 HOST = re.compile(r'[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+')
 
 
@@ -224,6 +239,37 @@ def limited_user_ids(held):
     return ids if isinstance(ids, list) and all(type(i) is int for i in ids) else None
 
 
+def further_people():
+    """The people the installation names beside its administrators, as {address: role}."""
+    named = {}
+    for line in FURTHER_PEOPLE.splitlines():
+        fields = line.split()
+        if not fields:
+            continue
+        if len(fields) != 2 or not ADDRESS.fullmatch(fields[0]) or fields[1].lower() not in ROLES:
+            refuse('a further person of Plane is not written as an address and a role, admin, member or guest; Plane sign-in was not changed')
+        address = fields[0].lower()
+        if address in named:
+            refuse('a further person of Plane is named twice; Plane sign-in was not changed')
+        named[address] = ROLES[fields[1].lower()]
+    return named
+
+
+def workspace_people(accounts):
+    """Whom Plane admits to the workspace, as [{email, role}]: the test account as a Member, every active
+    Forgejo site administrator as an Admin, and the further people in their role. Plane compares the address
+    lower case, so it is written lower case here."""
+    wanted = {INVITED.lower(): ROLES['member']}
+    for name, account in sorted(accounts.items()):
+        if account['admin'] and account['active'] and name != BOOTSTRAP:
+            wanted[account['email'].lower()] = ROLES['admin']
+    for address, role in further_people().items():
+        if address in wanted or address == UNINVITED.lower():
+            refuse('a further person of Plane is the test account, a Forgejo administrator or a test address; Plane sign-in was not changed')
+        wanted[address] = role
+    return [{'email': address, 'role': role} for address, role in wanted.items()]
+
+
 def exchange():
     try:
         incoming = json.load(sys.stdin)
@@ -252,7 +298,7 @@ def exchange():
     if any(account['admin'] for account in tested.values()):
         refuse('a Forgejo account of a Plane test address is a site administrator; Plane sign-in was not changed')
     workspace, _ = access.plane_targets()
-    admitting = {'workspace': workspace, 'email': INVITED}
+    admitting = {'workspace': workspace, 'people': workspace_people(people)}
     wanted = dict(SIGN_IN_OFF, IS_GITEA_ENABLED='1', GITEA_HOST=gitea)
     if not APPLY:
         # Blind to a second application of user plane and to a redirect URI registered beside ours:
@@ -272,7 +318,10 @@ def exchange():
     if invited.get('workspace') is not True:
         refuse('Plane has no workspace ' + workspace + '; create it in Plane, then redeploy')
     if invited.get('admitted') is not True:
-        refuse('Plane did not keep the invitation of the test account')
+        refuse('Plane did not keep the invitation of the test account or of a person of the installation')
+    if not any(person['role'] == ROLES['admin'] for person in admitting['people']):
+        sys.stderr.write('no Forgejo administrator exists yet, so nobody is invited to Plane as Admin; '
+                         'sign in to Forgejo once as an administrator of the identity provider, then redeploy\n')
     if BOOTSTRAP in people:
         access.remove_bootstrap()
     if person is None:

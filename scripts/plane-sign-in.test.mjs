@@ -23,16 +23,27 @@ const ADMISSION_READ = '# plane sign-in admission read', ADMISSION_WRITE = '# pl
 // The two Authentik accounts of the sign-in proof, as the test mailbox names them: the mailbox, a `+`, the
 // case file's name without `.spec.ts` (digita-testkit packages/e2e/settings.ts testMailboxAddressOf). Only the
 // first is invited to Plane's workspace.
-const WORKSPACE = 'simplidigita', MEMBER = 15;
+const WORKSPACE = 'simplidigita', MEMBER = 15, ADMIN = 20, GUEST = 5;
+// The installation's people are stand-ins: no address of a person stands in this repository, which is public.
+const ADMINISTRATOR = 'administrator@installation.example.test';
 const INVITED = 'simplidigita.ai+plane-sign-in@gmail.com', UNINVITED = 'simplidigita.ai+plane-sign-in-uninvited@gmail.com';
 const LIMITS = {allow_create_organization: false, max_repo_creation: 0};
 const PROJECT = '5b0c6a3e-3b1d-4e9a-8a11-0d6f9a7c2e41';
 const STAND_IN = fileURLToPath(new URL('plane-orm-stand-in.py', import.meta.url));
 const PROBE = ['client_id', 'client_secret', 'code', 'grant_type', 'redirect_uri'];
+// The engine fills a slot from an answer (ansiwise-plugins write_file_from_template, KeyBinding.resolveIn): the list
+// joined, and a slot whose answer holds nothing is left out, so a line with that optional slot is dropped.
+const filled = (values, answers = {}) => Object.fromEntries(Object.entries(values).flatMap(([slot, source]) => {
+  if (typeof source === 'string') return [[slot, source]];
+  const text = (answers[source.answer] ?? []).join(source.join);
+  return text === '' ? [] : [[slot, text]];
+}));
 const sha = text => createHash('sha256').update(text).digest('hex');
 // Plane's settings as configure_instance leaves them from its defaults, and as this producer wants them.
 const DEFAULTS = {IS_GITEA_ENABLED: '0', GITEA_HOST: '', GITEA_CLIENT_ID: '', GITEA_CLIENT_SECRET: '', ENABLE_SIGNUP: '1', ENABLE_EMAIL_PASSWORD: '1', ENABLE_MAGIC_LINK_LOGIN: '0'};
 const signIn = (id, secret) => ({IS_GITEA_ENABLED: '1', GITEA_HOST: `https://${FORGEJO}`, GITEA_CLIENT_ID: id, GITEA_CLIENT_SECRET: secret, ENABLE_SIGNUP: '0', ENABLE_EMAIL_PASSWORD: '0', ENABLE_MAGIC_LINK_LOGIN: '0'});
+
+const invitation = (id, email, role) => ({id, workspace_id: 1, email, accepted: true, role, token: 'fixture-invitation-token' + id});
 
 function wiring(steps) {
   const writers = steps.filter(s => s.path === '<stage>/app/plane-sign-in');
@@ -76,10 +87,11 @@ test('one installer writer of the Plane client entry shares the module, the admi
 test('the producer renders under the engine\'s slot rule with exactly its row\'s values', () => {
   const template = readFileSync(new URL(TEMPLATE, root), 'utf8');
   const {values} = program.steps.find(s => s.template === TEMPLATE);
-  assert.ok(!rendered(template, values).match(/<[a-z][a-z0-9-]*\??>/));
+  assert.ok(!rendered(template, filled(values, {plane_further_people: ['person@installation.example.test member']})).match(/<[a-z][a-z0-9-]*\??>/));
+  assert.ok(!rendered(template, filled(values)).match(/<[a-z][a-z0-9-]*\??>/));
   // PLANTED: an angle-bracketed word in a comment is a slot no row fills, and the engine refuses it.
-  assert.throws(() => rendered(template.replace('# The installer', '# GET /users/<user>\n# The installer'), values), /unfilled <user>/);
-  assert.throws(() => rendered(template, {...values, 'forgejo-planted': 'x'}), /unplaced forgejo-planted/);
+  assert.throws(() => rendered(template.replace('# The installer', '# GET /users/<user>\n# The installer'), filled(values)), /unfilled <user>/);
+  assert.throws(() => rendered(template, {...filled(values), 'forgejo-planted': 'x'}), /unplaced forgejo-planted/);
 });
 
 // A stand-in for the pinned Forgejo 15.0.10: its user CLI, the OAuth2 application API of a user
@@ -91,7 +103,7 @@ async function fixture(options = {}) {
   const render = program.steps.find(s => s.template === TEMPLATE);
   const directory = await mkdtemp(join(tmpdir(), 'plane-sign-in-'));
   const commands = [], inputs = [], requests = [], snippets = [];
-  const users = new Map([['akadmin', {email: 'akadmin@hostyour.invalid', admin: true, restricted: false, active: true}]]);
+  const users = new Map([['akadmin', {email: ADMINISTRATOR, admin: true, restricted: false, active: true, ...options.akadmin}]]);
   if (options.planeUser !== false) users.set(USER, {email: EMAIL, admin: false, restricted: true, active: true, ...options.planeUser});
   if (options.staleBootstrap) users.set(BOOTSTRAP, {email: BOOTSTRAP + '@hostyour.invalid', admin: true, restricted: false, active: true});
   let next = 1;
@@ -103,10 +115,9 @@ async function fixture(options = {}) {
   // Plane's workspace tables, as the stand-in ORM keeps them: the owner's membership and, by default, the
   // invitation of the test account.
   const planeFile = join(directory, 'plane-orm.json');
-  const invite = {id: 1, workspace_id: 1, email: INVITED, accepted: true, role: MEMBER, token: 'fixture-invitation-token'};
   writeFileSync(planeFile, JSON.stringify(options.plane ?? {workspaces: options.workspace === false ? [] : [{id: 1, slug: WORKSPACE}],
     users: [{id: 1, email: 'owner@example.invalid'}], members: [{workspace_id: 1, member_id: 1, role: 20, is_active: true}],
-    invites: options.invited === false ? [] : [invite]}));
+    invites: options.invited === false ? [] : [invitation(1, INVITED, MEMBER), invitation(2, ADMINISTRATOR, ADMIN)]}));
   const admission = () => JSON.parse(readFileSync(planeFile, 'utf8'));
   const limits = new Map();
   let changes = 0;
@@ -132,7 +143,7 @@ async function fixture(options = {}) {
         snippets.push(exec.name);
         if (exec.error) return send(500, exec.error);
         if (exec.name === ADMISSION_READ || exec.name === ADMISSION_WRITE) {
-          assert.deepEqual(Object.keys(exec.args).sort(), ['email', 'workspace']);
+          assert.deepEqual(Object.keys(exec.args).sort(), ['people', 'workspace']);
           try {
             return send(200, execFileSync('python3', ['-I', STAND_IN, planeFile], {input: argv.at(-1), encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe']}));
           } catch (failure) {
@@ -201,7 +212,7 @@ async function fixture(options = {}) {
   const clean = async () => {server.closeAllConnections(); await new Promise(resolve => server.close(resolve)); await rm(directory, {recursive: true, force: true});};
   let producer, kubectl;
   try {
-    ({producer, kubectl} = await writeProducer(directory, TEMPLATE, render.values, {mutate: options.mutate, port}));
+    ({producer, kubectl} = await writeProducer(directory, TEMPLATE, filled(render.values, options.answers), {mutate: options.mutate, port}));
   } catch (error) {await clean(); throw error;}
   const stderrs = [];
   const run = (entry, mode = '--apply') => new Promise((resolve, reject) => {
@@ -461,7 +472,7 @@ test('the row hands the producer the two test addresses of the sign-in proof', (
   }
 });
 
-test('apply invites the test account to the workspace as a Member and no other address, once, and a check only reads', async () => {
+test('apply invites the test account to the workspace as a Member and not the uninvited one, once, and a check only reads', async () => {
   const outcome = async (mutate, options = {}) => {
     const f = await fixture({invited: false, mutate, ...options});
     try {
@@ -480,30 +491,32 @@ test('apply invites the test account to the workspace as a Member and no other a
   assert.deepEqual(shipped.check, {satisfied: false});
   assert.deepEqual([shipped.first.code, shipped.second.code, shipped.first.entry], [0, 0, held], shipped.first.stderr + shipped.second.stderr);
   assert.deepEqual(shipped.invites.map(({email, accepted, role, workspace_id}) => ({email, accepted, role, workspace_id})),
-    [{email: INVITED, accepted: true, role: MEMBER, workspace_id: 1}], 'one accepted Member invitation, for the invited address alone');
+    [{email: INVITED, accepted: true, role: MEMBER, workspace_id: 1}, {email: ADMINISTRATOR, accepted: true, role: ADMIN, workspace_id: 1}],
+    'one accepted Member invitation for the test account, and the administrator\'s, and no invitation for the uninvited address');
   assert.deepEqual(shipped.after, {satisfied: true});
   // The token of an invitation joins its holder to the workspace: made in Plane's pod from a random source, never from the
   // address, and never on any output of the producer.
-  const [{token}] = shipped.invites;
-  assert.ok(token.length >= 32 && !token.includes('simplidigita') && !(shipped.stdout + shipped.stderr).includes(token));
+  for (const {token} of shipped.invites) {
+    assert.ok(token.length >= 32 && !token.includes('simplidigita') && !token.includes('example') && !(shipped.stdout + shipped.stderr).includes(token));
+  }
   // PLANTED DEFECT: the other address invited.
-  const wrong = await outcome(swap("'email': INVITED}", "'email': UNINVITED}"));
-  assert.deepEqual(wrong.invites.map(({email}) => email), [UNINVITED]);
+  const wrong = await outcome(swap("wanted = {INVITED.lower(): ROLES['member']}", "wanted = {UNINVITED.lower(): ROLES['member']}"));
+  assert.ok(wrong.invites.some(({email}) => email === UNINVITED) && !wrong.invites.some(({email}) => email === INVITED));
   // PLANTED DEFECT: an invitation that is not accepted turns into no membership; the write's own answer says so.
-  const unaccepted = await outcome(swap('accepted=True, role=15, token', 'accepted=False, role=15, token'));
+  const unaccepted = await outcome(swap("accepted=True,\n                                                     role=person['role']", "accepted=False,\n                                                     role=person['role']"));
   assert.equal(unaccepted.first.code, 1);
-  assert.match(unaccepted.first.stderr, /Plane did not keep the invitation of the test account/);
-  // PLANTED INNOCENT: the same address is a member already (it signed in, which deleted the invitation): nothing is written.
-  const member = await outcome(undefined, {plane: {workspaces: [{id: 1, slug: WORKSPACE}], users: [{id: 1, email: 'owner@example.invalid'}, {id: 2, email: INVITED}],
-    members: [{workspace_id: 1, member_id: 1, role: 20, is_active: true}, {workspace_id: 1, member_id: 2, role: MEMBER, is_active: true}], invites: []}});
+  assert.match(unaccepted.first.stderr, /Plane did not keep the invitation of the test account or of a person of the installation/);
+  // PLANTED INNOCENT: the same addresses are members already (they signed in, which deleted the invitations): nothing is written.
+  const member = await outcome(undefined, {plane: {workspaces: [{id: 1, slug: WORKSPACE}], users: [{id: 1, email: 'owner@example.invalid'}, {id: 2, email: INVITED}, {id: 3, email: ADMINISTRATOR}],
+    members: [{workspace_id: 1, member_id: 1, role: 20, is_active: true}, {workspace_id: 1, member_id: 2, role: MEMBER, is_active: true}, {workspace_id: 1, member_id: 3, role: ADMIN, is_active: true}], invites: []}});
   assert.deepEqual([member.check, member.first.code, member.invites], [{satisfied: true}, 0, []]);
 });
 
 test('an invitation that is not accepted or not a Member is corrected in place, and a missing workspace is refused', async () => {
-  const stale = {id: 1, workspace_id: 1, email: INVITED, accepted: false, role: 5, token: 'fixture-invitation-token'};
+  const stale = {...invitation(1, INVITED, GUEST), accepted: false};
   const corrected = async mutate => {
     const f = await fixture({mutate, plane: {workspaces: [{id: 1, slug: WORKSPACE}], users: [{id: 1, email: 'owner@example.invalid'}],
-      members: [{workspace_id: 1, member_id: 1, role: 20, is_active: true}], invites: [stale]}});
+      members: [{workspace_id: 1, member_id: 1, role: 20, is_active: true}], invites: [stale, invitation(2, ADMINISTRATOR, ADMIN)]}});
     try {
       const check = await f.run(held, '--check'), r = await f.run(held);
       return {check: check.entry, r, invites: f.admission().invites};
@@ -511,7 +524,7 @@ test('an invitation that is not accepted or not a Member is corrected in place, 
   };
   const shipped = await corrected();
   assert.deepEqual([shipped.check, shipped.r.code], [{satisfied: false}, 0], shipped.r.stderr);
-  assert.deepEqual(shipped.invites, [{...stale, accepted: true, role: MEMBER}]);
+  assert.deepEqual(shipped.invites, [{...stale, accepted: true, role: MEMBER}, invitation(2, ADMINISTRATOR, ADMIN)]);
   // PLANTED DEFECT: a producer that makes a second invitation beside the stale one, which Plane's constraint refuses.
   assert.equal((await corrected(swap('if invite is None:', 'if True:'))).r.code, 1);
   const f = await fixture({workspace: false});
@@ -582,4 +595,137 @@ test('a Forgejo account of a test address is limited to no repositories and no o
   assert.deepEqual([refused.limits, refused.changed], [{}, false]);
   // PLANTED DEFECT: a producer that lets an administrator stand as the test account.
   assert.equal((await outcome(swap("any(account['admin'] for account in tested.values())", 'False'), administrator)).r.code, 0);
+});
+
+// THE PEOPLE WHO USE PLANE (hostyour-deploy#91). Plane admits a person it has no user for only where sign-up is on or an
+// invitation exists for the address (plane/authentication/adapter/base.py sanitize_email and __check_signup: the address lower case,
+// stripped; with ENABLE_SIGNUP "0", a WorkspaceMemberInvite for it). Sign-up stays off, so the producer invites every active site
+// administrator of Forgejo as an Admin at each run, and the people the installation's answer names in their role.
+const signsIn = (f, email) => {
+  const address = email.trim().toLowerCase(), {users, invites} = f.admission();
+  return users.some(user => user.email === address) || f.settings.get('ENABLE_SIGNUP') !== '0' || invites.some(invite => invite.email === address);
+};
+const STRANGER = 'stranger@installation.example.test';
+const rolesOf = f => Object.fromEntries(f.admission().invites.map(({email, role}) => [email, role]));
+
+test('the administrators of Forgejo are invited to Plane as Admin at each run, a second run changes nothing, and a stranger is refused', async () => {
+  const outcome = async (mutate, options = {}) => {
+    const f = await fixture({invited: false, mutate, accounts: {someone: {email: 'someone@installation.example.test'}}, ...options});
+    try {
+      const before = state(f);
+      const check = await f.run(held, '--check');
+      assert.ok(onlyReads(f));
+      assert.equal(state(f), before, 'a check changed state');
+      const first = await f.run(held), settled = state(f), second = await f.run(held), after = await f.run(held, '--check');
+      return {check: check.entry, first, second, after: after.entry, again: state(f) === settled, roles: rolesOf(f), invites: f.admission().invites,
+        signs: Object.fromEntries([ADMINISTRATOR, INVITED, UNINVITED, STRANGER, 'someone@installation.example.test'].map(email => [email, signsIn(f, email)])),
+        output: first.stdout + first.stderr + second.stdout + second.stderr};
+    } finally {await f.clean();}
+  };
+  const shipped = await outcome();
+  assert.deepEqual([shipped.check, shipped.first.code, shipped.second.code, shipped.after], [{satisfied: false}, 0, 0, {satisfied: true}], shipped.first.stderr + shipped.second.stderr);
+  assert.deepEqual(shipped.roles, {[INVITED]: MEMBER, [ADMINISTRATOR]: ADMIN}, 'the administrator as Admin, the test account as Member, nobody else');
+  assert.equal(shipped.again, true, 'a second apply changes nothing');
+  assert.deepEqual(shipped.signs, {[ADMINISTRATOR]: true, [INVITED]: true, [UNINVITED]: false, [STRANGER]: false, 'someone@installation.example.test': false});
+  for (const {token} of shipped.invites) assert.ok(!shipped.output.includes(token));
+  // PLANTED DEFECT: every Forgejo account invited, not the administrators alone; the ordinary account then signs in.
+  const everyone = await outcome(swap("if account['admin'] and account['active'] and name != BOOTSTRAP", "if name != BOOTSTRAP"));
+  assert.equal(everyone.signs['someone@installation.example.test'], true);
+  // PLANTED DEFECT: an administrator invited as a Member, who then lands in the workspace without administration.
+  const member = await outcome(swap("wanted[account['email'].lower()] = ROLES['admin']", "wanted[account['email'].lower()] = ROLES['member']"));
+  assert.equal(member.roles[ADMINISTRATOR], MEMBER);
+  // PLANTED DEFECT: the address kept as Forgejo writes it, where Plane compares it lower case.
+  const mixed = await outcome(undefined, {akadmin: {email: 'Administrator@Installation.Example.Test'}});
+  assert.deepEqual([mixed.roles[ADMINISTRATOR], mixed.signs[ADMINISTRATOR]], [ADMIN, true]);
+  const kept = await outcome(swap("wanted[account['email'].lower()]", "wanted[account['email']]"), {akadmin: {email: 'Administrator@Installation.Example.Test'}});
+  assert.equal(kept.signs[ADMINISTRATOR], false);
+  // PLANTED INNOCENT: a deactivated administrator and the temporary provisioner are no one's invitation, and two administrators are both invited.
+  const inactive = await outcome(undefined, {akadmin: {active: false}, staleBootstrap: true});
+  assert.deepEqual(inactive.roles, {[INVITED]: MEMBER});
+  const two = await outcome(undefined, {accounts: {second: {email: 'second@installation.example.test', admin: true}}});
+  assert.deepEqual(two.roles, {[INVITED]: MEMBER, [ADMINISTRATOR]: ADMIN, 'second@installation.example.test': ADMIN});
+});
+
+test('a run without an administrator names that state, invites no person of the installation, and a run with one stays silent', async () => {
+  const outcome = async (mutate, options = {}) => {
+    const f = await fixture({invited: false, mutate, akadmin: {admin: false}, ...options});
+    try {
+      const first = await f.run(held), after = await f.run(held, '--check');
+      return {first, after: after.entry, roles: rolesOf(f), signs: signsIn(f, ADMINISTRATOR)};
+    } finally {await f.clean();}
+  };
+  const none = await outcome();
+  assert.equal(none.first.code, 0, none.first.stderr);
+  assert.match(none.first.stderr, /no Forgejo administrator exists yet, so nobody is invited to Plane as Admin; sign in to Forgejo once as an administrator of the identity provider, then redeploy/);
+  assert.deepEqual([none.roles, none.after, none.signs], [{[INVITED]: MEMBER}, {satisfied: true}, false], 'the standing test account invitation alone');
+  // PLANTED DEFECT: a producer that says nothing.
+  assert.doesNotMatch((await outcome(swap('sys.stderr.write(', 'str('))).first.stderr, /no Forgejo administrator/);
+  // PLANTED INNOCENT: an administrator is named by the answer alone, so Plane has an Admin, and nothing is said.
+  const named = await outcome(undefined, {answers: {plane_further_people: ['owner@installation.example.test admin']}});
+  assert.deepEqual([named.first.code, named.first.stderr, named.roles['owner@installation.example.test']], [0, '', ADMIN]);
+  const present = await outcome(undefined, {akadmin: {admin: true}});
+  assert.deepEqual([present.first.stderr, present.roles[ADMINISTRATOR]], ['', ADMIN]);
+});
+
+test('the further people of the answer are invited in their role, written any way round, and a bad entry is refused before anything changes', async () => {
+  const people = ['  Member.One@Installation.Example.Test   member ', '', 'guest.one@installation.example.test GUEST', 'second.admin@installation.example.test admin'];
+  const outcome = async (answers, options = {}) => {
+    const f = await fixture({invited: false, ...options, answers: {plane_further_people: answers}});
+    try {
+      const before = state(f);
+      const check = await f.run(held, '--check'), first = await f.run(held);
+      return {check, first, roles: rolesOf(f), changed: state(f) !== before, signs: [STRANGER, 'member.one@installation.example.test'].map(email => signsIn(f, email))};
+    } finally {await f.clean();}
+  };
+  const shipped = await outcome(people);
+  assert.deepEqual([shipped.check.entry, shipped.first.code], [{satisfied: false}, 0], shipped.first.stderr);
+  assert.deepEqual(shipped.roles, {[INVITED]: MEMBER, [ADMINISTRATOR]: ADMIN, 'member.one@installation.example.test': MEMBER,
+    'guest.one@installation.example.test': GUEST, 'second.admin@installation.example.test': ADMIN});
+  assert.deepEqual(shipped.signs, [false, true]);
+  // PLANTED INNOCENT: an empty answer, as the program's default hands it, invites no one beside the administrator and the test account.
+  assert.deepEqual((await outcome([])).roles, {[INVITED]: MEMBER, [ADMINISTRATOR]: ADMIN});
+  const refusal = /^.*a further person of Plane .*; Plane sign-in was not changed$/m;
+  for (const entries of [
+    ['person@installation.example.test owner'], ['person@installation.example.test'], ['not-an-address member'],
+    ['person@installation.example.test member extra'], ['person@installation.example.test member', 'PERSON@installation.example.test guest'],
+    [`${ADMINISTRATOR} guest`], [`${INVITED} admin`], [`${UNINVITED} member`],
+  ]) {
+    const refused = await outcome(entries);
+    for (const run of [refused.check, refused.first]) {
+      assert.equal(run.code, 1, JSON.stringify(entries));
+      assert.equal(run.stdout, '');
+      assert.match(run.stderr, refusal);
+      assert.ok(!run.stderr.includes('@'), 'a refusal names no address');
+    }
+    assert.equal(refused.changed, false, JSON.stringify(entries));
+  }
+  // PLANTED DEFECTS: an address kept as typed, where Plane compares it lower case, and the uninvited test address that can be named.
+  assert.equal((await outcome(people, {mutate: swap('address = fields[0].lower()', 'address = fields[0]')})).signs[1], false);
+  assert.equal((await outcome([`${UNINVITED} member`], {mutate: swap(' or address == UNINVITED.lower()', '')})).roles[UNINVITED], MEMBER);
+});
+
+test('the row fills the producer\'s further people from one optional answer that is empty by default', () => {
+  const found = (steps, answers) => {
+    const problems = [], binding = steps.find(s => s.template === TEMPLATE)?.values?.['plane-further-people'];
+    if (binding?.answer !== 'plane_further_people' || binding?.join !== '\n') problems.push('the row does not fill plane-further-people from plane_further_people, one person to a line');
+    const declared = answers.find(a => a.name === 'plane_further_people');
+    if (declared?.kind !== 'text_list' || declared?.required !== false || JSON.stringify(declared?.default) !== '[]') problems.push('the answer is not an optional list that is empty by default');
+    if (/@/.test(JSON.stringify(steps.find(s => s.template === TEMPLATE)?.values?.['plane-further-people']) + JSON.stringify(declared?.default))) problems.push('an address stands in the program');
+    return problems;
+  };
+  assert.deepEqual(found(program.steps, program.answers), []);
+  const changed = (stepChange, answerChange) => {
+    const steps = structuredClone(program.steps), answers = structuredClone(program.answers);
+    stepChange(steps.find(s => s.template === TEMPLATE)); answerChange(answers.find(a => a.name === 'plane_further_people'));
+    return found(steps, answers);
+  };
+  const keep = () => {};
+  for (const [name, problems] of [
+    ['another answer', changed(row => { row.values['plane-further-people'].answer = 'time_sources'; }, keep)],
+    ['one line', changed(row => { row.values['plane-further-people'].join = ', '; }, keep)],
+    ['a required answer', changed(keep, answer => { answer.required = true; })],
+    ['a default person', changed(keep, answer => { answer.default = ['person@installation.example.test admin']; })],
+    ['a text answer', changed(keep, answer => { answer.kind = 'text'; })],
+    ['a literal address', changed(row => { row.values['plane-further-people'] = 'person@installation.example.test admin'; }, keep)],
+  ]) assert.notDeepEqual(problems, [], name);
 });
