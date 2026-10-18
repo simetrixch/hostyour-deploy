@@ -2668,7 +2668,7 @@ steps:
     rests_on_an_earlier_step: true
     release: argocd
     chart: oci://zot.master.digitacloud.app/simetrixch/argoproj.github.io/argo-helm/argo-cd
-    chart_version: '10.2.1'
+    chart_version: '10.10.5'
     namespace: argocd
     values: /srv/hostyour-cloud/clusters/bootstrap/argocd/values.yaml
     when: [reconciler_enabled, books_here_in_answers]

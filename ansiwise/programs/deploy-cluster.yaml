@@ -833,9 +833,9 @@ steps:
 
   - step: install_pinned_tool
     tool: argocd
-    version: v3.4.5
+    version: v3.5.5
     url: https://zot.master.digitacloud.app/v2/simetrixch/github.com/argoproj/argo-cd/releases/download/<version>/argocd-linux-amd64/blobs/sha256:<sha256>
-    sha256: 23303f05a58c1e041324d5645b0f9d6ea338b16bbf32f4a24508f388fcf9f9c0
+    sha256: c3ddfa606fc3e89ab14f55bda6600b207c355b028f8eaabe69b817a4c4621aba
     version_command: [version, --client, --short]
     on_failure: continue
 
@@ -872,7 +872,7 @@ steps:
   - step: require_cli_tool_versions
     tools:
       - ansiwise=0.8.321-stable-20261017151629
-      - argocd=v3.4.5
+      - argocd=v3.5.5
       - vault=v2.0.3
       - yq=v4.53.3
       - jq=jq-1.8.2
