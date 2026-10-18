@@ -632,7 +632,40 @@ answers:
       Build plane only: a GitHub credential with Contents: Read and Write on the repository this
       installation is generated in. The release bump pushes with it.
 
+  - name: forgejo_platform_repository
+    kind: text
+    required: true
+    describes: The Forgejo destination of the platform repository, as owner/repository.
+
+  - name: forgejo_deploy_repository
+    kind: text
+    required: true
+    describes: The Forgejo destination of the deploy repository, as owner/repository.
+
+  - name: forgejo_organisations
+    kind: text
+    required: true
+    describes: The organisations whose repositories Argo CD reads, comma-separated, covering both destination owners.
+
 steps:
+  - step: require_answer_matches
+    answer: forgejo_platform_repository
+    pattern: '^[A-Za-z0-9][A-Za-z0-9_.-]*/[A-Za-z0-9][A-Za-z0-9_.-]*(?![\s\S])'
+    refusal: Supply the Forgejo destination as owner/repository.
+    on_failure: exit
+
+  - step: require_answer_matches
+    answer: forgejo_deploy_repository
+    pattern: '^[A-Za-z0-9][A-Za-z0-9_.-]*/[A-Za-z0-9][A-Za-z0-9_.-]*(?![\s\S])'
+    refusal: Supply the Forgejo destination as owner/repository.
+    on_failure: exit
+
+  - step: require_answer_matches
+    answer: forgejo_organisations
+    pattern: '^[A-Za-z0-9][A-Za-z0-9_.-]*(,[A-Za-z0-9][A-Za-z0-9_.-]*)*(?![\s\S])'
+    refusal: Supply comma-separated organisation names without empty members or whitespace.
+    on_failure: exit
+
   # THE SECOND REFUSAL THAT ASKS NO MACHINE ANYTHING, AND IT STANDS AHEAD OF THE FIRST TOOL. The
   # domain answered here becomes the branch name, the name of the cluster map, and the host in every
   # manifest — so a value that is no domain is refused before git is even looked for. It is the one
@@ -1237,6 +1270,17 @@ steps:
     values:
       fqdn: { answer: fqdn }
       forgejo-ssh-port: { answer: forgejo_ssh_port }
+    on_failure: exit
+
+  - step: write_file_from_template
+    template: ansiwise/templates/repository-credentials-values.tpl
+    path: /srv/hostyour-cloud/installation/values/repository-credentials.yaml
+    file_mode: 420
+    values:
+      fqdn: { answer: fqdn }
+      forgejo-platform-repository: { answer: forgejo_platform_repository }
+      forgejo-deploy-repository: { answer: forgejo_deploy_repository }
+      forgejo-organisations: { answer: forgejo_organisations }
     on_failure: exit
 
   # WHAT PLANE IS TOLD ABOUT THIS INSTALLATION: its address, from which it also builds the web address

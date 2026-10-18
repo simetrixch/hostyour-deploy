@@ -31,7 +31,7 @@ const rowsOf = (steps, user) => {
 const filled = values => Object.fromEntries(Object.entries(values).map(([k, v]) => [k, v?.answer ? ANSWERS[v.answer] : v]));
 
 function wiring(steps) {
-  const problems = [], gate = ['forgejo_repositories_in_answers', 'plane_runs_here', 'books_here_in_answers', 'build_plane_here_in_answers'];
+  const problems = [], gate = ['secret_store_enabled', 'plane_runs_here', 'books_here_in_answers', 'build_plane_here_in_answers'];
   for (const [user, {entry, fields}] of Object.entries(USERS)) {
     const {render, writer} = rowsOf(steps, user);
     if (!render || !writer) { problems.push(user + ': no rows'); continue; }
@@ -48,25 +48,23 @@ function wiring(steps) {
     if (JSON.stringify(proves) !== JSON.stringify(user === 'argocd' ? ['forgejo_platform_repository', 'forgejo_deploy_repository'] : [undefined, undefined])) problems.push(user + ': wrong repositories to prove');
   }
   if (steps.some(s => /forgejo-push|-push\.sh/.test(JSON.stringify(s)))) problems.push('a per-unit push user is minted');
-  // The GitHub seed of the platform bump credential does not run where the Forgejo answers stand, and no
-  // Forgejo row writes the entry the GitHub bump reads.
+  // GitHub credentials remain live until the clone URLs change.
   const seed = steps.find(s => s.path === GITHUB_LEAF && s.step === 'vault_kv_entry');
-  if (!seed?.when?.includes('forgejo_repositories_absent_from_answers')) problems.push('the GitHub seed runs on Forgejo');
+  if (JSON.stringify(seed?.when) !== JSON.stringify(['secret_store_enabled', 'build_plane_here_in_answers', 'books_here_in_answers'])) problems.push('the GitHub seed is not independent of Forgejo');
+  if (JSON.stringify(seed?.fields) !== JSON.stringify(['pat=BUILD_HOSTYOUR_CLOUD_REPO_PAT'])) problems.push('the GitHub credential source changed');
   if (steps.some(s => [GITHUB_LEAF, GITHUB_DEPLOY_LEAF].includes(s.path) && s.step === 'vault_kv_entry_from_command')) problems.push('a Forgejo row writes the entry the GitHub bump reads');
   return problems;
 }
 
-test('three machine users follow the handoff, each guarded to a Forgejo installation, and none per unit', () => {
+test('three machine users follow the handoff, retain their guards and coexist with GitHub, and none per unit', () => {
   assert.deepEqual(wiring(program.steps), []);
-  assert.deepEqual(installation.conditions.forgejo_repositories_in_answers,
-    {predicate: 'answer_values_differ', answer: 'forgejo_platform_repository', other_answer: 'forgejo_deploy_repository'});
-  assert.deepEqual(installation.conditions.forgejo_repositories_absent_from_answers,
-    {predicate: 'answer_values_agree', answer: 'forgejo_platform_repository', other_answer: 'forgejo_deploy_repository'});
+  assert.equal(installation.conditions.forgejo_repositories_in_answers, undefined);
+  assert.equal(installation.conditions.forgejo_repositories_absent_from_answers, undefined);
   const row = (steps, user) => rowsOf(steps, user);
   for (const defect of [
     // PLANTED: a row creating a per-unit push user and its entry.
     steps => steps.push({step: 'vault_kv_entry_from_command', path: '<stage>/app/forgejo-push', producer: '/run/forgejo-machine-user-unit-push.sh', fields: ['unit']}),
-    steps => { row(steps, 'deploy-bump').writer.when = row(steps, 'deploy-bump').writer.when.filter(c => c !== 'forgejo_repositories_in_answers'); },
+    steps => { row(steps, 'deploy-bump').writer.when = row(steps, 'deploy-bump').writer.when.filter(c => c !== 'plane_runs_here'); },
     steps => { row(steps, 'argocd').render.values['forgejo-permission'] = 'write'; },
     steps => { row(steps, 'hostyour-cloud-bump').render.values['forgejo-organisations'] = ORGANISATIONS; },
     steps => { steps.splice(steps.indexOf(row(steps, 'deploy-bump').writer), 1); },
