@@ -957,6 +957,7 @@ steps:
       path "secret/data/build/{{identity.entity.aliases.<accessor>.metadata.unit}}/*" { capabilities = ["read"] }
       path "secret/metadata/build/{{identity.entity.aliases.<accessor>.metadata.unit}}/*" { capabilities = ["read", "list"] }
       path "secret/data/build-platform/hostyour-cloud/repo-pat" { capabilities = ["read"] }
+      path "secret/data/build-platform/hostyour-cloud/forgejo-repo-pat" { capabilities = ["read"] }
       path "secret/data/build-platform/deploy/repo-pat" { capabilities = ["read"] }
       path "secret/data/<stage>/app/registry" { capabilities = ["read"] }
     when: [secret_store_enabled, build_plane_here_in_answers, books_here_in_answers]
@@ -2733,9 +2734,10 @@ steps:
   # THE FORGEJO MACHINE USERS, minted where the platform and deploy repositories stand on Forgejo. A
   # Forgejo user is created by a site administrator only, so the producer holds the temporary one of
   # the rows above and each user is restricted: it sees only what it is granted. Argo CD reads with
-  # argocd, which only reads and reads every repository of the organisations; the two bump users
-  # each write one repository and nothing else. No user is made per unit: a unit's push is a deploy
-  # key of its own repository, minted by the Manager.
+  # argocd, which only reads and reads every repository of the organisations, and whose check holds
+  # only while its token lists the platform and the deploy repository; the two bump users each write
+  # one repository and nothing else. No user is made per unit: a unit's push is a deploy key of its own
+  # repository, minted by the Manager.
   - step: write_file_from_template
     template: ansiwise/templates/forgejo-machine-user.sh.tpl
     path: /run/forgejo-machine-user-argocd.sh
@@ -2754,6 +2756,8 @@ steps:
       forgejo-token-field: password
       forgejo-user-field: username
       forgejo-organisations: { answer: forgejo_organisations }
+      forgejo-platform-repository: { answer: forgejo_platform_repository }
+      forgejo-deploy-repository: { answer: forgejo_deploy_repository }
     when: [secret_store_enabled, books_here_in_answers, build_plane_here_in_answers, plane_runs_here, forgejo_repositories_in_answers]
     on_failure: exit
 
@@ -2768,6 +2772,12 @@ steps:
     on_failure: exit
 
   # The platform repository's bump credential: write on the platform repository alone.
+  #
+  # IN AN ENTRY OF ITS OWN, forgejo-repo-pat, and never in repo-pat. The Forgejo answers are supplied
+  # while the platform URL still names GitHub, and the bump reads repo-pat for as long as it does: a
+  # Forgejo token written there would be pushed to GitHub by the next refresh of the bump's secret.
+  # A reader picks the entry by the forge its platform URL names, so this program need not run on the
+  # day that URL switches.
   - step: write_file_from_template
     template: ansiwise/templates/forgejo-machine-user.sh.tpl
     path: /run/forgejo-machine-user-hostyour-cloud-bump.sh
@@ -2792,7 +2802,7 @@ steps:
     rests_on_an_earlier_step: true
     repository: /srv/hostyour-cloud
     mount: secret
-    path: build-platform/hostyour-cloud/repo-pat
+    path: build-platform/hostyour-cloud/forgejo-repo-pat
     producer: /run/forgejo-machine-user-hostyour-cloud-bump.sh
     fields: [pat]
     when: [secret_store_enabled, books_here_in_answers, build_plane_here_in_answers, plane_runs_here, forgejo_repositories_in_answers]

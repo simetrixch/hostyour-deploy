@@ -30,6 +30,11 @@ REPOSITORY = ''
 REPOSITORY = '<forgejo-repository?>'
 ORGANISATIONS = ''
 ORGANISATIONS = '<forgejo-organisations?>'
+# The repositories a read user has to list with its own token: its check holds only while it does.
+PLATFORM_REPOSITORY = ''
+PLATFORM_REPOSITORY = '<forgejo-platform-repository?>'
+DEPLOY_REPOSITORY = ''
+DEPLOY_REPOSITORY = '<forgejo-deploy-repository?>'
 SCOPES = PERMISSION + ':repository,read:user'
 # Forgejo's team for a read-only reader of every repository of an organisation, the one way a
 # restricted user sees repositories that do not exist yet.
@@ -38,15 +43,20 @@ APPLY = access.start('Forgejo machine user provisioning', '<forgejo-namespace>',
                      '<forgejo-container>', BOOTSTRAP)
 
 
+def named(repository):
+    return repository.count('/') == 1 and '' not in repository.split('/')
+
+
 def reach():
-    """The repository a write user writes, and the organisations a read user reads; refuses a row
-    whose answers are empty or whose slots do not fit its permission."""
+    """The repository a write user writes, or the organisations a read user reads and the repositories
+    it must list; refuses a row whose answers are empty or whose slots do not fit its permission."""
     organisations = [o for o in ORGANISATIONS.split(',') if o]
-    if PERMISSION == 'write' and REPOSITORY.count('/') == 1 and '' not in REPOSITORY.split('/') and not organisations:
-        return REPOSITORY, []
-    if PERMISSION == 'read' and not REPOSITORY and organisations:
-        return None, organisations
-    refuse(USER + ' needs one owner/repository to write, or organisations to read; fill its answers')
+    listed = [r for r in (PLATFORM_REPOSITORY, DEPLOY_REPOSITORY) if r]
+    if PERMISSION == 'write' and named(REPOSITORY) and not organisations and not listed:
+        return REPOSITORY, [], []
+    if PERMISSION == 'read' and not REPOSITORY and organisations and len(listed) == 2 and all(named(r) for r in listed):
+        return None, organisations, listed
+    refuse(USER + ' needs one owner/repository to write, or organisations and the platform and deploy repositories to read; fill its answers')
 
 
 def team_of(auth, organisation):
@@ -70,20 +80,31 @@ def grant_reading(auth, organisation):
     access.api('PUT', '/teams/' + str(team['id']) + '/members/' + USER, auth, (204,))
 
 
-def inspect(token, repository):
+def lists(token, repositories):
+    """Whether the token itself lists every one of `repositories`. A read user's team membership can go
+    while its token stays valid, and then Forgejo lists it nothing."""
+    if not repositories:
+        return True
+    seen = {repo.get('full_name', '').lower() for repo in access.pages('/user/repos', 'token ' + token) if isinstance(repo, dict)}
+    return all(r.lower() in seen for r in repositories)
+
+
+def inspect(token, repository, readable):
     pushed = access.inspect_token(USER, TOKEN_NAME, SCOPES.split(','), token, {repository} if repository else set())
     if pushed is None:
         return 'invalid'
-    return 'valid' if pushed == ({repository} if repository else set()) else 'ungranted'
+    if pushed != ({repository} if repository else set()):
+        return 'ungranted'
+    return 'valid' if lists(token, readable) else 'ungranted'
 
 
-def provision(token, repository, organisations):
+def provision(token, repository, organisations, readable):
     with access.administrator() as auth:
         if repository:
             access.grant(auth, repository, USER, 'write')
         for organisation in organisations:
             grant_reading(auth, organisation)
-        if inspect(token, repository) == 'valid':
+        if inspect(token, repository, readable) == 'valid':
             return token
         # The administrator's listing decides what Forgejo issued: a held token it lists as issued
         # here failed for a reason a new token cannot fix, so it is kept and the run stops.
@@ -94,7 +115,7 @@ def provision(token, repository, organisations):
             access.api('DELETE', '/users/' + USER + '/tokens/' + urllib.parse.quote(TOKEN_NAME, safe=''), auth, (204,))
         issued = access.cli(['generate-access-token', '--username', USER, '--token-name', TOKEN_NAME,
                              '--scopes', SCOPES, '--raw']).strip()
-        if inspect(issued, repository) != 'valid':
+        if inspect(issued, repository, readable) != 'valid':
             refuse('the issued Forgejo credential did not validate')
         return issued
 
@@ -113,14 +134,14 @@ def exchange():
     entry = incoming.get('entry') or {}
     if not isinstance(entry, dict):
         refuse('the held Forgejo credential entry is unreadable')
-    repository, organisations = reach()
+    repository, organisations, readable = reach()
     access.ready_pod()
     people = access.users()
     person = people.get(USER)
     if person is not None and (person['admin'] or not person['active']):
         refuse(USER + ' must be an active non-admin user')
     held = entry.get(TOKEN_FIELD) if not USER_FIELD or entry.get(USER_FIELD) == USER else None
-    state = inspect(held, repository) if person is not None else 'invalid'
+    state = inspect(held, repository, readable) if person is not None else 'invalid'
     if not APPLY:
         # A team is not visible to the user itself, so a check can say no more than the token's own view.
         return {'satisfied': state == 'valid' and BOOTSTRAP not in people and entry == fields(held)}
@@ -131,7 +152,7 @@ def exchange():
                     '--restricted', '--random-password', '--must-change-password=false'])
     # Every apply grants again: the grant is what a repository or an organisation created since the
     # last run needs, and Forgejo keeps an existing grant as it is.
-    return fields(provision(held, repository, organisations))
+    return fields(provision(held, repository, organisations, readable))
 
 
 access.finish(exchange, LOCK)

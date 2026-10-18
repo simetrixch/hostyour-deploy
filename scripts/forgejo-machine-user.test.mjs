@@ -14,9 +14,12 @@ const BOOTSTRAP = 'forgejo-build-provisioner', PASSWORD = "fixture-bootstrap-pas
 const PLATFORM = 'orga/platform-repo', DEPLOY = 'orgb/deploy-repo', OTHER = 'orga/other-repo', ORGANISATIONS = 'orga,orgb';
 const SHA = 'a1b2c3d4e5f60718293a4b5c6d7e8f9012345678';
 const ANSWERS = {forgejo_platform_repository: PLATFORM, forgejo_deploy_repository: DEPLOY, forgejo_organisations: ORGANISATIONS};
+// The Forgejo bump token of the platform repository stands beside the GitHub one and never on it: the
+// bump of an installation still on GitHub reads GITHUB_LEAF until its platform URL switches.
+const GITHUB_LEAF = 'build-platform/hostyour-cloud/repo-pat';
 const USERS = {
   argocd: {entry: '<stage>/app/argocd-forge', fields: ['username', 'password']},
-  'hostyour-cloud-bump': {entry: 'build-platform/hostyour-cloud/repo-pat', fields: ['pat']},
+  'hostyour-cloud-bump': {entry: 'build-platform/hostyour-cloud/forgejo-repo-pat', fields: ['pat']},
   'deploy-bump': {entry: 'build-platform/deploy/repo-pat', fields: ['pat']},
 };
 const rowsOf = (steps, user) => {
@@ -34,15 +37,20 @@ function wiring(steps) {
     if (writer.path !== entry || JSON.stringify(writer.fields) !== JSON.stringify(fields)) problems.push(user + ': wrong entry or fields');
     if (![render, writer].every(r => gate.every(c => r.when?.includes(c)))) problems.push(user + ': not guarded to a Forgejo installation');
     if (writer.on_failure !== 'exit') problems.push(user + ': failure continued');
-    if (steps.filter(s => s.path === entry && !s.when?.includes('forgejo_repositories_absent_from_answers')).length !== 1) problems.push(user + ': entry written twice');
+    if (steps.filter(s => s.path === entry).length !== 1) problems.push(user + ': entry written twice');
     const reads = render.values['forgejo-permission'] === 'read';
     if (reads !== (user === 'argocd')) problems.push(user + ': wrong permission');
     if (user === 'argocd' ? render.values['forgejo-repository'] !== undefined : render.values['forgejo-organisations'] !== undefined) problems.push(user + ': reach of the wrong kind');
+    // A read user proves its reading on the two repositories Argo CD syncs from, and a write user names neither.
+    const proves = ['forgejo-platform-repository', 'forgejo-deploy-repository'].map(slot => render.values[slot]?.answer);
+    if (JSON.stringify(proves) !== JSON.stringify(user === 'argocd' ? ['forgejo_platform_repository', 'forgejo_deploy_repository'] : [undefined, undefined])) problems.push(user + ': wrong repositories to prove');
   }
   if (steps.some(s => /forgejo-push|-push\.sh/.test(JSON.stringify(s)))) problems.push('a per-unit push user is minted');
-  // The GitHub seed of the platform bump credential must not run beside the Forgejo user's.
-  const seed = steps.find(s => s.path === 'build-platform/hostyour-cloud/repo-pat' && s.step === 'vault_kv_entry');
+  // The GitHub seed of the platform bump credential does not run where the Forgejo answers stand, and no
+  // Forgejo row writes the entry the GitHub bump reads.
+  const seed = steps.find(s => s.path === GITHUB_LEAF && s.step === 'vault_kv_entry');
   if (!seed?.when?.includes('forgejo_repositories_absent_from_answers')) problems.push('the GitHub seed runs on Forgejo');
+  if (steps.some(s => s.path === GITHUB_LEAF && s.step === 'vault_kv_entry_from_command')) problems.push('a Forgejo row writes the entry the GitHub bump reads');
   return problems;
 }
 
@@ -60,7 +68,11 @@ test('three machine users follow the handoff, each guarded to a Forgejo installa
     steps => { row(steps, 'argocd').render.values['forgejo-permission'] = 'write'; },
     steps => { row(steps, 'hostyour-cloud-bump').render.values['forgejo-organisations'] = ORGANISATIONS; },
     steps => { steps.splice(steps.indexOf(row(steps, 'deploy-bump').writer), 1); },
-    steps => { steps.find(s => s.path === 'build-platform/hostyour-cloud/repo-pat' && s.step === 'vault_kv_entry').when.pop(); },
+    steps => { steps.find(s => s.path === GITHUB_LEAF && s.step === 'vault_kv_entry').when.pop(); },
+    // PLANTED: the Forgejo bump token written over the live GitHub bump credential of an installation whose platform URL is still on GitHub.
+    steps => { row(steps, 'hostyour-cloud-bump').writer.path = GITHUB_LEAF; },
+    // PLANTED: Argo CD's user proves nothing it must read.
+    steps => { delete row(steps, 'argocd').render.values['forgejo-deploy-repository']; },
   ]) {
     const changed = structuredClone(program.steps); defect(changed);
     assert.notDeepEqual(wiring(changed), []);
@@ -233,7 +245,31 @@ test('argocd joins a read-only team of every organisation and reads, and a user 
   } finally { await narrow.clean(); }
 });
 
+test('a check of argocd is not satisfied while its token misses a repository it must read, and an apply restores the reading with the token it holds', async () => {
+  for (const lost of [['orga', 'orgb'], ['orgb']]) {
+    const f = await fixture('argocd');
+    try {
+      const first = await f.run(null); assert.equal(first.code, 0, first.stderr);
+      const held = expected('argocd', f.TOKEN);
+      // PLANTED: the team membership is gone and the token stays valid, so /user/repos lists none of the repositories (or not the deploy repository).
+      for (const team of f.teams.values()) if (lost.includes(team.org)) team.members.delete('argocd');
+      assert.equal([...f.repos.keys()].filter(n => f.right('argocd', n)).length, lost.length === 2 ? 0 : 2);
+      const check = await f.run(held, '--check'); assert.equal(check.code, 0, check.stderr);
+      assert.deepEqual(JSON.parse(check.stdout), {satisfied: false}, 'lost reading of ' + lost);
+      const apply = await f.run(held); assert.equal(apply.code, 0, apply.stderr);
+      assert.deepEqual(JSON.parse(apply.stdout), held); assert.equal(f.generation, 1, 'no new token');
+      // The innocent case: both repositories are listed again.
+      const again = await f.run(held, '--check'); assert.deepEqual(JSON.parse(again.stdout), {satisfied: true});
+    } finally { await f.clean(); }
+  }
+});
+
 test('a row with an empty answer, or the wrong kind of reach, refuses by what it needs', async () => {
+  const unproven = await fixture('argocd', {values: {'forgejo-deploy-repository': ''}});
+  try {
+    const r = await unproven.run(null); assert.notEqual(r.code, 0); assert.match(r.stderr, /argocd needs .*to read/);
+    assert.equal(unproven.users.has('argocd'), false);
+  } finally { await unproven.clean(); }
   const empty = await fixture('deploy-bump', {values: {'forgejo-repository': ''}});
   try {
     const r = await empty.run(null); assert.notEqual(r.code, 0); assert.match(r.stderr, /deploy-bump needs one owner\/repository to write/);
