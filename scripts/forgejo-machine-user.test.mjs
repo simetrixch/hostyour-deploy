@@ -14,13 +14,15 @@ const BOOTSTRAP = 'forgejo-build-provisioner', PASSWORD = "fixture-bootstrap-pas
 const PLATFORM = 'orga/platform-repo', DEPLOY = 'orgb/deploy-repo', OTHER = 'orga/other-repo', ORGANISATIONS = 'orga,orgb';
 const SHA = 'a1b2c3d4e5f60718293a4b5c6d7e8f9012345678';
 const ANSWERS = {forgejo_platform_repository: PLATFORM, forgejo_deploy_repository: DEPLOY, forgejo_organisations: ORGANISATIONS};
-// The Forgejo bump token of the platform repository stands beside the GitHub one and never on it: the
-// bump of an installation still on GitHub reads GITHUB_LEAF until its platform URL switches.
+// The Forgejo bump token of a repository stands beside the GitHub one and never on it: the bump of an
+// installation still on GitHub reads GITHUB_LEAF until its platform URL switches, and the deploy
+// repository's GitHub entry is rewritten by the Manager's tick with the App's token.
 const GITHUB_LEAF = 'build-platform/hostyour-cloud/repo-pat';
+const GITHUB_DEPLOY_LEAF = 'build-platform/deploy/repo-pat';
 const USERS = {
   argocd: {entry: '<stage>/app/argocd-forge', fields: ['username', 'password']},
   'hostyour-cloud-bump': {entry: 'build-platform/hostyour-cloud/forgejo-repo-pat', fields: ['pat']},
-  'deploy-bump': {entry: 'build-platform/deploy/repo-pat', fields: ['pat']},
+  'deploy-bump': {entry: 'build-platform/deploy/forgejo-repo-pat', fields: ['pat']},
 };
 const rowsOf = (steps, user) => {
   const render = steps.find(s => s.path === `/run/forgejo-machine-user-${user}.sh`);
@@ -50,7 +52,7 @@ function wiring(steps) {
   // Forgejo row writes the entry the GitHub bump reads.
   const seed = steps.find(s => s.path === GITHUB_LEAF && s.step === 'vault_kv_entry');
   if (!seed?.when?.includes('forgejo_repositories_absent_from_answers')) problems.push('the GitHub seed runs on Forgejo');
-  if (steps.some(s => s.path === GITHUB_LEAF && s.step === 'vault_kv_entry_from_command')) problems.push('a Forgejo row writes the entry the GitHub bump reads');
+  if (steps.some(s => [GITHUB_LEAF, GITHUB_DEPLOY_LEAF].includes(s.path) && s.step === 'vault_kv_entry_from_command')) problems.push('a Forgejo row writes the entry the GitHub bump reads');
   return problems;
 }
 
@@ -71,6 +73,8 @@ test('three machine users follow the handoff, each guarded to a Forgejo installa
     steps => { steps.find(s => s.path === GITHUB_LEAF && s.step === 'vault_kv_entry').when.pop(); },
     // PLANTED: the Forgejo bump token written over the live GitHub bump credential of an installation whose platform URL is still on GitHub.
     steps => { row(steps, 'hostyour-cloud-bump').writer.path = GITHUB_LEAF; },
+    // PLANTED: the Forgejo deploy-bump token written over the entry the Manager's tick rewrites with the App's token.
+    steps => { row(steps, 'deploy-bump').writer.path = GITHUB_DEPLOY_LEAF; },
     // PLANTED: Argo CD's user proves nothing it must read.
     steps => { delete row(steps, 'argocd').render.values['forgejo-deploy-repository']; },
   ]) {
