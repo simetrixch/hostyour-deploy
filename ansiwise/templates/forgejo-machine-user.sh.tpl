@@ -55,6 +55,12 @@ def reach():
     if PERMISSION == 'write' and named(REPOSITORY) and not organisations and not listed:
         return REPOSITORY, [], []
     if PERMISSION == 'read' and not REPOSITORY and organisations and len(listed) == 2 and all(named(r) for r in listed):
+        # Forgejo names organisations without regard to case. The team is made in every organisation
+        # before the listing can fail, so an owner missing from the set is refused here, before any call.
+        covered = {o.lower() for o in organisations}
+        missing = sorted({r.split('/')[0] for r in listed if r.split('/')[0].lower() not in covered})
+        if missing:
+            refuse('the organisations of ' + USER + ' must include the owner of every repository it reads; missing: ' + ', '.join(missing))
         return None, organisations, listed
     refuse(USER + ' needs one owner/repository to write, or organisations and the platform and deploy repositories to read; fill its answers')
 

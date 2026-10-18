@@ -115,6 +115,26 @@ defaults:
   # apart from the cluster's own accounts, groups are not, and the binding names the bare group.
   groups_prefix: ''
 steps:
+  # NO STEP READS TWO ANSWERS: that the organisations include the owner of each repository is refused by
+  # the producer of the Argo CD machine user (forgejo-machine-user.sh.tpl), before it calls Forgejo.
+  - step: require_answer_matches
+    answer: forgejo_platform_repository
+    pattern: '^[A-Za-z0-9][A-Za-z0-9_.-]*/[A-Za-z0-9][A-Za-z0-9_.-]*(?![\s\S])'
+    refusal: Supply the Forgejo destination as owner/repository.
+    on_failure: exit
+
+  - step: require_answer_matches
+    answer: forgejo_deploy_repository
+    pattern: '^[A-Za-z0-9][A-Za-z0-9_.-]*/[A-Za-z0-9][A-Za-z0-9_.-]*(?![\s\S])'
+    refusal: Supply the Forgejo destination as owner/repository.
+    on_failure: exit
+
+  - step: require_answer_matches
+    answer: forgejo_organisations
+    pattern: '^[A-Za-z0-9][A-Za-z0-9_.-]*(,[A-Za-z0-9][A-Za-z0-9_.-]*)*(?![\s\S])'
+    refusal: Supply comma-separated organisation names without empty members or whitespace.
+    on_failure: exit
+
   # --- the two tools this program is made of ----------------------------------------------------
   #
   # Every step below is one of them. helm installs the releases; the cluster client applies the
@@ -2005,7 +2025,7 @@ steps:
     mount: secret
     path: build-platform/hostyour-cloud/repo-pat
     fields: ['pat=BUILD_HOSTYOUR_CLOUD_REPO_PAT']
-    when: [secret_store_enabled, build_plane_here_in_answers, books_here_in_answers, forgejo_repositories_absent_from_answers]
+    when: [secret_store_enabled, build_plane_here_in_answers, books_here_in_answers]
     on_failure: exit
 
   # The deploy repository's bump credential, build-platform/deploy/repo-pat, is NOT seeded here: on
@@ -2840,7 +2860,7 @@ steps:
       forgejo-organisations: { answer: forgejo_organisations }
       forgejo-platform-repository: { answer: forgejo_platform_repository }
       forgejo-deploy-repository: { answer: forgejo_deploy_repository }
-    when: [secret_store_enabled, books_here_in_answers, build_plane_here_in_answers, plane_runs_here, forgejo_repositories_in_answers]
+    when: [secret_store_enabled, books_here_in_answers, build_plane_here_in_answers, plane_runs_here]
     on_failure: exit
 
   - step: vault_kv_entry_from_command
@@ -2850,7 +2870,7 @@ steps:
     path: <stage>/app/argocd-forge
     producer: /run/forgejo-machine-user-argocd.sh
     fields: [username, password]
-    when: [secret_store_enabled, books_here_in_answers, build_plane_here_in_answers, plane_runs_here, forgejo_repositories_in_answers]
+    when: [secret_store_enabled, books_here_in_answers, build_plane_here_in_answers, plane_runs_here]
     on_failure: exit
 
   # The platform repository's bump credential: write on the platform repository alone.
@@ -2877,7 +2897,7 @@ steps:
       forgejo-permission: write
       forgejo-token-field: pat
       forgejo-repository: { answer: forgejo_platform_repository }
-    when: [secret_store_enabled, books_here_in_answers, build_plane_here_in_answers, plane_runs_here, forgejo_repositories_in_answers]
+    when: [secret_store_enabled, books_here_in_answers, build_plane_here_in_answers, plane_runs_here]
     on_failure: exit
 
   - step: vault_kv_entry_from_command
@@ -2887,7 +2907,7 @@ steps:
     path: build-platform/hostyour-cloud/forgejo-repo-pat
     producer: /run/forgejo-machine-user-hostyour-cloud-bump.sh
     fields: [pat]
-    when: [secret_store_enabled, books_here_in_answers, build_plane_here_in_answers, plane_runs_here, forgejo_repositories_in_answers]
+    when: [secret_store_enabled, books_here_in_answers, build_plane_here_in_answers, plane_runs_here]
     on_failure: exit
 
   # The deploy repository's bump credential: write on the deploy repository alone.
@@ -2908,7 +2928,7 @@ steps:
       forgejo-permission: write
       forgejo-token-field: pat
       forgejo-repository: { answer: forgejo_deploy_repository }
-    when: [secret_store_enabled, books_here_in_answers, build_plane_here_in_answers, plane_runs_here, forgejo_repositories_in_answers]
+    when: [secret_store_enabled, books_here_in_answers, build_plane_here_in_answers, plane_runs_here]
     on_failure: exit
 
   - step: vault_kv_entry_from_command
@@ -2918,7 +2938,7 @@ steps:
     path: build-platform/deploy/forgejo-repo-pat
     producer: /run/forgejo-machine-user-deploy-bump.sh
     fields: [pat]
-    when: [secret_store_enabled, books_here_in_answers, build_plane_here_in_answers, plane_runs_here, forgejo_repositories_in_answers]
+    when: [secret_store_enabled, books_here_in_answers, build_plane_here_in_answers, plane_runs_here]
     on_failure: exit
 
   # Until the account is registered, no certificate on this cluster can be issued. Recorded rather
@@ -3052,28 +3072,26 @@ answers:
       write that machine's. Nothing derives it: a cluster that silently made itself the build plane
       would start building images nobody asked it to build.
 
-  # THE THREE FORGEJO ANSWERS, all empty on an installation whose platform and deploy repositories stand
-  # on GitHub. The organisations are configuration: nothing in the product names one.
   - name: forgejo_platform_repository
     kind: text
-    required: false
+    required: true
     describes: >-
-      Forgejo only: the platform repository as owner/repository. The machine user hostyour-cloud-bump
-      is granted write on it and on nothing else. Leave it and the two answers below empty on GitHub.
+      The Forgejo destination of the platform repository, as owner/repository. The machine user
+      hostyour-cloud-bump is granted write on it and on nothing else, even while clone URLs name GitHub.
 
   - name: forgejo_deploy_repository
     kind: text
-    required: false
+    required: true
     describes: >-
-      Forgejo only: the deploy repository as owner/repository. The machine user deploy-bump is granted
-      write on it and on nothing else.
+      The Forgejo destination of the deploy repository, as owner/repository. The machine user
+      deploy-bump is granted write on it and on nothing else.
 
   - name: forgejo_organisations
     kind: text
-    required: false
+    required: true
     describes: >-
-      Forgejo only: the organisations whose repositories Argo CD reads, comma-separated. The machine
-      user argocd joins a read-only team of each, which covers a repository created later as well.
+      The organisations whose repositories Argo CD reads, comma-separated, covering both destination
+      owners. The machine user argocd joins a read-only team of each, covering future repositories.
 
   - name: plane_further_people
     kind: text_list

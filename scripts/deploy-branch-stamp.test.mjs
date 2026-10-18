@@ -58,3 +58,20 @@ test('PLANTED DEFECT: a git_commit before the stamp leaves the stamp uncommitted
 test('PLANTED INNOCENT: a stamp row on clusters stays green', () => {
   assertStampsCommitted(withStamp(stamp => { stamp.tree = 'clusters'; }));
 });
+
+function assertRepositoryCredentialsCommitted(steps) {
+  const at = steps.findIndex(s => s.path === '/srv/hostyour-cloud/installation/values/repository-credentials.yaml');
+  assert.ok(at >= 0, 'repository credentials are not written');
+  assert.ok(steps.slice(at + 1).some(s => s.step === 'git_commit' && s.repository === '/srv/hostyour-cloud' && s.paths?.includes('installation')), 'repository credentials are not committed');
+}
+
+test('repository credentials are written before the installation commit, with red and innocent probes', () => {
+  assertRepositoryCredentialsCommitted(program.steps);
+  const missing = structuredClone(program.steps);
+  missing.splice(missing.findIndex(s => s.path?.endsWith('/repository-credentials.yaml')), 1);
+  assert.throws(() => assertRepositoryCredentialsCommitted(missing));
+  const uncommitted = structuredClone(program.steps);
+  uncommitted.find(s => s.step === 'git_commit').paths = ['clusters', 'configs'];
+  assert.throws(() => assertRepositoryCredentialsCommitted(uncommitted));
+  assertRepositoryCredentialsCommitted([...program.steps]);
+});

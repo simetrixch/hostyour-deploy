@@ -40,6 +40,7 @@ esac
 
 ANSIWISE_CLI_CHECKOUT="$cli" node --test "$ROOT/scripts/onboard-manager.test.mjs" || fail 'private Manager repository access before onboarding'
 ANSIWISE_CLI_CHECKOUT="$cli" node --test "$ROOT/scripts/deploy-branch-secrets.test.mjs" || fail 'no unused Manager PAT in generated secrets'
+ANSIWISE_CLI_CHECKOUT="$cli" node --test "$ROOT/scripts/repository-credentials.test.mjs" || fail 'required installation repository credentials'
 node --test "$ROOT/scripts/deploy-branch-stamp.test.mjs" || fail 'the stamp reaches only what the install branch commit carries'
 node --test "$ROOT/scripts/no-password-persistence.test.mjs" || fail 'no elevation password persistence in the platform program'
 node --test "$ROOT/scripts/cli-checkout.test.mjs" || fail 'the tree of ansiwise-cli the binding suite runs in'

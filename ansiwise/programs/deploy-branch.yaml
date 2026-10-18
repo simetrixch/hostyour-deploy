@@ -632,6 +632,21 @@ answers:
       Build plane only: a GitHub credential with Contents: Read and Write on the repository this
       installation is generated in. The release bump pushes with it.
 
+  - name: forgejo_platform_repository
+    kind: text
+    required: true
+    describes: The Forgejo destination of the platform repository, as owner/repository.
+
+  - name: forgejo_deploy_repository
+    kind: text
+    required: true
+    describes: The Forgejo destination of the deploy repository, as owner/repository.
+
+  - name: forgejo_organisations
+    kind: text
+    required: true
+    describes: The organisations whose repositories Argo CD reads, comma-separated, covering both destination owners.
+
 steps:
   # THE SECOND REFUSAL THAT ASKS NO MACHINE ANYTHING, AND IT STANDS AHEAD OF THE FIRST TOOL. The
   # domain answered here becomes the branch name, the name of the cluster map, and the host in every
@@ -663,6 +678,28 @@ steps:
   - step: require_machine_size
     vcpu: 8
     memory_kibibytes: 14503936
+    on_failure: exit
+
+  # NO STEP READS TWO ANSWERS, so these rows cannot ask that the organisations include the owner of each
+  # repository. The launchers of hostyour-cloud refuse a config where one is missing, and the producer of
+  # the Argo CD machine user (forgejo-machine-user.sh.tpl) refuses it before it calls Forgejo; a run of
+  # this program that is handed such answers directly still persists them.
+  - step: require_answer_matches
+    answer: forgejo_platform_repository
+    pattern: '^[A-Za-z0-9][A-Za-z0-9_.-]*/[A-Za-z0-9][A-Za-z0-9_.-]*(?![\s\S])'
+    refusal: Supply the Forgejo destination as owner/repository.
+    on_failure: exit
+
+  - step: require_answer_matches
+    answer: forgejo_deploy_repository
+    pattern: '^[A-Za-z0-9][A-Za-z0-9_.-]*/[A-Za-z0-9][A-Za-z0-9_.-]*(?![\s\S])'
+    refusal: Supply the Forgejo destination as owner/repository.
+    on_failure: exit
+
+  - step: require_answer_matches
+    answer: forgejo_organisations
+    pattern: '^[A-Za-z0-9][A-Za-z0-9_.-]*(,[A-Za-z0-9][A-Za-z0-9_.-]*)*(?![\s\S])'
+    refusal: Supply comma-separated organisation names without empty members or whitespace.
     on_failure: exit
 
   # THE ONE TOOL THIS PROGRAM IS, ASKED FOR BEFORE ANYTHING USES IT. Every step below is git — the
@@ -1237,6 +1274,17 @@ steps:
     values:
       fqdn: { answer: fqdn }
       forgejo-ssh-port: { answer: forgejo_ssh_port }
+    on_failure: exit
+
+  - step: write_file_from_template
+    template: ansiwise/templates/repository-credentials-values.tpl
+    path: /srv/hostyour-cloud/installation/values/repository-credentials.yaml
+    file_mode: 420
+    values:
+      fqdn: { answer: fqdn }
+      forgejo-platform-repository: { answer: forgejo_platform_repository }
+      forgejo-deploy-repository: { answer: forgejo_deploy_repository }
+      forgejo-organisations: { answer: forgejo_organisations }
     on_failure: exit
 
   # WHAT PLANE IS TOLD ABOUT THIS INSTALLATION: its address, from which it also builds the web address
