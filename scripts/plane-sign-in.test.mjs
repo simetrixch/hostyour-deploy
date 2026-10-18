@@ -78,11 +78,12 @@ function wiring(steps) {
   const token = steps.find(s => s.step === 'file_from_vault' && s.path === '<stage>/idp/bootstrap' && s.field === 'platform-api-token');
   if (!token?.file_path || render?.values?.['authentik-token-file'] !== token.file_path) problems.push('the producer reads another API token file');
   if (render?.values?.['books-fqdn']?.answer !== 'books_fqdn') problems.push('the producer asks another provider than the books cluster\'s');
-  // The state "no administrator yet" is named in the run record by a row of its own that fails without stopping the deployment.
+  // The reporting row records either administrator state, rather than requiring an administrator to exist.
   const report = steps.find(s => s.step === 'wait_for_command_output' && s.command_arguments?.includes('--administrator'));
   if (report?.command !== 'bash' || JSON.stringify(report.command_arguments) !== JSON.stringify([render?.path, '--administrator'])) problems.push('no row reports the administrator');
   else {
-    if (report.on_failure !== 'continue') problems.push('the report stops the deployment');
+    if (report.on_failure !== 'exit') problems.push('a broken report does not stop the deployment');
+    if (report.answer !== 'administrator state reported') problems.push('the report requires an administrator instead of a state');
     if (report.keep_output !== true || report.elevated !== true || report.rests_on_an_earlier_step !== true) problems.push('the report is not kept or not run as root');
     if (!machine.every(c => report.when?.includes(c)) || steps.indexOf(report) < steps.indexOf(row)) problems.push('the report is on another machine or before the producer');
     if (!/administrator of Plane/.test(report.waiting_for ?? '')) problems.push('the report does not name the administrator of Plane');
@@ -107,12 +108,13 @@ test('one installer writer of the Plane client entry shares the module, the admi
     steps => { steps.find(s => s.template === PEOPLE).path = '/run/another-file'; },
     steps => { steps.push(...steps.splice(steps.findIndex(s => s.template === PEOPLE), 1)); },
     steps => { render(steps).values['plane-further-people'] = {answer: 'plane_further_people', join: '\n'}; },
-    // The administrator: another token file, another provider, and a report that is missing, stops the deployment, is not kept, runs before the
+    // The administrator: another token file, another provider, and a report that is missing, hides failure, requires an administrator, is not kept, runs before the
     // producer or does not name what it reports.
     steps => { render(steps).values['authentik-token-file'] = '/run/another-token'; },
     steps => { render(steps).values['books-fqdn'] = {answer: 'fqdn'}; },
     steps => { steps.splice(steps.findIndex(s => s.command_arguments?.includes('--administrator')), 1); },
-    steps => { steps.find(s => s.command_arguments?.includes('--administrator')).on_failure = 'exit'; },
+    steps => { steps.find(s => s.command_arguments?.includes('--administrator')).on_failure = 'continue'; },
+    steps => { steps.find(s => s.command_arguments?.includes('--administrator')).answer = 'administrator known'; },
     steps => { delete steps.find(s => s.command_arguments?.includes('--administrator')).keep_output; },
     steps => { steps.unshift(...steps.splice(steps.findIndex(s => s.command_arguments?.includes('--administrator')), 1)); },
     steps => { steps.find(s => s.command_arguments?.includes('--administrator')).waiting_for = 'a state'; },
@@ -742,21 +744,65 @@ test('the administrator of Plane is the address Authentik holds for akadmin, inv
   assert.equal(admin.roles[INVITED], ADMIN);
 });
 
-test('an administrator Authentik does not have yet is named in the run record, invites the test account alone, stops no deployment, and is invited by the next run', async () => {
-  const REPORT = program.steps.find(s => s.step === 'wait_for_command_output' && s.command_arguments?.includes('--administrator'));
-  // What the engine records for that row (ansiwise-plugins wait_for_command_output.dart holds, ansiwise-core wait_step.dart apply): held where
-  // the command exits 0 and writes a line equal to the answer, and otherwise the waiting_for sentence with what the command said instead.
-  const recorded = run => {
-    if (run.code === 0 && run.stdout.split('\n').some(line => line.trim() === REPORT.answer)) return {held: true};
-    const said = (run.stderr.trim() ? run.stderr : run.stdout).split('\n').map(line => line.trim()).filter(Boolean).join(' ');
-    return {held: false, message: `${REPORT.waiting_for} — ${said ? `it said "${said}" and not "${REPORT.answer}"` : 'the command answered nothing at all'}`};
+test('the real engine records the pending administrator as declared and exits zero, and records the known state', async () => {
+  const row = program.steps.find(s => s.command_arguments?.includes('--administrator'));
+  const report = async (options = {}) => {
+    const f = await fixture(options);
+    try {return await f.report();} finally {await f.clean();}
   };
+  const pending = {authentik: {email: 'root@localhost'}};
+  const response = await report(pending), known = await report();
+  const reason = UNKNOWN + 'akadmin has no address yet';
+  const oldWait = {...row, answer: 'administrator known', on_failure: 'continue'};
+  const silent = await report({...pending, mutate: swap("'Plane has no administrator to invite yet: ' + why", "''")});
+  const falseKnown = await report({...pending, mutate: swap('    if address is None:', '    if False:')});
+  const reports = [
+    {row, response},
+    {row, response: known},
+    {row: oldWait, response},
+    {row: {...row, keep_output: false}, response},
+    {row, response: silent},
+    {row, response: falseKnown},
+    {row, response: {...response, code: 1}},
+    {row, response: {...response, stdout: '', stderr: ''}},
+  ];
+  const directory = await mkdtemp(join(tmpdir(), 'plane-administrator-engine-'));
+  let records;
+  try {
+    const cli = process.env.ANSIWISE_CLI_CHECKOUT ?? execFileSync('bash', [new URL('scripts/cli-checkout.sh', root).pathname, 'test/checks/config_validity_test.dart'], {encoding: 'utf8'}).trim();
+    const packages = join(cli, '.dart_tool/package_config.json');
+    assert.ok(existsSync(packages), 'the CLI binding suite needs its resolved Dart packages; scripts/test.sh resolves them on CI');
+    records = JSON.parse(execFileSync('dart', ['--packages=' + packages, new URL('scripts/plane-administrator-record.dart', root).pathname], {
+      cwd: directory, encoding: 'utf8', input: JSON.stringify({command: 'bash ' + row.command_arguments.join(' '), reports}), timeout: 60_000,
+    }));
+  } finally {await rm(directory, {recursive: true, force: true});}
+  const recorded = (record, state) => {
+    assert.equal(record.exit, 0, 'the Manager rejects every nonzero deployment exit');
+    assert.equal(record.clean, true);
+    assert.deepEqual(record.issues, []);
+    assert.deepEqual([record.standing, record.fully_proven], ['declared', false]);
+    assert.deepEqual([record.closed, record.next_reached], [true, true]);
+    assert.ok(record.output.includes(state), 'the run record must name the actual administrator state');
+  };
+  assert.equal(records.length, reports.length);
+  recorded(records[0], reason);
+  // PLANTED INNOCENT: the administrator is known; the same row records that state and still exits zero.
+  recorded(records[1], 'administrator known');
+  assert.ok(!records[0].output.includes('administrator known'), 'pending must never claim known');
+  // PLANTED DEFECTS: the old failed wait, discarded output, a silent or false-known report, a failed
+  // reporting command and a command that answers nothing. Each fails the same record assertion.
+  for (const record of records.slice(2)) assert.throws(() => recorded(record, reason));
+  assert.deepEqual([records[2].exit, records[2].clean, records[2].next_reached, records[2].issues.length], [2, false, true, 1]);
+});
+
+test('an administrator Authentik does not have yet is reported, invites the test account alone, and is invited by the next run', async () => {
+  const REPORT = program.steps.find(s => s.step === 'wait_for_command_output' && s.command_arguments?.includes('--administrator'));
   const outcome = async (mutate, options = {}) => {
     const f = await fixture({invited: false, mutate, forgejoAdministrator: false, ...options});
     try {
       const check = await f.run(held, '--check'), first = await f.run(held), after = await f.run(held, '--check'), report = await f.report();
       await f.privateSecrets();
-      return {check: check.entry, first, after: after.entry, roles: rolesOf(f), report, recorded: recorded(report)};
+      return {check: check.entry, first, after: after.entry, roles: rolesOf(f), report};
     } finally {await f.clean();}
   };
   const pending = [
@@ -775,28 +821,24 @@ test('an administrator Authentik does not have yet is named in the run record, i
     const state = await outcome(undefined, options);
     // The producer goes on with the test account alone, says nothing on its streams, and its check is satisfied after it.
     assert.deepEqual([state.check, state.first.code, state.first.stderr, state.after, state.roles], [{satisfied: false}, 0, '', {satisfied: true}, {[INVITED]: MEMBER}], name);
-    // The row after it fails with the state in its own words, which carry neither an address nor a token.
-    assert.deepEqual([state.report.code, state.report.stdout, state.report.stderr], [1, '', UNKNOWN + why + '\n'], name);
-    assert.deepEqual(state.recorded, {held: false, message: `${REPORT.waiting_for} — it said "${UNKNOWN}${why}" and not "${REPORT.answer}"`}, name);
-    assert.ok(!/@|fixture-authentik/.test(state.recorded.message), name);
+    // Reporting a pending state succeeds without claiming an administrator exists; no address or token is output.
+    assert.deepEqual([state.report.code, state.report.stdout, state.report.stderr], [0, UNKNOWN + why + '\n' + REPORT.answer + '\n', ''], name);
+    assert.ok(!/@|fixture-authentik/.test(state.report.stdout), name);
   }
-  // PLANTED INNOCENT: akadmin has an address, so the row is held and says no address, and the administrator is invited.
+  // PLANTED INNOCENT: akadmin has an address, so the report names the known state without the address, and the administrator is invited.
   const known = await outcome();
-  assert.deepEqual([known.recorded, known.report.stdout, known.report.stderr, known.roles], [{held: true}, REPORT.answer + '\n', '', {[INVITED]: MEMBER, [ADMINISTRATOR]: ADMIN}]);
-  // PLANTED DEFECT: a report that says nothing, and one that says the administrator is known when it is not.
+  assert.deepEqual([known.report.code, known.report.stdout, known.report.stderr, known.roles], [0, 'administrator known\n' + REPORT.answer + '\n', '', {[INVITED]: MEMBER, [ADMINISTRATOR]: ADMIN}]);
   const unsaid = pending[3][1];
-  assert.equal((await outcome(swap("sys.exit('Plane has no administrator to invite yet: ' + why)", 'sys.exit(0)'), unsaid)).recorded.message, `${REPORT.waiting_for} — the command answered nothing at all`);
-  assert.equal((await outcome(swap("sys.exit('Plane has no administrator to invite yet: ' + why)", "print('administrator known')"), unsaid)).recorded.held, true);
   // PLANTED DEFECT: a producer that fails the deployment where the provider is not ready.
   assert.equal((await outcome(swap("return None, 'akadmin has no address yet'", "refuse('akadmin has no address yet')"), unsaid)).first.code, 1);
   // The next run invites: the same installation, once akadmin has its address.
   const f = await fixture({invited: false, forgejoAdministrator: false, authentik: {email: 'root@localhost'}});
   try {
     await f.run(held);
-    assert.deepEqual([rolesOf(f), (await f.report()).code], [{[INVITED]: MEMBER}, 1]);
+    assert.deepEqual([rolesOf(f), (await f.report()).stdout], [{[INVITED]: MEMBER}, UNKNOWN + 'akadmin has no address yet\n' + REPORT.answer + '\n']);
     f.setAuthentik({email: ADMINISTRATOR});
-    assert.deepEqual([(await f.run(held, '--check')).entry, (await f.run(held)).code, rolesOf(f), (await f.run(held, '--check')).entry, (await f.report()).code],
-      [{satisfied: false}, 0, {[INVITED]: MEMBER, [ADMINISTRATOR]: ADMIN}, {satisfied: true}, 0]);
+    assert.deepEqual([(await f.run(held, '--check')).entry, (await f.run(held)).code, rolesOf(f), (await f.run(held, '--check')).entry, (await f.report()).stdout],
+      [{satisfied: false}, 0, {[INVITED]: MEMBER, [ADMINISTRATOR]: ADMIN}, {satisfied: true}, 'administrator known\n' + REPORT.answer + '\n']);
   } finally {await f.clean();}
 });
 

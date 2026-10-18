@@ -2747,8 +2747,7 @@ steps:
   #
   # AKADMIN HAS NO ADDRESS UNTIL SOMEBODY WALKS THE PROVIDER'S OUT-OF-BOX FLOW, so a first installation
   # has no administrator to invite and goes on with the test account alone. The row after the
-  # producer names that state in the run record and fails without stopping the deployment, and the
-  # next run invites.
+  # producer records that pending state without requiring an administrator, and the next run invites.
   - step: write_file_from_template
     template: ansiwise/templates/plane-further-people.tpl
     path: /run/plane-further-people.txt
@@ -2789,20 +2788,20 @@ steps:
     when: [secret_store_enabled, books_here_in_answers, build_plane_here_in_answers, plane_runs_here]
     on_failure: exit
 
-  # Only looks: the producer in the mode that asks Authentik for the address of akadmin and says so, or
-  # says why it has none. The failure is the record, and nothing else of the deployment depends on it.
+  # The expected answer confirms that a state was reported, not that an administrator exists.
+  # keep_output preserves the pending reason even though reporting it succeeds.
   - step: wait_for_command_output
     rests_on_an_earlier_step: true
-    waiting_for: the administrator of Plane to be known to Authentik
+    waiting_for: the state of the administrator of Plane to be reported
     command: bash
     command_arguments: [/run/plane-sign-in.sh, --administrator]
-    answer: administrator known
+    answer: administrator state reported
     elevated: true
     keep_output: true
     timeout_seconds: 1
     interval_seconds: 1
     when: [secret_store_enabled, books_here_in_answers, build_plane_here_in_answers, plane_runs_here]
-    on_failure: continue
+    on_failure: exit
 
   # Until the account is registered, no certificate on this cluster can be issued. Recorded rather
   # than fatal, and only where this installation asks the public authority at all.

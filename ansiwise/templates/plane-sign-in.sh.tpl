@@ -393,8 +393,10 @@ if sys.argv[1:] == ['--administrator']:
     # their words reaches the run record, and this mode's do.
     address, why = find_administrator()
     if address is None:
-        sys.exit('Plane has no administrator to invite yet: ' + why)
-    print('administrator known')
+        print('Plane has no administrator to invite yet: ' + why)
+    else:
+        print('administrator known')
+    print('administrator state reported')
 else:
     APPLY = access.start('Plane sign-in provisioning', '<forgejo-namespace>', '<forgejo-pod-selector>',
                          '<forgejo-container>', BOOTSTRAP)
