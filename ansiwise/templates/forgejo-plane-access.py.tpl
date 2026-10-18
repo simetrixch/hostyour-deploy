@@ -152,7 +152,7 @@ def users(cleanup=False):
         cells = line.split()
         if len(cells) != 6 or not cells[0].isdigit() or cells[3] not in ('true', 'false') or cells[4] not in ('true', 'false'):
             refuse('the Forgejo user list could not be read')
-        result[cells[1]] = {'email': cells[2], 'active': cells[3] == 'true', 'admin': cells[4] == 'true'}
+        result[cells[1]] = {'id': int(cells[0]), 'email': cells[2], 'active': cells[3] == 'true', 'admin': cells[4] == 'true'}
     return result
 
 

@@ -16,7 +16,8 @@ const PASSWORD = "fixture-bootstrap-password'$with-quotes";
 const FORGEJO = 'forgejo.master.fixture.invalid', PLANE = 'plane.master.fixture.invalid';
 const REDIRECT = `https://${PLANE}/auth/gitea/callback/`;
 const CLIENT = '0b3a2f0e-6c7d-4e59-9d1e-7a3f1c2b4d5e', SECRET = 'gto_fixture0held0client0secret';
-const held = {'client-id': CLIENT, 'client-secret': SECRET};
+// The third field names, by Forgejo's id, the accounts of a test address whose limits an apply has set; none yet.
+const held = {'client-id': CLIENT, 'client-secret': SECRET, 'limited-user-ids': '[]'};
 const READ = '# plane sign-in read', WRITE = '# plane sign-in write';
 const ADMISSION_READ = '# plane sign-in admission read', ADMISSION_WRITE = '# plane sign-in admission write';
 // The two Authentik accounts of the sign-in proof, as the test mailbox names them: the mailbox, a `+`, the
@@ -37,7 +38,7 @@ function wiring(steps) {
   const writers = steps.filter(s => s.path === '<stage>/app/plane-sign-in');
   if (writers.length !== 1 || writers[0].step !== 'vault_kv_entry_from_command') return ['not one complete-entry writer'];
   const row = writers[0], problems = [];
-  if (JSON.stringify(row.fields) !== JSON.stringify(['client-id', 'client-secret'])) problems.push('not the two client fields');
+  if (JSON.stringify(row.fields) !== JSON.stringify(['client-id', 'client-secret', 'limited-user-ids'])) problems.push('not the client fields and the limited accounts');
   if (row.fields_from_answers !== undefined) problems.push('an answer stands in for a field');
   const render = steps.find(s => s.path === row.producer);
   const module = steps.find(s => s.template === MODULE);
@@ -260,7 +261,7 @@ test('a first apply creates user plane and its one confidential application and 
   assert.equal(done, true, r.stderr);
   assert.equal(apps.length, 1);
   assert.deepEqual({name: apps[0].name, confidential: apps[0].confidential, redirect_uris: apps[0].redirect_uris}, {name: 'plane', confidential: true, redirect_uris: [REDIRECT]});
-  assert.deepEqual(r.entry, {'client-id': apps[0].client_id, 'client-secret': apps[0].secret});
+  assert.deepEqual(r.entry, {'client-id': apps[0].client_id, 'client-secret': apps[0].secret, 'limited-user-ids': '[]'});
   assert.deepEqual(settings, signIn(apps[0].client_id, apps[0].secret));
   assert.deepEqual(user, {email: EMAIL, admin: false, restricted: true, active: true});
   // PLANTED DEFECTS: a producer that leaves open sign-up, the password sign-in or magic code on.
@@ -524,24 +525,49 @@ test('an invitation that is not accepted or not a Member is corrected in place, 
 
 test('a Forgejo account of a test address is limited to no repositories and no organizations, and none may administer', async () => {
   const accounts = {'plane-sign-in': {email: INVITED}, 'plane-sign-in-uninvited': {email: UNINVITED}, someone: {email: 'someone@example.invalid'}};
-  const outcome = async (mutate, options = {accounts}) => {
+  // The fake numbers a user by its place in the list: akadmin 1, plane 2, the two test accounts 3 and 4.
+  const LIMITED = {...held, 'limited-user-ids': '[3, 4]'};
+  const outcome = async (mutate, options = {accounts}, from = held) => {
     const f = await fixture({mutate, ...options});
     try {
       const before = state(f);
-      const check = await f.run(held, '--check');
-      const r = await f.run(held);
-      return {check, r, limits: Object.fromEntries(f.limits), changed: state(f) !== before, admin: f.users.has(BOOTSTRAP)};
+      const check = await f.run(from, '--check');
+      const r = await f.run(from);
+      // The engine reads the entry again after the apply and runs the check on it, and a check that no apply can satisfy
+      // fails the row: so the check, the apply, the check, the apply and the check run again here.
+      const after = await f.run(r.entry, '--check'), again = await f.run(r.entry), last = await f.run(again.entry, '--check');
+      return {check, r, after, again, last, limits: Object.fromEntries(f.limits), changed: state(f) !== before, admin: f.users.has(BOOTSTRAP)};
     } finally {await f.clean();}
   };
   const shipped = await outcome();
-  // A limit is no field of any user the API lists, so a check that finds the account cannot see it and does not claim it.
+  // A limit is no field of any user the API lists, so the check reads the accounts the held entry names as limited.
   assert.deepEqual(shipped.check.entry, {satisfied: false});
-  assert.deepEqual([shipped.r.code, shipped.r.entry, shipped.admin], [0, held, false], shipped.r.stderr);
+  assert.deepEqual([shipped.r.code, shipped.r.entry, shipped.admin], [0, LIMITED, false], shipped.r.stderr);
   assert.deepEqual(shipped.limits, {'plane-sign-in': LIMITS, 'plane-sign-in-uninvited': LIMITS});
+  assert.deepEqual([shipped.after.entry, shipped.again.code, shipped.again.entry, shipped.last.entry], [{satisfied: true}, 0, LIMITED, {satisfied: true}],
+    shipped.after.stderr + shipped.again.stderr + shipped.last.stderr);
   // PLANTED DEFECTS: no limit, a limit that still allows repositories, and one that reaches every ordinary account.
   assert.deepEqual((await outcome(swap('        limit(auth, tested)\n', ''))).limits, {});
   assert.deepEqual((await outcome(swap("'max_repo_creation': 0", "'max_repo_creation': -1"))).limits['plane-sign-in'].max_repo_creation, -1);
   assert.ok('someone' in (await outcome(swap("if account['email'] in TEST_EMAILS}", "if not account['admin'] and name != USER}"))).limits);
+  // PLANTED DEFECT: the old check, which calls the state kept only where no account of a test address exists, and no apply can
+  // leave that state; and an apply that records no account, which leaves the check as unsatisfied.
+  const unsatisfiable = await outcome(swap("set(limited) >= {account['id'] for account in tested.values()}", 'not tested'));
+  assert.deepEqual([unsatisfiable.r.code, unsatisfiable.after.entry, unsatisfiable.last.entry], [0, {satisfied: false}, {satisfied: false}]);
+  const unrecorded = await outcome(swap("json.dumps(sorted(account['id'] for account in tested.values()))", "'[]'"));
+  assert.deepEqual([unrecorded.r.code, unrecorded.after.entry], [0, {satisfied: false}]);
+  // PLANTED INNOCENT: the entry names both accounts, and also one that is gone: the check is satisfied and nothing is limited again.
+  for (const named of ['[3, 4]', '[4, 3, 9]']) {
+    const kept = await outcome(undefined, {accounts}, {...held, 'limited-user-ids': named});
+    assert.deepEqual(kept.check.entry, {satisfied: true}, named);
+  }
+  // A record that is no list of ids is no held entry: nothing is called kept on it.
+  for (const garbled of ['oops', '{"3": 4}', '[true]', '["3"]']) {
+    assert.deepEqual((await outcome(undefined, {}, {...held, 'limited-user-ids': garbled})).check.entry, {satisfied: false}, garbled);
+  }
+  // An account that signs in after the apply is not in the entry: the check finds it, the apply limits both and names both.
+  const later = await outcome(undefined, {accounts}, {...held, 'limited-user-ids': '[3]'});
+  assert.deepEqual([later.check.entry, later.r.entry, later.after.entry, later.limits], [{satisfied: false}, LIMITED, {satisfied: true}, shipped.limits]);
   // PLANTED INNOCENT: before the first sign-in no Forgejo account of a test address exists, and none is made.
   const none = await outcome(undefined, {});
   assert.deepEqual([none.check.entry, none.r.code, none.limits], [{satisfied: true}, 0, {}]);

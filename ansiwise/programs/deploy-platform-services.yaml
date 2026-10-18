@@ -2758,7 +2758,7 @@ steps:
     mount: secret
     path: <stage>/app/plane-sign-in
     producer: /run/plane-sign-in.sh
-    fields: [client-id, client-secret]
+    fields: [client-id, client-secret, limited-user-ids]
     when: [secret_store_enabled, books_here_in_answers, build_plane_here_in_answers, plane_runs_here]
     on_failure: exit
 

@@ -212,6 +212,18 @@ def limit(auth, accounts):
         access.api('PATCH', '/admin/users/' + urllib.parse.quote(name, safe=''), auth, (200,), LIMITS)
 
 
+def limited_user_ids(held):
+    """The Forgejo ids of the accounts whose limits an apply has set, as the held entry names them, or None
+    where there is no entry or its record is no list of ids."""
+    if held is None:
+        return None
+    try:
+        ids = json.loads(held['limited-user-ids'])
+    except ValueError:
+        return None
+    return ids if isinstance(ids, list) and all(type(i) is int for i in ids) else None
+
+
 def exchange():
     try:
         incoming = json.load(sys.stdin)
@@ -222,8 +234,11 @@ def exchange():
     entry = incoming.get('entry') or {}
     if not isinstance(entry, dict):
         refuse('the held Plane sign-in entry is unreadable')
-    held = entry if sorted(entry) == ['client-id', 'client-secret'] and all(
+    held = entry if sorted(entry) == ['client-id', 'client-secret', 'limited-user-ids'] and all(
         isinstance(v, str) and v and not any(c in v for c in '\r\n') for v in entry.values()) else None
+    limited = limited_user_ids(held)
+    if limited is None:
+        held = None
     gitea = 'https://' + ingress_host('forgejo')
     redirect = 'https://' + ingress_host('plane', 'plane-ingress') + '/auth/gitea/callback/'
     access.ready_pod()
@@ -242,9 +257,12 @@ def exchange():
     if not APPLY:
         # Blind to a second application of user plane and to a redirect URI registered beside ours:
         # listing them takes a Forgejo administrator, which only apply creates. Blind as well to the limits
-        # of a test account, which no listing of users shows, so a check that finds one does not call the
-        # state kept and apply sets the same limits again.
-        return {'satisfied': held is not None and person is not None and BOOTSTRAP not in people and not tested and
+        # themselves, which no listing of users shows: the held entry names the accounts whose limits an
+        # apply has set, and an account of a test address it does not name, one that signed in since,
+        # is a state apply changes. The engine runs this check again after the apply, so what apply
+        # cannot change must never stand in it.
+        return {'satisfied': held is not None and person is not None and BOOTSTRAP not in people and
+                set(limited) >= {account['id'] for account in tested.values()} and
                 confidential(held['client-id'], held['client-secret'], redirect) and
                 holds(access.plane(PLANE_READ, {'keys': KEYS}),
                       dict(wanted, GITEA_CLIENT_ID=held['client-id']), held['client-secret']) and
@@ -269,7 +287,8 @@ def exchange():
     stored = access.plane(PLANE_WRITE, {'settings': wanted, 'keys': KEYS}, stdin=secret)
     if not holds(stored, wanted, secret):
         refuse('Plane did not keep its Gitea sign-in settings')
-    return {'client-id': client_id, 'client-secret': secret}
+    return {'client-id': client_id, 'client-secret': secret,
+            'limited-user-ids': json.dumps(sorted(account['id'] for account in tested.values()))}
 
 
 access.finish(exchange, LOCK)
