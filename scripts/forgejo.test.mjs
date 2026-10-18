@@ -54,7 +54,7 @@ function valuesFindings(program, text) {
   if (server.SSH_PORT !== 23) found.push(`Forgejo announces SSH port ${server.SSH_PORT}`);
   const expected = [{name: 'authentik', provider: 'openidConnect', existingSecret: 'forgejo-oauth',
     autoDiscoverUrl: 'https://idp.planted.example/application/o/forgejo/.well-known/openid-configuration',
-    scopes: 'openid email profile groups', groupClaimName: 'groups', adminGroup: 'admins'}];
+    scopes: 'openid email profile groups', groupClaimName: 'groups', adminGroup: 'admins', restrictedGroup: 'plane-users'}];
   if (JSON.stringify(forgejo?.oauth) !== JSON.stringify(expected)) found.push(`the sign-in list is ${JSON.stringify(forgejo?.oauth)}`);
   return found;
 }
@@ -81,9 +81,10 @@ test('PLANTED DEFECT: a second row on the entry, a mint there, a missing bootstr
   }
 });
 
-test('PLANTED DEFECT: a slot no answer fills, a sign-in source without its admin group, and the listen port announced are found', () => {
+test('PLANTED DEFECT: a slot no answer fills, a sign-in source without its admin group or without its restricted group, and the listen port announced are found', () => {
   assert.notDeepEqual(valuesFindings(branch, templateText.replace('SSH_PORT: <forgejo-ssh-port>', 'SSH_PORT: <ssh-port>')), []);
   assert.notDeepEqual(valuesFindings(branch, templateText.replace(/\n\s*adminGroup: admins/, '')), []);
+  assert.notDeepEqual(valuesFindings(branch, templateText.replace(/\n\s*restrictedGroup: plane-users/, '')), []);
   const announcing2222 = structuredClone(branch);
   announcing2222.steps.find(s => s.path?.endsWith('/forgejo.yaml')).values['forgejo-ssh-port'] = {answer: 'planted'};
   assert.notDeepEqual(valuesFindings(announcing2222, templateText), []);

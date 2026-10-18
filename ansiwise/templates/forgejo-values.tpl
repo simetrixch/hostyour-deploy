@@ -6,7 +6,9 @@
 #
 # THE SIGN-IN LIST STANDS HERE WHOLE. Helm replaces a list instead of merging it, and the source's
 # discovery address names this installation's identity provider. Its client secret comes from the
-# Secret forgejo-oauth, and the group admins makes a site administrator.
+# Secret forgejo-oauth, and the group admins makes a site administrator. The group plane-users makes
+# a restricted account, the kind the Plane sign-in test accounts are: it signs in and gives the
+# consent Plane asks for, and sees no repository it was not given.
 forgejo:
   gitea:
     config:
@@ -23,3 +25,4 @@ forgejo:
         scopes: openid email profile groups
         groupClaimName: groups
         adminGroup: admins
+        restrictedGroup: plane-users
