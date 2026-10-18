@@ -1,6 +1,7 @@
 # The access both credential producers load by path: one deadline, the cluster commands, the Forgejo
-# pod with its API and its temporary administrator, and the shell exec in Plane's API pod. A
-# producer's stdout is the engine's one JSON object, so nothing here prints but the producer's answer.
+# pod with its API and its temporary administrator, the shell exec in Plane's API pod and the Plane
+# targets the deployed release Pipeline names. A producer's stdout is the engine's one JSON object,
+# so nothing here prints but the producer's answer.
 import base64
 import contextlib
 import fcntl
@@ -14,6 +15,7 @@ import sys
 import time
 import urllib.error
 import urllib.request
+import uuid
 
 PORT = 3000
 POD_WAIT_SECONDS = 30
@@ -150,7 +152,7 @@ def users(cleanup=False):
         cells = line.split()
         if len(cells) != 6 or not cells[0].isdigit() or cells[3] not in ('true', 'false') or cells[4] not in ('true', 'false'):
             refuse('the Forgejo user list could not be read')
-        result[cells[1]] = {'email': cells[2], 'active': cells[3] == 'true', 'admin': cells[4] == 'true'}
+        result[cells[1]] = {'id': int(cells[0]), 'email': cells[2], 'active': cells[3] == 'true', 'admin': cells[4] == 'true'}
     return result
 
 
@@ -311,3 +313,23 @@ def plane(snippet, arguments, stdin=''):
     if not isinstance(value, dict):
         refuse('the Plane pod answer could not be read; output withheld')
     return value
+
+
+def plane_targets():
+    """The workspace and the project ids the Task plane-update-status writes to, as the deployed
+    Pipeline names them, so no producer holds a second copy."""
+    pipeline = object_json(kube(['get', 'pipelines.tekton.dev', 'forgejo-release', '-o', 'json'],
+                                namespace='forgejo-build', what='the Pipeline forgejo-release'),
+                           'the Pipeline forgejo-release')
+    try:
+        task, = [t for t in pipeline['spec']['tasks'] if t.get('name') == 'plane']
+        value, = [p['value'] for p in task['params'] if p.get('name') == 'plane-targets']
+        targets = json.loads(value)
+        workspace = targets['workspace']
+        projects = [str(uuid.UUID(p['id'])) for p in targets['projects']]
+    except (KeyError, TypeError, ValueError, AttributeError):
+        refuse('the Pipeline forgejo-release names no readable plane-targets in its task plane')
+    if not isinstance(workspace, str) or not re.fullmatch(r'[a-z0-9][a-z0-9_-]*', workspace) or \
+            not projects or len(set(projects)) != len(projects):
+        refuse('the Pipeline forgejo-release names no readable plane-targets in its task plane')
+    return workspace, projects
