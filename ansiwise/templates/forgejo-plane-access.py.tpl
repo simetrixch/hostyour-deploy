@@ -234,6 +234,62 @@ def administrator():
             remove_bootstrap()
 
 
+def issued_here(tokens, name, token, scopes):
+    # Forgejo never edits a token after issuing it, so its listed scopes and repository limit are what
+    # it can do: exactly `scopes`, over every repository, and so neither public-only nor narrowed.
+    named = [t for t in tokens if isinstance(t, dict) and t.get('name') == name]
+    return (len(named) == 1 and named[0].get('token_last_eight') == token[-8:] and
+            sorted(named[0].get('scopes') or []) == sorted(scopes) and
+            named[0].get('repositories') is None)
+
+
+def inspect_token(user, name, scopes, token, writable):
+    """The set of repositories a held token of `user` may write, or None where Forgejo does not know it
+    as the token issued here. Refuses a token of another account, an account that is not an active
+    restricted non-admin user, administration rights anywhere, and write access outside `writable`.
+    Only GET requests with the token itself, so a check stays read-only."""
+    if not isinstance(token, str) or len(token) < 8 or any(c in token for c in '\r\n'):
+        return None
+    auth = 'token ' + token
+    # 401: Forgejo knows no such token; 403: it lacks read:user, so it is not the one issued here.
+    # Neither mints by itself: apply asks the administrator's listing first.
+    status, raw = api('GET', '/user', auth, (200, 401, 403))
+    if status != 200:
+        return None
+    actor = object_json(raw, 'Forgejo user')
+    if actor.get('login') != user:
+        refuse('the held Forgejo credential belongs to another account; no token was minted')
+    if actor.get('is_admin') is not False or actor.get('restricted') is not True or actor.get('active') is not True:
+        refuse(user + ' is not an active restricted non-admin user')
+    if not issued_here(list(pages('/users/' + user + '/tokens', auth)), name, token, scopes):
+        return None
+    # The token reaches every repository, so this list is every repository the user has a right on.
+    pushed = set()
+    for repo in pages('/user/repos', auth):
+        rights = repo.get('permissions') if isinstance(repo, dict) else None
+        if not isinstance(rights, dict) or not isinstance(rights.get('push'), bool):
+            refuse('Forgejo repository write rights are unreadable')
+        if rights.get('admin') is True:
+            refuse(user + ' has repository administration rights')
+        if rights['push']:
+            if repo.get('full_name') not in writable:
+                refuse(user + ' has write access to an unrelated repository')
+            pushed.add(repo['full_name'])
+    return pushed
+
+
+def grant(auth, repo, user, permission):
+    """Makes `user` a collaborator of `repo` with exactly `permission`, as the administrator `auth`."""
+    path = '/repos/' + repo + '/collaborators/' + user
+    status, raw = api('GET', path + '/permission', auth, (200, 404))
+    if status == 404 or object_json(raw, 'Forgejo collaborator').get('permission') != permission:
+        api('PUT', path, auth, (204,), {'permission': permission})
+    _, raw = api('GET', path + '/permission', auth, (200,))
+    person = object_json(raw, 'Forgejo collaborator').get('user', {})
+    if person.get('login') != user or person.get('is_admin') is not False or person.get('restricted') is not True or person.get('active') is not True:
+        refuse(user + ' is not an active restricted non-admin user')
+
+
 def plane(snippet, arguments, stdin=''):
     """The one answer object of a fixed snippet run in Plane's API pod. The snippet carries no
     secret; a secret the snippet needs goes in on stdin, and every other exec gets an empty one."""

@@ -5,14 +5,20 @@ import {test} from 'node:test';
 import {fileURLToPath} from 'node:url';
 import {pathPattern, reaches} from './vault-policy-reaches.mjs';
 
-// The two credentials every release bump pushes the platform repositories with stand on a tier of
+// The credentials every release bump pushes the platform repositories with stand on a tier of
 // their own, build-platform/, and never at build/<unit>/repo-pat: that leaf is a unit's own entry,
 // written whole by the Manager, and a unit named hostyour-cloud or deploy would otherwise share it
-// with the platform. The bootstrap seeds the hostyour-cloud leaf,
-// the Manager writes the deploy leaf from the App, every build namespace's secret reader reads both
-// by their literal paths, and nothing else on this host reaches the tier.
+// with the platform. The bootstrap seeds the hostyour-cloud leaf, which the bump of a platform
+// repository on GitHub reads; the machine user hostyour-cloud-bump writes its own leaf beside it, so
+// that a Forgejo token never stands where a bump still on GitHub reads. The deploy repository has the
+// same pair: the Manager writes the deploy leaf from the App on its GitHub tick and never reads it, the
+// machine user deploy-bump writes the Forgejo deploy leaf beside it, and the Manager reads that one where
+// the forge holds the deploy repository. Every build namespace's secret reader reads the four by their
+// literal paths, and nothing else on this host reaches the tier.
 const CLOUD = 'build-platform/hostyour-cloud/repo-pat';
+const FORGEJO_CLOUD = 'build-platform/hostyour-cloud/forgejo-repo-pat';
 const DEPLOY = 'build-platform/deploy/repo-pat';
+const FORGEJO_DEPLOY = 'build-platform/deploy/forgejo-repo-pat';
 const READ = leaf => `path "secret/data/${leaf}" { capabilities = ["read"] }`;
 const WRITE = leaf => `path "secret/data/${leaf}" { capabilities = ["create", "update"] }`;
 const program = JSON.parse(execFileSync('yq', ['-o=json', '.',
@@ -32,15 +38,15 @@ function findings(steps) {
   if (buildRead.length !== 1) found.push(`${buildRead.length} <cluster>-build-read policies, not 1`);
   if (managerHere.length !== 1) found.push(`${managerHere.length} manager policies where the build plane runs, not 1`);
   const allowed = new Set([
-    ...buildRead.flatMap(row => [`${row.name} ${READ(CLOUD)}`, `${row.name} ${READ(DEPLOY)}`]),
-    ...managerHere.map(row => `${row.name} ${WRITE(DEPLOY)}`),
+    ...buildRead.flatMap(row => [`${row.name} ${READ(CLOUD)}`, `${row.name} ${READ(FORGEJO_CLOUD)}`, `${row.name} ${READ(DEPLOY)}`, `${row.name} ${READ(FORGEJO_DEPLOY)}`]),
+    ...managerHere.flatMap(row => [`${row.name} ${WRITE(DEPLOY)}`, `${row.name} ${READ(FORGEJO_DEPLOY)}`]),
   ]);
   for (const grant of allowed) if (!policies.some(row => row.rules.split('\n').some(line => `${row.name} ${line.trim()}` === grant))) found.push(`no grant ${grant}`);
   // The administrators' policy reaches every path by design and is handed to no workload.
   for (const row of policies.filter(row => row.name !== 'admin')) {
     for (const line of row.rules.split('\n').map(l => l.trim()).filter(Boolean)) {
       const pattern = pathPattern(line);
-      const hits = [CLOUD, DEPLOY].flatMap(leaf => [`secret/data/${leaf}`, `secret/metadata/${leaf}`]).filter(path => reaches(pattern, path));
+      const hits = [CLOUD, FORGEJO_CLOUD, DEPLOY, FORGEJO_DEPLOY].flatMap(leaf => [`secret/data/${leaf}`, `secret/metadata/${leaf}`]).filter(path => reaches(pattern, path));
       if (hits.length > 0 && !allowed.has(`${row.name} ${line}`)) found.push(`${row.name} reaches ${hits.join(', ')} with ${line}`);
     }
   }
@@ -63,12 +69,20 @@ test('PLANTED DEFECT: an old leaf, a missing seed or grant, a templated or extra
     'no seed of the hostyour-cloud leaf': rows => { rows.splice(rows.indexOf(seed(rows)), 1); },
     'the hostyour-cloud seed takes another answer': rows => { seed(rows).fields = ['pat=GITOPS_REPO_PAT']; },
     'a second bootstrap seed under build/': rows => { rows.push({...seed(rows), path: 'build/deploy/repo-pat'}); },
+    'no read of the Forgejo hostyour-cloud leaf': rows => { const p = policy(rows, '<cluster>-build-read'); p.rules = p.rules.replace(READ(FORGEJO_CLOUD), ''); },
+    'the manager reads the Forgejo hostyour-cloud leaf': rows => { const p = policy(rows, 'manager'); p.rules += `${READ(FORGEJO_CLOUD)}\n`; },
     'no read of the deploy leaf': rows => { const p = policy(rows, '<cluster>-build-read'); p.rules = p.rules.replace(READ(DEPLOY), ''); },
     'the build reader reads the old deploy leaf': rows => { const p = policy(rows, '<cluster>-build-read'); p.rules = p.rules.replace(READ(DEPLOY), READ('build/deploy/repo-pat')); },
     'a templated read of the tier': rows => { const p = policy(rows, '<cluster>-build-read'); p.rules += 'path "secret/data/build-platform/{{identity.entity.aliases.<accessor>.metadata.unit}}/*" { capabilities = ["read"] }\n'; },
     'a wildcard read of the tier': rows => { const p = policy(rows, '<cluster>-bump-read'); p.rules += 'path "secret/data/build-platform/+/repo-pat" { capabilities = ["read"] }\n'; },
     'the manager writes no deploy leaf': rows => { const p = policy(rows, 'manager'); p.rules = p.rules.replace(WRITE(DEPLOY), ''); },
-    'the manager reads the deploy leaf': rows => { const p = policy(rows, 'manager'); p.rules = p.rules.replace(WRITE(DEPLOY), 'path "secret/data/build-platform/deploy/repo-pat" { capabilities = ["create", "read", "update"] }'); },
+    'no read of the Forgejo deploy leaf': rows => { const p = policy(rows, '<cluster>-build-read'); p.rules = p.rules.replace(READ(FORGEJO_DEPLOY), ''); },
+    'the manager does not read the Forgejo deploy leaf': rows => { const p = policy(rows, 'manager'); p.rules = p.rules.replace(READ(FORGEJO_DEPLOY), ''); },
+    // PLANTED: the Manager able to read the entry its own GitHub tick rewrites with the App's token.
+    'the manager reads the GitHub deploy leaf': rows => { const p = policy(rows, 'manager'); p.rules += `${READ(DEPLOY)}\n`; },
+    'the manager writes the Forgejo deploy leaf': rows => { const p = policy(rows, 'manager'); p.rules += `${WRITE(FORGEJO_DEPLOY)}\n`; },
+    'the manager reads the deploy leaf in one merged line': rows => { const p = policy(rows, 'manager'); p.rules = p.rules.replace(WRITE(DEPLOY), 'path "secret/data/build-platform/deploy/repo-pat" { capabilities = ["create", "read", "update"] }'); },
+    'the manager reads the hostyour-cloud leaf': rows => { const p = policy(rows, 'manager'); p.rules += `${READ(CLOUD)}\n`; },
     'the manager writes the hostyour-cloud leaf': rows => { const p = policy(rows, 'manager'); p.rules += `${WRITE(CLOUD)}\n`; },
     'a role takes the deleted policy': rows => { const r = rows.find(row => row.step === 'vault_auth_role' && row.role === 'external-secrets'); r.body = r.body.replace('"<cluster>-eso"', '"<cluster>-eso","<cluster>-deploy-pat-read"'); },
   };
