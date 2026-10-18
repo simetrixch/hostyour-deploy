@@ -105,7 +105,7 @@ async function fixture(user, options = {}) {
   const TOKEN = 'fixture-' + user + '-issued-secret';
   const right = (login, name) => {
     if (users.get(login)?.admin) return 'admin';
-    const viaTeam = [...teams.values()].find(t => t.members.has(login) && t.org === name.split('/')[0]);
+    const viaTeam = [...teams.values()].find(t => t.members.has(login) && t.org.toLowerCase() === name.split('/')[0].toLowerCase());
     return repos.get(name).grants.get(login) ?? (viaTeam ? viaTeam.permission : null);
   };
   const server = createServer(async (req, res) => {
@@ -262,6 +262,30 @@ test('a check of argocd is not satisfied while its token misses a repository it 
       assert.deepEqual(JSON.parse(apply.stdout), held); assert.equal(f.generation, 1, 'no new token');
       // The innocent case: both repositories are listed again.
       const again = await f.run(held, '--check'); assert.deepEqual(JSON.parse(again.stdout), {satisfied: true});
+    } finally { await f.clean(); }
+  }
+});
+
+test('argocd refuses organisations that omit a repository owner before it changes anything, and accepts every owner listed', async () => {
+  // PLANTED: the finding's case, organisations that name neither owner, and each owner left out alone.
+  for (const organisations of ['foreign-team', 'orga', 'orgb', 'orga,foreign-team']) {
+    for (const mode of ['--apply', '--check']) {
+      const f = await fixture('argocd', {values: {'forgejo-organisations': organisations}});
+      try {
+        const r = await f.run(null, mode); assert.notEqual(r.code, 0, organisations + ' ' + mode);
+        assert.match(r.stderr, /organisations of argocd must include the owner of every repository it reads/);
+        assert.equal(r.stdout, '');
+        assert.deepEqual(f.requests.filter(q => q.method !== 'GET'), [], 'nothing was changed in Forgejo');
+        assert.equal(f.teams.size, 0); assert.equal(f.users.has('argocd'), false); assert.equal(f.generation, 0);
+      } finally { await f.clean(); }
+    }
+  }
+  // INNOCENT: more organisations than the owners, and the owners in another letter case.
+  for (const organisations of ['orga,orgb,extra', 'ORGA,Orgb']) {
+    const f = await fixture('argocd', {values: {'forgejo-organisations': organisations}});
+    try {
+      const r = await f.run(null); assert.equal(r.code, 0, r.stderr);
+      assert.deepEqual(JSON.parse(r.stdout), expected('argocd', f.TOKEN));
     } finally { await f.clean(); }
   }
 });

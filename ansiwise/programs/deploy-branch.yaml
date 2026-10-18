@@ -648,24 +648,6 @@ answers:
     describes: The organisations whose repositories Argo CD reads, comma-separated, covering both destination owners.
 
 steps:
-  - step: require_answer_matches
-    answer: forgejo_platform_repository
-    pattern: '^[A-Za-z0-9][A-Za-z0-9_.-]*/[A-Za-z0-9][A-Za-z0-9_.-]*(?![\s\S])'
-    refusal: Supply the Forgejo destination as owner/repository.
-    on_failure: exit
-
-  - step: require_answer_matches
-    answer: forgejo_deploy_repository
-    pattern: '^[A-Za-z0-9][A-Za-z0-9_.-]*/[A-Za-z0-9][A-Za-z0-9_.-]*(?![\s\S])'
-    refusal: Supply the Forgejo destination as owner/repository.
-    on_failure: exit
-
-  - step: require_answer_matches
-    answer: forgejo_organisations
-    pattern: '^[A-Za-z0-9][A-Za-z0-9_.-]*(,[A-Za-z0-9][A-Za-z0-9_.-]*)*(?![\s\S])'
-    refusal: Supply comma-separated organisation names without empty members or whitespace.
-    on_failure: exit
-
   # THE SECOND REFUSAL THAT ASKS NO MACHINE ANYTHING, AND IT STANDS AHEAD OF THE FIRST TOOL. The
   # domain answered here becomes the branch name, the name of the cluster map, and the host in every
   # manifest — so a value that is no domain is refused before git is even looked for. It is the one
@@ -696,6 +678,28 @@ steps:
   - step: require_machine_size
     vcpu: 8
     memory_kibibytes: 14503936
+    on_failure: exit
+
+  # NO STEP READS TWO ANSWERS, so these rows cannot ask that the organisations include the owner of each
+  # repository. The launchers of hostyour-cloud refuse a config where one is missing, and the producer of
+  # the Argo CD machine user (forgejo-machine-user.sh.tpl) refuses it before it calls Forgejo; a run of
+  # this program that is handed such answers directly still persists them.
+  - step: require_answer_matches
+    answer: forgejo_platform_repository
+    pattern: '^[A-Za-z0-9][A-Za-z0-9_.-]*/[A-Za-z0-9][A-Za-z0-9_.-]*(?![\s\S])'
+    refusal: Supply the Forgejo destination as owner/repository.
+    on_failure: exit
+
+  - step: require_answer_matches
+    answer: forgejo_deploy_repository
+    pattern: '^[A-Za-z0-9][A-Za-z0-9_.-]*/[A-Za-z0-9][A-Za-z0-9_.-]*(?![\s\S])'
+    refusal: Supply the Forgejo destination as owner/repository.
+    on_failure: exit
+
+  - step: require_answer_matches
+    answer: forgejo_organisations
+    pattern: '^[A-Za-z0-9][A-Za-z0-9_.-]*(,[A-Za-z0-9][A-Za-z0-9_.-]*)*(?![\s\S])'
+    refusal: Supply comma-separated organisation names without empty members or whitespace.
     on_failure: exit
 
   # THE ONE TOOL THIS PROGRAM IS, ASKED FOR BEFORE ANYTHING USES IT. Every step below is git — the

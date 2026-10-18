@@ -115,6 +115,8 @@ defaults:
   # apart from the cluster's own accounts, groups are not, and the binding names the bare group.
   groups_prefix: ''
 steps:
+  # NO STEP READS TWO ANSWERS: that the organisations include the owner of each repository is refused by
+  # the producer of the Argo CD machine user (forgejo-machine-user.sh.tpl), before it calls Forgejo.
   - step: require_answer_matches
     answer: forgejo_platform_repository
     pattern: '^[A-Za-z0-9][A-Za-z0-9_.-]*/[A-Za-z0-9][A-Za-z0-9_.-]*(?![\s\S])'

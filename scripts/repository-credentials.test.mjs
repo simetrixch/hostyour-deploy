@@ -14,14 +14,15 @@ const names = ['forgejo_platform_repository', 'forgejo_deploy_repository', 'forg
 const valid = {forgejo_platform_repository: 'platform-team/platform', forgejo_deploy_repository: 'deploy-team/deploy', forgejo_organisations: 'platform-team,deploy-team'};
 const checks = program => program.steps.filter(s => s.step === 'require_answer_matches' && names.includes(s.answer));
 
-function contract(program) {
+// deploy-branch refuses a master below its floor before any other row, so its Forgejo rows follow that one.
+function contract(program, start) {
   for (const name of names) {
     assert.equal(program.answers.find(a => a.name === name)?.required, true, name);
     const row = checks(program).find(s => s.answer === name);
     assert.ok(row, `no validation for ${name}`);
     assert.equal(row.on_failure, 'exit');
     assert.equal(row.when, undefined);
-    assert.equal(program.steps.indexOf(row), names.indexOf(name));
+    assert.equal(program.steps.indexOf(row), start + names.indexOf(name));
     assert.match(valid[name], new RegExp(row.pattern));
     assert.doesNotMatch('', new RegExp(row.pattern));
     for (const value of name === 'forgejo_organisations' ? ['one,,two', ',one', 'one,', 'one, two', 'one\n'] : ['one/', '/two', 'one/two/three', '../two', 'one/two\n', "one/a'b"]) {
@@ -31,13 +32,13 @@ function contract(program) {
 }
 
 test('both entry points require and validate Forgejo destinations before any mutable row', () => {
-  contract(branch); contract(services);
-  for (const change of [p => { p.answers.find(a => a.name === names[0]).required = false; }, p => p.steps.shift(), p => p.steps.push(p.steps.shift()), p => { checks(p)[0].pattern = '.*'; }]) {
+  contract(branch, 1); contract(services, 0);
+  for (const change of [p => { p.answers.find(a => a.name === names[0]).required = false; }, p => p.steps.splice(1, 1), p => p.steps.push(...p.steps.splice(1, 1)), p => p.steps.unshift(...p.steps.splice(1, 3)), p => { checks(p)[0].pattern = '.*'; }]) {
     const planted = structuredClone(branch); change(planted);
-    assert.throws(() => contract(planted));
+    assert.throws(() => contract(planted, 1));
   }
   const innocent = structuredClone(branch); checks(innocent)[0].refusal += ' Please check the installation.';
-  contract(innocent);
+  contract(innocent, 1);
 });
 
 test('the installation file carries only configured destinations and the Forgejo host', () => {
