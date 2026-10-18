@@ -2736,11 +2736,29 @@ steps:
   # of digita-testkit, which signs in as each and reads the address Plane shows. The first is invited to
   # Plane's workspace; the second is the account Plane must refuse.
   #
-  # IT ALSO INVITES THE PEOPLE WHO USE PLANE, because Plane admits nobody who is not invited. Every
-  # active site administrator of Forgejo is invited as an Admin at each run, and the answer
-  # plane_further_people names the others, one per line as an address and a role. An administrator is
-  # whoever the identity provider's group `admins` signs in to Forgejo, so an installation has none
-  # until one has signed in to Forgejo once.
+  # IT ALSO INVITES THE PEOPLE WHO USE PLANE, because Plane admits nobody who is not invited. The
+  # administrator of the platform is akadmin of the identity provider, whose address the producer
+  # reads from Authentik with the API token above, and is invited as an Admin at each run; the answer
+  # plane_further_people names the others, one per line as an address and a role.
+  #
+  # THE FURTHER PEOPLE REACH THE PRODUCER AS A FILE, which it reads as data and checks line by line,
+  # never as text of its own source: an entry of the answer is written by a person, and a line
+  # spliced into a program is that program.
+  #
+  # AKADMIN HAS NO ADDRESS UNTIL SOMEBODY WALKS THE PROVIDER'S OUT-OF-BOX FLOW, so a first installation
+  # has no administrator to invite and goes on with the test account alone. The row after the
+  # producer names that state in the run record and fails without stopping the deployment, and the
+  # next run invites.
+  - step: write_file_from_template
+    template: ansiwise/templates/plane-further-people.tpl
+    path: /run/plane-further-people.txt
+    file_mode: 384
+    elevated: true
+    values:
+      plane-further-people: { answer: plane_further_people, join: "\n" }
+    when: [secret_store_enabled, books_here_in_answers, build_plane_here_in_answers, plane_runs_here]
+    on_failure: exit
+
   - step: write_file_from_template
     template: ansiwise/templates/plane-sign-in.sh.tpl
     path: /run/plane-sign-in.sh
@@ -2755,7 +2773,9 @@ steps:
       forgejo-plane-access-module: /run/forgejo-plane-access.py
       plane-test-account-email: simplidigita.ai+plane-sign-in@gmail.com
       plane-test-uninvited-email: simplidigita.ai+plane-sign-in-uninvited@gmail.com
-      plane-further-people: { answer: plane_further_people, join: "\n" }
+      plane-further-people-file: /run/plane-further-people.txt
+      books-fqdn: { answer: books_fqdn }
+      authentik-token-file: /srv/hostyour-cloud/secrets/idp-api-token.txt
     when: [secret_store_enabled, books_here_in_answers, build_plane_here_in_answers, plane_runs_here]
     on_failure: exit
 
@@ -2768,6 +2788,21 @@ steps:
     fields: [client-id, client-secret, limited-user-ids]
     when: [secret_store_enabled, books_here_in_answers, build_plane_here_in_answers, plane_runs_here]
     on_failure: exit
+
+  # Only looks: the producer in the mode that asks Authentik for the address of akadmin and says so, or
+  # says why it has none. The failure is the record, and nothing else of the deployment depends on it.
+  - step: wait_for_command_output
+    rests_on_an_earlier_step: true
+    waiting_for: the administrator of Plane to be known to Authentik
+    command: bash
+    command_arguments: [/run/plane-sign-in.sh, --administrator]
+    answer: administrator known
+    elevated: true
+    keep_output: true
+    timeout_seconds: 1
+    interval_seconds: 1
+    when: [secret_store_enabled, books_here_in_answers, build_plane_here_in_answers, plane_runs_here]
+    on_failure: continue
 
   # Until the account is registered, no certificate on this cluster can be issued. Recorded rather
   # than fatal, and only where this installation asks the public authority at all.
@@ -2905,7 +2940,8 @@ answers:
     required: false
     default: []
     describes: >-
-      The people who sign in to Plane beside the administrators of Forgejo, who are invited to the
-      workspace as Admin at every run without being named here. One person per entry, written as an
-      address and a role, for example "person@example.test member". The role is admin, member or guest.
-      Leave it empty where the administrators are the only people who use Plane.
+      The people who sign in to Plane beside the administrator of the identity provider, who is invited
+      to the workspace as Admin at every run, by the address Authentik holds for akadmin, without
+      being named here. One person per entry, written as an address and a role, for example
+      "person@example.test member". The role is admin, member or guest. Leave it empty where the
+      administrator is the only person who uses Plane.

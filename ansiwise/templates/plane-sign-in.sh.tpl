@@ -8,7 +8,9 @@ import json
 import re
 import secrets
 import sys
+import urllib.error
 import urllib.parse
+import urllib.request
 
 try:
     spec = importlib.util.spec_from_file_location('forgejo_plane_access', '<forgejo-plane-access-module>')
@@ -33,16 +35,18 @@ UNINVITED = '<plane-test-uninvited-email>'
 TEST_EMAILS = (INVITED, UNINVITED)
 # Plane's workspace roles (plane/db/models/workspace.py ROLE_CHOICES in v1.4.2).
 ROLES = {'admin': 20, 'member': 15, 'guest': 5}
-# The people the installation names beside its administrators, one per line as an address and a role. The
-# installation's own answer fills this: no address of a person stands in a repository.
-FURTHER_PEOPLE = r'''
-<plane-further-people?>
-'''
+# The people the installation names beside its administrator, one per line as an address and a role, in a file
+# the deployment writes: the installation's own answer fills it, and no address of a person stands in a repository.
+# It is read as data and never as part of this program.
+FURTHER_PEOPLE_FILE = '<plane-further-people-file>'
+# The administrator of the platform is akadmin, the account of Authentik's own bootstrap that its out-of-box flow
+# gives an address, so Plane's administrator is invited by that address. The API token is the one the deployment
+# keeps for the books cluster's Authentik.
+AUTHENTIK = 'https://idp.<books-fqdn>'
+AUTHENTIK_TOKEN_FILE = '<authentik-token-file>'
 # Forgejo creates an account at its first sign-in with its global defaults, which the accounts of the
 # platform's own people share, so these two are limited afterwards, one by one.
 LIMITS = {'max_repo_creation': 0, 'allow_create_organization': False}
-APPLY = access.start('Plane sign-in provisioning', '<forgejo-namespace>', '<forgejo-pod-selector>',
-                     '<forgejo-container>', BOOTSTRAP)
 
 # Plane's Gitea sign-in through our Forgejo, and every other way into Plane off; the instance
 # administrator's /god-mode sign-in reads none of these and stays.
@@ -136,8 +140,14 @@ with transaction.atomic():
                 invite.save(update_fields=['accepted', 'role'])
 answer(admission())
 '''
-ADDRESS = re.compile(r'[^@\s,]+@[^@\s,]+\.[^@\s,]+')
 HOST = re.compile(r'[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+')
+# The characters RFC 5322 allows in the local part of an address without quoting.
+LOCAL = re.compile(r"[a-z0-9.!#$%&'*+/=?^_`{|}~-]+", re.IGNORECASE)
+
+
+def is_address(text):
+    local, at, domain = text.partition('@')
+    return at == '@' and LOCAL.fullmatch(local) is not None and HOST.fullmatch(domain.lower()) is not None
 
 
 def ingress_host(namespace, name=None):
@@ -240,13 +250,18 @@ def limited_user_ids(held):
 
 
 def further_people():
-    """The people the installation names beside its administrators, as {address: role}."""
+    """The people the installation names beside its administrator, as {address: role}."""
+    try:
+        with open(FURTHER_PEOPLE_FILE) as handle:
+            lines = handle.read().splitlines()
+    except (OSError, ValueError):
+        refuse('the further people of Plane could not be read; Plane sign-in was not changed')
     named = {}
-    for line in FURTHER_PEOPLE.splitlines():
+    for line in lines:
         fields = line.split()
         if not fields:
             continue
-        if len(fields) != 2 or not ADDRESS.fullmatch(fields[0]) or fields[1].lower() not in ROLES:
+        if len(fields) != 2 or not is_address(fields[0]) or fields[1].lower() not in ROLES:
             refuse('a further person of Plane is not written as an address and a role, admin, member or guest; Plane sign-in was not changed')
         address = fields[0].lower()
         if address in named:
@@ -255,22 +270,57 @@ def further_people():
     return named
 
 
-def workspace_people(accounts):
-    """Whom Plane admits to the workspace, as [{email, role}]: the test account as a Member, every active
-    Forgejo site administrator as an Admin, and the further people in their role. Plane compares the address
-    lower case, so it is written lower case here."""
+def find_administrator():
+    """The address of akadmin as (address, None), or (None, why) where Authentik has none to invite yet. Nothing
+    is refused here: a provider that is still starting, or whose out-of-box flow nobody has walked, stops no
+    installation, and the next run asks again."""
+    try:
+        with open(AUTHENTIK_TOKEN_FILE) as handle:
+            token = handle.read().strip()
+    except (OSError, ValueError):
+        token = ''
+    if not token:
+        return None, 'the API token of the identity provider is not in its file yet'
+    request = urllib.request.Request(AUTHENTIK + '/api/v3/core/users/?username=akadmin',
+                                     headers={'Authorization': 'Bearer ' + token, 'Accept': 'application/json'})
+    try:
+        with access.HTTP.open(request, timeout=access.timeout(10)) as response:
+            raw = response.read()
+    except urllib.error.HTTPError as error:
+        return None, 'the identity provider answered HTTP ' + str(error.code)
+    except (OSError, ValueError):
+        return None, 'the identity provider could not be reached'
+    try:
+        account, = [found for found in json.loads(raw)['results'] if found['username'] == 'akadmin']
+        active, email = account['is_active'], account['email']
+    except (KeyError, TypeError, ValueError):
+        return None, 'the identity provider holds no readable akadmin'
+    if active is not True:
+        return None, 'akadmin is not active'
+    # Until the out-of-box flow sets it, akadmin has no address of a person: none, or root@localhost.
+    if not isinstance(email, str) or not is_address(email):
+        return None, 'akadmin has no address yet'
+    return email.lower(), None
+
+
+def workspace_people(administrator, named):
+    """Whom Plane admits to the workspace, as [{email, role}]: the test account as a Member, the administrator of
+    the identity provider as an Admin where it has an address, and the further people in their role. Plane compares
+    the address lower case, so it is written lower case here."""
     wanted = {INVITED.lower(): ROLES['member']}
-    for name, account in sorted(accounts.items()):
-        if account['admin'] and account['active'] and name != BOOTSTRAP:
-            wanted[account['email'].lower()] = ROLES['admin']
-    for address, role in further_people().items():
+    if administrator is not None:
+        if administrator in [address.lower() for address in TEST_EMAILS]:
+            refuse('the administrator of the identity provider has the address of a Plane test account; Plane sign-in was not changed')
+        wanted[administrator] = ROLES['admin']
+    for address, role in named.items():
         if address in wanted or address == UNINVITED.lower():
-            refuse('a further person of Plane is the test account, a Forgejo administrator or a test address; Plane sign-in was not changed')
+            refuse('a further person of Plane is the test account, the administrator or a test address; Plane sign-in was not changed')
         wanted[address] = role
     return [{'email': address, 'role': role} for address, role in wanted.items()]
 
 
 def exchange():
+    named = further_people()
     try:
         incoming = json.load(sys.stdin)
     except (ValueError, TypeError):
@@ -298,7 +348,8 @@ def exchange():
     if any(account['admin'] for account in tested.values()):
         refuse('a Forgejo account of a Plane test address is a site administrator; Plane sign-in was not changed')
     workspace, _ = access.plane_targets()
-    admitting = {'workspace': workspace, 'people': workspace_people(people)}
+    administrator, _ = find_administrator()
+    admitting = {'workspace': workspace, 'people': workspace_people(administrator, named)}
     wanted = dict(SIGN_IN_OFF, IS_GITEA_ENABLED='1', GITEA_HOST=gitea)
     if not APPLY:
         # Blind to a second application of user plane and to a redirect URI registered beside ours:
@@ -319,9 +370,6 @@ def exchange():
         refuse('Plane has no workspace ' + workspace + '; create it in Plane, then redeploy')
     if invited.get('admitted') is not True:
         refuse('Plane did not keep the invitation of the test account or of a person of the installation')
-    if not any(person['role'] == ROLES['admin'] for person in admitting['people']):
-        sys.stderr.write('no Forgejo administrator exists yet, so nobody is invited to Plane as Admin; '
-                         'sign in to Forgejo once as an administrator of the identity provider, then redeploy\n')
     if BOOTSTRAP in people:
         access.remove_bootstrap()
     if person is None:
@@ -340,6 +388,16 @@ def exchange():
             'limited-user-ids': json.dumps(sorted(account['id'] for account in tested.values()))}
 
 
-access.finish(exchange, LOCK)
+if sys.argv[1:] == ['--administrator']:
+    # The row after the producer asks this: the installer holds the producer's own streams as secret, so none of
+    # their words reaches the run record, and this mode's do.
+    address, why = find_administrator()
+    if address is None:
+        sys.exit('Plane has no administrator to invite yet: ' + why)
+    print('administrator known')
+else:
+    APPLY = access.start('Plane sign-in provisioning', '<forgejo-namespace>', '<forgejo-pod-selector>',
+                         '<forgejo-container>', BOOTSTRAP)
+    access.finish(exchange, LOCK)
 PY
 )" "$@"
