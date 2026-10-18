@@ -597,7 +597,7 @@ test('a Forgejo account of a test address is limited to no repositories and no o
   assert.equal((await outcome(swap("any(account['admin'] for account in tested.values())", 'False'), administrator)).r.code, 0);
 });
 
-// THE PEOPLE WHO USE PLANE (hostyour-deploy#91). Plane admits a person it has no user for only where sign-up is on or an
+// THE PEOPLE WHO USE PLANE. Plane admits a person it has no user for only where sign-up is on or an
 // invitation exists for the address (plane/authentication/adapter/base.py sanitize_email and __check_signup: the address lower case,
 // stripped; with ENABLE_SIGNUP "0", a WorkspaceMemberInvite for it). Sign-up stays off, so the producer invites every active site
 // administrator of Forgejo as an Admin at each run, and the people the installation's answer names in their role.
