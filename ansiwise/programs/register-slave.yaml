@@ -343,6 +343,27 @@ steps:
     owner_label_value: 'true'
     on_failure: exit
 
+  # --- the master's ssh to the slave --------------------------------------------------------------
+  #
+  # The master's own account reaches the slave over ssh with host key checking ON — a read of the
+  # slave's run records is how a failed run on it is understood — and ssh refuses a machine whose key
+  # that account's known hosts do not hold. The key is an ANSWER and nothing here looks it up: a scan
+  # from this machine would record whatever answered, and a key nobody proved is what the check
+  # exists to refuse. The caller got the key out of its own session to the slave, which is refused
+  # unless the machine presents the key the caller has pinned for it, and hands it over.
+  #
+  # The line is written under the name ssh looks the slave up by, which is the host alone for port 22
+  # and `[host]:port` for any other, so the port is an answer too: a line under the bare name is never
+  # read for a slave listening elsewhere.
+  #
+  # A slave rebuilt with a new key gets the new line IN PLACE of the old one the next time this
+  # program runs; the same key already there changes nothing.
+  - step: install_known_host
+    host_answer: slave_ssh_host
+    host_port_answer: slave_ssh_port
+    host_public_key_answer: slave_host_key
+    on_failure: exit
+
 answers:
   - name: master_fqdn
     kind: text
@@ -409,3 +430,39 @@ answers:
       The reviewing credential — the "reviewerToken" value of the slave's credentials file. The
       mount presents it to the slave's own token review on every login, and the probe presents it
       once to prove the wiring.
+
+  # The account of THIS machine, the master — which is not the account the run is aimed at. The
+  # known-hosts row writes that account's file, and the caller states it itself because the
+  # inventory's own answer for this name is the TARGET machine's.
+  - name: operator_user
+    kind: text
+    describes: >-
+      The account on this machine, the master, that reaches the slave over ssh — the one whose known
+      hosts take the slave's host key.
+
+  # NO `shape:`, and that is a decision rather than an omission. An inventory row names its machine by
+  # a domain, by an address or by one label as readily as by a name, and the `hostname` shape refuses
+  # every one but a domain of two labels whose last opens with a letter: 203.0.113.7, apps2 and
+  # 2001:db8::7 would be turned away before the first step, and the slave could not be registered. The
+  # step holds the answer to what a known-hosts line can carry for one machine.
+  - name: slave_ssh_host
+    kind: text
+    describes: >-
+      The name or address the master dials the slave by over ssh — the slave's own address as it
+      answers from outside, an IPv6 address written bare. The known-hosts line is written under this
+      name, because ssh looks a machine up under the name it was asked for.
+
+  - name: slave_ssh_port
+    kind: text
+    describes: >-
+      The port the slave's ssh listens on, as a number from 1 to 65535. It is part of the name ssh
+      looks the slave up under: the known-hosts line for a port other than 22 stands under
+      `[host]:port`, and a line under the bare host is never read for it. There is no default: a port
+      guessed wrong writes a line the master's ssh never reads.
+
+  - name: slave_host_key
+    kind: text
+    describes: >-
+      The slave's ssh host key as one public-key line, "<type> <base64>" — the key the caller's own
+      session to the slave presented while it was held to the key pinned for it. It is public: a
+      machine hands it to everybody who connects.

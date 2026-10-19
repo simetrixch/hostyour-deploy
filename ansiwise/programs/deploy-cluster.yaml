@@ -885,7 +885,7 @@ steps:
   # with no entry here is refused rather than passed over, so the two lists cannot drift apart.
   - step: require_cli_tool_versions
     tools:
-      - ansiwise=0.8.323-stable-20261019120229
+      - ansiwise=0.8.324-stable-20261019163309
       - argocd=v3.5.5
       - vault=v2.0.3
       - yq=v4.53.3
