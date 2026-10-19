@@ -93,12 +93,13 @@ test('the producer renders under the engine\'s slot rule with exactly each row\'
 
 // A stand-in for the pinned Forgejo 15.0.10 routes the producer calls: collaborators, teams, tokens and
 // the user's own view. A user sees a repository by an explicit grant, by a team over all repositories
-// of its organisation, or, unrestricted, as a public one.
+// of its organisation, or, unrestricted, as a public one. `restricted: false` makes the existing user
+// unrestricted, and `ownerIsAdmin` makes the owners of the repositories administrators.
 async function fixture(user, options = {}) {
   const {render, writer} = rowsOf(program.steps, user);
   const directory = await mkdtemp(join(tmpdir(), 'forgejo-machine-user-'));
   const users = new Map([['akadmin', {email: 'akadmin@hostyour.invalid', admin: true, restricted: false, active: true}]]);
-  if (options.exists) users.set(user, {email: user + '@hostyour.invalid', admin: options.admin ?? false, restricted: true, active: true});
+  if (options.exists) users.set(user, {email: user + '@hostyour.invalid', admin: options.admin ?? false, restricted: options.restricted ?? true, active: true});
   const repos = new Map([PLATFORM, DEPLOY, OTHER].map(n => [n, {private: true, grants: new Map(options.granted?.[n] ?? [])}]));
   const teams = new Map(), tokens = new Map(), requests = [];
   let generation = 0;
@@ -152,7 +153,15 @@ async function fixture(user, options = {}) {
       if (!repos.has(name)) return send(404);
       if (req.method === 'PUT') { repos.get(name).grants.set(who, JSON.parse(text).permission); return send(204); }
       const has = right(who, name), u = users.get(who);
-      if (permission && req.method === 'GET') return send(200, {permission: has ?? 'none', user: {login: who, is_admin: u.admin, restricted: u.restricted, active: u.active}});
+      // Forgejo 15.0.10 and 17.0.0 build the user block of this answer as the REPOSITORY OWNER sees it
+      // (routers/api/v1/repo/collaborators.go passes ctx.User(), which on a /repos/{owner}/{repo} route
+      // is the owner), not as the signed-in administrator does. An owner who is neither an administrator
+      // nor the collaborator sees `is_admin` and `active` as false, whatever the account is.
+      if (permission && req.method === 'GET') return send(200, {permission: has ?? 'none', user: {login: who, restricted: u.restricted, is_admin: options.ownerIsAdmin ? u.admin : false, active: options.ownerIsAdmin ? u.active : false}});
+    }
+    if (path === `/api/v1/users/${user}` && basic && req.method === 'GET') {
+      const u = users.get(user);
+      return u ? send(200, {login: user, is_admin: u.admin, restricted: u.restricted, active: u.active}) : send(404);
     }
     const org = path.match(/^\/api\/v1\/orgs\/([^/]+)\/teams$/)?.[1];
     if (org && basic) {
@@ -174,7 +183,7 @@ async function fixture(user, options = {}) {
   const port = server.address().port;
   const clean = async () => { server.closeAllConnections(); await new Promise(resolve => server.close(resolve)); await rm(directory, {recursive: true, force: true}); };
   let producer, kubectl;
-  try { ({producer, kubectl} = await writeProducer(directory, TEMPLATE, {...filled(render.values), ...options.values}, {mutate: options.mutate, port})); } catch (error) { await clean(); throw error; }
+  try { ({producer, kubectl} = await writeProducer(directory, TEMPLATE, {...filled(render.values), ...options.values}, {mutate: options.mutate, mutateModule: options.mutateModule, port})); } catch (error) { await clean(); throw error; }
   const run = (entry, mode = '--apply') => new Promise((resolve, reject) => {
     const child = spawn('bash', [producer, mode, '--', kubectl], {cwd: directory});
     let stdout = '', stderr = ''; child.stdout.on('data', d => stdout += d); child.stderr.on('data', d => stderr += d);
@@ -202,6 +211,47 @@ test('a bump user is created restricted, granted write on its one repository, an
       const again = await f.run(expected(user, f.TOKEN)); assert.equal(again.code, 0, again.stderr);
       assert.equal(f.generation, 1);
       const check = await f.run(expected(user, f.TOKEN), '--check'); assert.deepEqual(JSON.parse(check.stdout), {satisfied: true});
+    } finally { await f.clean(); }
+  }
+});
+
+// The account as the repository owner sees it: the read the producer used to make of a grant.
+const READS_THE_OWNERS_VIEW = module => [
+  ["api('GET', '/users/' + user, auth, (200,))", "api('GET', '/repos/' + repo + '/collaborators/' + user + '/permission', auth, (200,))"],
+  ["person = object_json(raw, 'Forgejo user')", "person = object_json(raw, 'Forgejo user').get('user', {})"],
+].reduce((text, [from, to]) => { assert.ok(text.includes(from), 'the planted read replaces ' + from); return text.replace(from, to); }, module);
+
+test('a bump user is granted on a repository an organisation owns, where Forgejo shows the collaborator as its owner sees it', async () => {
+  for (const user of ['hostyour-cloud-bump', 'deploy-bump']) {
+    // The failing state of the master redeploy of 2026-10-19: the owner is not an administrator.
+    const f = await fixture(user);
+    try {
+      const r = await f.run(null); assert.equal(r.code, 0, r.stderr);
+      assert.deepEqual(JSON.parse(r.stdout), expected(user, f.TOKEN));
+      assert.equal(f.right(user, REACH[user]), 'write');
+    } finally { await f.clean(); }
+    // PLANTED: the account read from the owner's view of the grant (red).
+    const owners = await fixture(user, {mutateModule: READS_THE_OWNERS_VIEW});
+    try {
+      const r = await owners.run(null); assert.notEqual(r.code, 0); assert.match(r.stderr, new RegExp(user + ' is not an active restricted non-admin user'));
+    } finally { await owners.clean(); }
+    // INNOCENT: an administrator owns the repository, so the owner's view is the full account.
+    const administered = await fixture(user, {ownerIsAdmin: true, mutateModule: READS_THE_OWNERS_VIEW});
+    try {
+      const r = await administered.run(null); assert.equal(r.code, 0, r.stderr);
+      assert.equal(administered.right(user, REACH[user]), 'write');
+    } finally { await administered.clean(); }
+  }
+});
+
+test('an existing bump user that is not restricted is refused before any grant', async () => {
+  for (const user of ['hostyour-cloud-bump', 'deploy-bump']) {
+    // PLANTED: an unrestricted account of the user's name (red).
+    const f = await fixture(user, {exists: true, restricted: false});
+    try {
+      const r = await f.run(null); assert.notEqual(r.code, 0); assert.match(r.stderr, new RegExp(user + ' is not an active restricted non-admin user'));
+      assert.deepEqual(f.requests.filter(q => q.method !== 'GET'), [], 'nothing was granted');
+      assert.equal(f.generation, 0);
     } finally { await f.clean(); }
   }
 });

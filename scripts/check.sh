@@ -43,6 +43,9 @@ echo "check: $parsed YAML file(s) parse."
 # What the ci of the master reads of this tree before it runs it: the tools it installs and the commit of ansiwise-cli it binds to.
 yq -p=json -o=yaml e '.' "$ROOT/ci-tools.json" "$ROOT/ci-sources.json" >/dev/null || fail 'ci-tools.json or ci-sources.json does not parse'
 bash -n "$ROOT/scripts/cli-checkout.sh" || fail 'CLI checkout Bash syntax'
+bash -n "$ROOT/scripts/test.sh" || fail 'test entry point Bash syntax'
+bash -n "$ROOT/scripts/test-pool.test.sh" || fail 'test pool check Bash syntax'
+echo "check: NOT RUN locally — scripts/test-pool.test.sh; runs in the ci of the master via scripts/test.sh."
 node --check "$ROOT/scripts/cli-checkout.test.mjs" || fail 'CLI checkout check syntax'
 echo "check: NOT RUN locally — scripts/cli-checkout.test.mjs; runs in the ci of the master via scripts/test.sh."
 node --check "$ROOT/scripts/onboard-manager.test.mjs" || fail 'Manager onboarding access check syntax'
@@ -68,6 +71,8 @@ node --check "$ROOT/scripts/traefik-dashboard.test.mjs" || fail 'traefik dashboa
 echo 'check: NOT RUN locally — scripts/traefik-dashboard.test.mjs; runs in the ci of the master via scripts/test.sh.'
 node --check "$ROOT/scripts/traefik-access-log.test.mjs" || fail 'traefik access log check syntax'
 echo 'check: NOT RUN locally — scripts/traefik-access-log.test.mjs; runs in the ci of the master via scripts/test.sh.'
+node --check "$ROOT/scripts/observability-query-slot.test.mjs" || fail 'observability query slot check syntax'
+echo 'check: NOT RUN locally — scripts/observability-query-slot.test.mjs; runs in the ci of the master via scripts/test.sh.'
 node --check "$ROOT/scripts/traefik-cpu-request.test.mjs" || fail 'traefik cpu request check syntax'
 echo 'check: NOT RUN locally — scripts/traefik-cpu-request.test.mjs; runs in the ci of the master via scripts/test.sh.'
 node --check "$ROOT/scripts/prune-unused-images.test.mjs" || fail 'prune unused images check syntax'

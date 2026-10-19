@@ -531,14 +531,22 @@ steps:
   # replacement pod cannot be created while the old one holds the machine's ports, so a patch
   # without it looks like it succeeded while the running controller keeps its old arguments.
   #
-  # THE ACCESS LOG KEEPS METADATA ONLY: every field is dropped unless named here. In Traefik v3.6.2
-  # RequestPath carries the query, ClientHost is the raw X-Forwarded-For, RequestHost and
-  # RequestMethod are text the caller chooses, and TLSClientSubject names a client; none of them may
-  # reach a log. ClientAddr is the socket peer: behind Cloudflare it names the edge, never the
-  # visitor. The lines are JSON, because the common format has no place for ClientAddr or
-  # ServiceName. The step only appends, so a changed value would stand beside the old one: each
-  # argument here keeps its value. scripts/traefik-access-log.test.mjs runs these arguments on the
-  # v3.6.2 binary.
+  # THE ACCESS LOG KEEPS WHAT THE SITE STATISTICS COUNT AND NOTHING ELSE: every field is dropped
+  # unless named here. The statistics are counted on the observability plane from this log, so the
+  # engines of a tenant do no work per request and store nothing (hostyour-cloud, the
+  # site-telemetry service). Kept besides the metadata: RequestHost (matched against the hosts the
+  # tenant's registration names, so a caller's own text never selects a tenant), RequestPath, and the
+  # headers Referer, User-Agent, Accept-Language and CF-IPCountry.
+  #
+  # RequestPath CARRIES THE QUERY in Traefik v3.6.2, and no field holds the path alone, so a token
+  # in a URL stands in this line. The shipper cuts the query before the line reaches Loki and the
+  # statistics cut it again before counting; the line on the controller's own stdout, on the node,
+  # keeps it until the kubelet rotates the file. ClientHost (the raw X-Forwarded-For),
+  # RequestMethod, the Authorization and Cookie headers and TLSClientSubject stay dropped. ClientAddr
+  # is the socket peer: behind Cloudflare it names the edge, never the visitor. The lines are JSON,
+  # because the common format has no place for ClientAddr or ServiceName. The step only appends, so a
+  # changed value would stand beside the old one: each argument here keeps its value.
+  # scripts/traefik-access-log.test.mjs runs these arguments on the v3.6.2 binary.
   #
   # NO forwardedHeaders ARGUMENT, on purpose: nothing stands in front of this controller, and with
   # neither `insecure` nor `trustedIPs` set Traefik deletes every X-Forwarded-* and X-Real-Ip a peer
@@ -561,6 +569,12 @@ steps:
       - --accesslog.fields.names.DownstreamStatus=keep
       - --accesslog.fields.names.Duration=keep
       - --accesslog.fields.names.DownstreamContentSize=keep
+      - --accesslog.fields.names.RequestHost=keep
+      - --accesslog.fields.names.RequestPath=keep
+      - --accesslog.fields.headers.names.Referer=keep
+      - --accesslog.fields.headers.names.User-Agent=keep
+      - --accesslog.fields.headers.names.Accept-Language=keep
+      - --accesslog.fields.headers.names.CF-IPCountry=keep
     ports: []
     rollout_timeout_seconds: 90
     on_failure: continue
@@ -871,7 +885,7 @@ steps:
   # with no entry here is refused rather than passed over, so the two lists cannot drift apart.
   - step: require_cli_tool_versions
     tools:
-      - ansiwise=0.8.322-stable-20261019030201
+      - ansiwise=0.8.323-stable-20261019120229
       - argocd=v3.5.5
       - vault=v2.0.3
       - yq=v4.53.3

@@ -53,6 +53,8 @@ with the Dart and the Traefik that `ci-tools.json` names. Read its runs on the m
 `hostyour-deploy-ci-*` in the namespace `hostyour-deploy-build`, or as the commit status `tekton/ci`. A branch
 that does not start with `ci/` is judged by the push gate on the machine only.
 
+The test entry point runs its suites `TEST_JOBS` at a time (4 unless set) and prints a failed suite in full.
+
 `scripts/traefik-access-log.test.mjs` runs the ingress controller's declared access-log arguments on that
 Traefik, the version the MicroK8s ingress addon ships. The test entry point runs
 `dart test test/checks/config_validity_test.dart` in the `ansiwise-cli` tree that `scripts/cli-checkout.sh` names, with `ANSIWISE_INSTALLATION` set to this tree: the commit
