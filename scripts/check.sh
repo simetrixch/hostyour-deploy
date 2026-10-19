@@ -67,6 +67,8 @@ node --check "$ROOT/scripts/traefik-dashboard.test.mjs" || fail 'traefik dashboa
 echo 'check: NOT RUN locally — scripts/traefik-dashboard.test.mjs; runs in the ci of the master via scripts/test.sh.'
 node --check "$ROOT/scripts/traefik-access-log.test.mjs" || fail 'traefik access log check syntax'
 echo 'check: NOT RUN locally — scripts/traefik-access-log.test.mjs; runs in the ci of the master via scripts/test.sh.'
+node --check "$ROOT/scripts/observability-query-slot.test.mjs" || fail 'observability query slot check syntax'
+echo 'check: NOT RUN locally — scripts/observability-query-slot.test.mjs; runs in the ci of the master via scripts/test.sh.'
 node --check "$ROOT/scripts/traefik-cpu-request.test.mjs" || fail 'traefik cpu request check syntax'
 echo 'check: NOT RUN locally — scripts/traefik-cpu-request.test.mjs; runs in the ci of the master via scripts/test.sh.'
 node --check "$ROOT/scripts/prune-unused-images.test.mjs" || fail 'prune unused images check syntax'
