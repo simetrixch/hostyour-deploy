@@ -494,6 +494,22 @@ answers:
       "no Cloudflare zone found", which is what an empty zone list reads as. The name says DNS for
       that reason (hostyour-deploy#28).
 
+  - name: cloudflare_zone_settings_api_token
+    kind: text
+    required: false
+    secret: true
+    describes: >-
+      A Cloudflare API token with Zone, Zone Settings, Edit on all zones of the account, which is every
+      zone the DNS token above reaches. Only the Manager holds it: it turns Email Obfuscation off on a
+      zone before it writes a proxied record there, so the pages of a tenant's own domain reach its
+      visitors as the server rendered them. Nothing else reads it: not cert-manager, not the mail
+      publishers, not this program's wildcard record.
+
+      Optional, and the Manager says so by name where it is missing: a proxied write fails with an error
+      naming CLOUDFLARE_ZONE_SETTINGS_API_TOKEN before any record is written. Enter it before the
+      Manager release that needs it. A narrower scope than all zones makes the first proxied write on a
+      zone outside it fail the same way.
+
   - name: cloudflare_r2_api_token
     kind: text
     required: false
@@ -1039,6 +1055,7 @@ steps:
       GITHUB_APP_INSTALLATION_ID: { answer: github_app_installation_id }
       GITHUB_APP_PRIVATE_KEY: { answer: github_app_private_key }
       CLOUDFLARE_DNS_API_TOKEN: { answer: cloudflare_dns_api_token }
+      CLOUDFLARE_ZONE_SETTINGS_API_TOKEN: { answer: cloudflare_zone_settings_api_token }
       CLOUDFLARE_ORIGIN_PULL_CA: { answer: cloudflare_origin_pull_ca }
       CLOUDFLARE_R2_API_TOKEN: { answer: cloudflare_r2_api_token }
       CLOUDFLARE_R2_ACCOUNT_ID: { answer: cloudflare_r2_account_id }
