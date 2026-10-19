@@ -54,6 +54,7 @@ suite node scripts/plane.test.mjs 'Plane gets every secret from one minted entry
 suite node scripts/plane-test-account.test.mjs 'the Plane sign-in test accounts get their passwords from one minted entry the e2e runner reads alone'
 suite node scripts/owned-storage.test.mjs 'the installer downloads its tools and bootstrap charts from the owner mirror alone'
 suite node scripts/forgejo-webhook.test.mjs 'the Forgejo webhook key stands in an entry of its own'
+suite node scripts/register-slave-known-host.test.mjs 'register-slave puts the slave host key into the master known hosts and nothing turns host key checking off'
 suite python scripts/tenant-stage-proof.test.py 'tenant stage permission proof'
 suite bash scripts/test-pool.test.sh 'the pool of this script runs suites at once, hands the CLI tree to the suites that start the CLI, and ends red for a failed suite, a skipped Dart suite and one that left no status'
 
