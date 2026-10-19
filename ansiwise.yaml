@@ -321,13 +321,15 @@ conditions:
   # somewhere else — so "does this machine hold the branch" and "does the branch exist" are two
   # different questions, and only the second decides which spine is right.
   #
-  # THE FIRST READ CARRIES THE CREDENTIAL THE RUN ANSWERS UNDER `platform_repo_read_pat`, where it
-  # answers one: the platform repository on Forgejo is private, and a read with nothing is refused.
-  # From the second run of the program onward the checkout carries the credential helper an earlier
-  # run wrote into its own git directory, so the read carries a credential without anything new being
-  # arranged. Nothing is presented where the run answers no such credential, which is the read a
-  # repository served to anybody is asked with. A remote that could not be ASKED refuses the run
-  # rather than answering "it does not publish it".
+  # THE READ PRESENTS WHAT THE CHECKOUT CARRIES AND NOTHING ELSE. Where the platform repository is on
+  # Forgejo, which holds it private, deploy-host's clone is followed by a row that writes the read
+  # credential into the checkout's own git directory and points the checkout's helper at it (and
+  # deploy-branch writes the write credential there at a birth). A checkout that carries no helper
+  # asks the way a repository served to anybody is asked, which is how a platform repository on
+  # github.com is read. No credential is named here, because every condition of a program is measured
+  # before its first step: one that named a credential would put it on the network for a server that
+  # never asked. A remote that could not be ASKED refuses the run rather than answering "it does not
+  # publish it".
   #
   # TWO NAMES OVER ONE READING, the shape certificates_enabled and certificates_withheld already
   # have: a `not:` behind `when:` would be an operator, and an operator is where a program file
@@ -337,13 +339,9 @@ conditions:
     repository: /srv/hostyour-cloud
     remote: origin
     name_answer: fqdn
-    credential_answer: platform_repo_read_pat
-    credential_user: oauth2
 
   install_branch_unpublished:
     predicate: remote_lacks_branch
     repository: /srv/hostyour-cloud
     remote: origin
     name_answer: fqdn
-    credential_answer: platform_repo_read_pat
-    credential_user: oauth2

@@ -440,8 +440,9 @@ answers:
       This is the READER, used by every part of the installation that only syncs and never commits.
       Two credentials rather than one, so a component that only reads cannot rewrite the books of
       every cluster. Where the platform repository is served from Forgejo it holds a Forgejo access
-      token with read on that repository instead, and the first look of this program at the remote
-      is made with it.
+      token for that repository instead, which the Manager gives from its own token and which may
+      therefore write; the first look of this program at the remote presents what deploy-host left
+      in the checkout.
 
   - name: github_app_id
     kind: text

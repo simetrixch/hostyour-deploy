@@ -293,6 +293,22 @@ steps:
     credential_user: oauth2
     on_failure: exit
 
+  # THE CHECKOUT KEEPS THE READ CREDENTIAL FOR THE READS THAT FOLLOW, on Forgejo alone. The clone above
+  # presents it once, in the environment of its own command, and the address it stores carries none;
+  # deploy-branch asks the remote whether the installation's branch is published before its first
+  # step, and only a checkout that carries a helper can answer a private repository. THIS ROW IS
+  # WHAT PUTS THE CREDENTIAL IN THE CHECKOUT AT REST, in the same owner-only file inside the git
+  # directory where deploy-branch writes the write credential, so the read and the write credential
+  # share one file and the last row to run decides which of the two the checkout presents. The
+  # github.com row writes nothing, and a run there asks anonymously, as before.
+  - step: git_push_credential
+    when: [platform_on_forgejo_in_answers]
+    repository: /srv/hostyour-cloud
+    remote: origin
+    credential_answer: platform_repo_read_pat
+    credential_user: oauth2
+    on_failure: exit
+
   # THE ENGINE'S OWN STATE, AND THE LAST PLACE ROOT AND THE OPERATOR MEET. Every run this machine
   # ever performs writes its record under /var/lib/ansiwise/runs — one directory per run, holding
   # the header and the events an operator reads when a step fails. Nothing declares that directory:
@@ -376,7 +392,8 @@ answers:
       The credential the platform repository is read with where it is served from Forgejo, which holds
       it private: a Forgejo access token with read on that one repository. A run that clones from
       Forgejo and holds none is refused by this name at the clone. Unused where the tree is still
-      served from github.com.
+      served from github.com. The Manager hands its token for the repository, which is a write token
+      and is kept in the checkout's git directory at mode 0600.
 
   - name: platform_branch
     kind: text
