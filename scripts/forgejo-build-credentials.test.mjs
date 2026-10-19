@@ -213,6 +213,11 @@ async function fixture(options = {}) {
       for (const [value, t] of tokens) if (t.owner === USER && t.name === USER) tokens.delete(value);
       return send(204);
     }
+    if (path === '/api/v1/users/' + USER && req.method === 'GET') {
+      if (!basic) return send(403);
+      const u = users.get(USER);
+      return u ? send(200, {login: USER, is_admin: u.admin, restricted: u.restricted, active: u.active}) : send(404);
+    }
     const repoPath = path.match(/^\/api\/v1\/repos\/([^/]+\/[^/]+)(\/.*)$/);
     if (repoPath) {
       if (!scoped('repository')) return send(403, TOKEN);
