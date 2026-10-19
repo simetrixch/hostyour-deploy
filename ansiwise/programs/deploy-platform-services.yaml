@@ -2959,7 +2959,7 @@ steps:
     elevated: true
     values:
       forgejo-ssh-port: { answer: forgejo_ssh_port }
-      fqdn: { answer: fqdn }
+      forgejo-host: { answer: forgejo_host }
     when: [secret_store_enabled, books_here_in_answers, build_plane_here_in_answers, plane_runs_here]
     on_failure: exit
 
@@ -3125,6 +3125,17 @@ answers:
       The organisations whose repositories Argo CD reads, comma-separated, covering both destination
       owners. The machine user argocd joins a read-only team of each, covering future repositories.
 
+  # THE HOST THE HOST KEY IS SCANNED AT, and the one host every other row of this installation reaches
+  # Forgejo at: the answer the clone, the root Application and the installation file read, so a key
+  # trusted here is the key of the host the release bump pushes to.
+  - name: forgejo_host
+    kind: text
+    required: true
+    shape: hostname
+    describes: >-
+      The host this installation's Forgejo is served from, without a scheme or a path, spelled as the
+      Manager spells it (FORGEJO_HOST). Its SSH host key is scanned at this host.
+
   # THE PORT THE HOST KEY IS SCANNED ON. The port Forgejo announces in its clone address is the one the
   # router forwards to the master's 2222, which is where Forgejo itself listens. The lifecycle names the
   # announced port in its configuration, and a run that names none scans the listener.
@@ -3133,7 +3144,7 @@ answers:
     required: true
     default: "2222"
     describes: >-
-      The port the SSH host key of Forgejo is scanned on, at forgejo.<fqdn>. The master listens on 2222;
+      The port the SSH host key of Forgejo is scanned on, at forgejo_host. The master listens on 2222;
       name the port the router forwards to it to scan through that forward.
 
   - name: plane_further_people

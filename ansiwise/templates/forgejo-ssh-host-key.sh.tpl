@@ -12,7 +12,7 @@ import subprocess
 import sys
 
 PORT = '<forgejo-ssh-port>'
-FQDN = '<fqdn>'
+HOST = '<forgejo-host>'
 FIELD = 'host-key'
 KEY_TYPE = 'ssh-rsa'
 # The wire form of an RSA public key starts with the length of its type name and the name itself.
@@ -24,9 +24,8 @@ def refuse(message):
     sys.exit(message)
 
 
-if not re.fullmatch(r'[0-9]{1,5}', PORT) or not re.fullmatch(r'[a-z0-9]([a-z0-9.-]*[a-z0-9])?', FQDN):
-    refuse('the Forgejo SSH port and the installation address must be a port number and a lowercase host name')
-HOST = 'forgejo.' + FQDN
+if not re.fullmatch(r'[0-9]{1,5}', PORT) or not re.fullmatch(r'[a-z0-9]([a-z0-9.-]*[a-z0-9])?', HOST):
+    refuse('the Forgejo SSH port and the Forgejo host must be a port number and a lowercase host name')
 if len(sys.argv) < 3 or sys.argv[1] not in ('--check', '--apply') or sys.argv[2] != '--':
     refuse('the Forgejo SSH host key expects --check or --apply and the cluster invocation')
 APPLY = sys.argv[1] == '--apply'

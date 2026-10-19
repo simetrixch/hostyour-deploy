@@ -1353,7 +1353,7 @@ steps:
     path: /srv/hostyour-cloud/installation/values/repository-credentials.yaml
     file_mode: 420
     values:
-      fqdn: { answer: fqdn }
+      forgejo-host: { answer: forgejo_host }
       forgejo-platform-repository: { answer: forgejo_platform_repository }
       forgejo-deploy-repository: { answer: forgejo_deploy_repository }
       forgejo-organisations: { answer: forgejo_organisations }

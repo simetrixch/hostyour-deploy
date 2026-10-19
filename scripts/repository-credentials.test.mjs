@@ -48,11 +48,11 @@ test('the installation file carries only configured destinations and the Forgejo
   assert.equal(row.when, undefined);
   assert.equal(row.file_mode, 420);
   assert.deepEqual(row.values, {
-    fqdn: {answer: 'fqdn'}, 'forgejo-platform-repository': {answer: names[0]},
+    'forgejo-host': {answer: 'forgejo_host'}, 'forgejo-platform-repository': {answer: names[0]},
     'forgejo-deploy-repository': {answer: names[1]}, 'forgejo-organisations': {answer: names[2]},
   });
   const template = readFileSync(join(root, row.template), 'utf8');
-  const rendered = template.replace(/<([a-z][a-z0-9-]*)>/g, (_, key) => ({'fqdn': 'master.example.invalid', ...Object.fromEntries(Object.entries(row.values).filter(([key]) => key !== 'fqdn').map(([key, value]) => [key, valid[value.answer]]))})[key]);
+  const rendered = template.replace(/<([a-z][a-z0-9-]*)>/g, (_, key) => ({'forgejo-host': 'forgejo.master.example.invalid', ...Object.fromEntries(Object.entries(row.values).filter(([key]) => key !== 'forgejo-host').map(([key, value]) => [key, valid[value.answer]]))})[key]);
   const dir = mkdtempSync(join(tmpdir(), 'repository-credentials-'));
   try {
     const path = join(dir, 'values.yaml'); writeFileSync(path, rendered);
