@@ -13,6 +13,7 @@ const managerAnswer = 'build_manager_repo_write_pat';
 const managerKey = 'BUILD_HOSTYOUR_MANAGER_REPO_PAT';
 const cloudKey = 'BUILD_HOSTYOUR_CLOUD_REPO_PAT';
 const row = program.steps.find(step => step.step === 'fill_key_value_file' && Object.hasOwn(step.values, cloudKey));
+const appRow = program.steps.find(step => step.step === 'fill_key_value_file' && Object.hasOwn(step.values, 'GITHUB_APP_ID'));
 
 function run(row) {
   const dir = mkdtempSync(join(tmpdir(), 'deploy-branch-secrets-'));
@@ -35,7 +36,7 @@ function run(row) {
     mkdirSync(join(dir, 'programs'));
     writeFileSync(join(dir, 'programs/deploy-branch.yaml'), JSON.stringify(controlled));
     const answers = {stage: 'prod', ...Object.fromEntries(names.map(name => [name, `fixture_${name}`])),
-      [managerAnswer]: pat, build_platform_repo_write_pat: cloudPat};
+      [managerAnswer]: pat, ...(names.includes('build_platform_repo_write_pat') ? {build_platform_repo_write_pat: cloudPat} : {})};
     const binary = process.env.ANSIWISE_BIN;
     const cli = process.env.ANSIWISE_CLI_CHECKOUT;
     assert.ok(binary || cli, 'set ANSIWISE_BIN or ANSIWISE_CLI_CHECKOUT; the file-writing regression must run, never skip');
@@ -48,7 +49,7 @@ function run(row) {
       assert.equal(result.status, 0, result.stdout + result.stderr);
     }
     const generated = readFileSync(join(dir, 'secrets.prod'), 'utf8');
-    return {hasManagerPat: generated.includes(pat), hasCloudPat: generated.includes(cloudPat)};
+    return {hasManagerPat: generated.includes(pat), hasCloudPat: generated.includes(cloudPat), generated};
   } finally {
     rmSync(dir, {recursive: true, force: true});
   }
@@ -74,4 +75,42 @@ test('PLANTED DEFECT: restoring the Manager PAT writer fails the generated-file 
 
 test('PLANTED INNOCENT: the cloud bump PAT still reaches the generated secrets file', () => {
   assert.equal(run(row).hasCloudPat, true);
+});
+
+// THE GITHUB APP'S CREDENTIAL IS FOUR VALUES, and the owner is one of them: Argo CD's repository
+// credential on this installation matches the repository by a prefix, and the prefix is the owner the
+// App is installed for, which no address of the installation gives.
+const appKeys = {GITHUB_APP_ID: 'github_app_id', GITHUB_APP_INSTALLATION_ID: 'github_app_installation_id',
+  GITHUB_APP_PRIVATE_KEY: 'github_app_private_key', GITHUB_APP_OWNER: 'github_app_owner'};
+
+function assertAppCredential(result) {
+  for (const [key, answer] of Object.entries(appKeys)) {
+    assert.ok(result.generated.includes(`${key}="fixture_${answer}"`), `the generated secrets file does not carry ${key}`);
+  }
+}
+
+const services = JSON.parse(execFileSync('yq', ['-o=json', '.', join(root, 'ansiwise/programs/deploy-platform-services.yaml')], {encoding: 'utf8'}));
+const appEntry = steps => steps.find(step => step.step === 'vault_kv_entry' && step.path === '<stage>/app/github-app');
+const appFields = ['app-id=GITHUB_APP_ID', 'installation-id=GITHUB_APP_INSTALLATION_ID', 'private-key=GITHUB_APP_PRIVATE_KEY', 'owner=GITHUB_APP_OWNER'];
+
+test('the Vault entry of the App carries the same four values the secrets file does', () => {
+  assert.deepEqual(appEntry(services.steps).fields, appFields);
+});
+
+test('PLANTED DEFECT: a Vault entry of the App without the owner is refused', () => {
+  const steps = structuredClone(services.steps);
+  appEntry(steps).fields = appFields.slice(0, 3);
+  assert.notDeepEqual(appEntry(steps).fields, appFields);
+});
+
+test('the generated secrets file carries the App id, the installation, the key and the owner', () => {
+  assert.deepEqual(Object.fromEntries(Object.entries(appRow.values).filter(([key]) => key in appKeys).map(([key, value]) => [key, value.answer])), appKeys);
+  assert.equal(program.answers.find(answer => answer.name === 'github_app_owner')?.required, true);
+  assertAppCredential(run(appRow));
+});
+
+test('PLANTED DEFECT: three App values without the owner fail the generated-file assertion', () => {
+  const changed = structuredClone(appRow);
+  delete changed.values.GITHUB_APP_OWNER;
+  assert.throws(() => assertAppCredential(run(changed)), /does not carry GITHUB_APP_OWNER/);
 });

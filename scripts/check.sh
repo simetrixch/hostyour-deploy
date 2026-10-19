@@ -51,6 +51,7 @@ node --check "$ROOT/scripts/deploy-branch-secrets.test.mjs" || fail 'deploy-bran
 echo 'check: NOT RUN locally — scripts/deploy-branch-secrets.test.mjs; runs in the ci of the master via scripts/test.sh.'
 node --check "$ROOT/scripts/repository-credentials.test.mjs" || fail 'repository credentials check syntax'
 echo 'check: NOT RUN locally — scripts/repository-credentials.test.mjs; runs in the ci of the master via scripts/test.sh.'
+node --check "$ROOT/scripts/ansiwise-run.mjs" || fail 'real CLI runner syntax'
 node --check "$ROOT/scripts/deploy-branch-stamp.test.mjs" || fail 'deploy-branch stamp check syntax'
 echo 'check: NOT RUN locally — scripts/deploy-branch-stamp.test.mjs; runs in the ci of the master via scripts/test.sh.'
 node --check "$ROOT/scripts/no-password-persistence.test.mjs" || fail 'no password persistence check syntax'

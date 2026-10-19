@@ -1,8 +1,11 @@
 import assert from 'node:assert/strict';
 import {execFileSync} from 'node:child_process';
+import {mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync} from 'node:fs';
+import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {test} from 'node:test';
 import {fileURLToPath} from 'node:url';
+import {ansiwiseRun} from './ansiwise-run.mjs';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const program = JSON.parse(execFileSync('yq', ['-o=json', '.', join(root, 'ansiwise/programs/deploy-branch.yaml')], {encoding: 'utf8'}));
@@ -74,4 +77,99 @@ test('repository credentials are written before the installation commit, with re
   uncommitted.find(s => s.step === 'git_commit').paths = ['clusters', 'configs'];
   assert.throws(() => assertRepositoryCredentialsCommitted(uncommitted));
   assertRepositoryCredentialsCommitted([...program.steps]);
+});
+
+// THE ROOT APPLICATION'S ADDRESS is stamped from the same pair of answers that chooses deploy-host's
+// clone: the Forgejo host and repository where `platform_repo` and `forgejo_platform_repository` name
+// the same repository, `platform_repo` on github.com where they do not.
+const rootApplication = 'clusters/argocd/root-app.yaml';
+const addressStamps = steps => steps.filter(step => step.step === 'stamp_placeholder_in_tracked_files' && step.tree === rootApplication);
+const wording = stamp => [stamp.placeholder, stamp.value_answer];
+
+function assertRootApplicationAddress(steps, answers) {
+  const forgejo = addressStamps(steps).filter(stamp => stamp.when?.length === 1 && stamp.when[0] === 'platform_on_forgejo_in_answers');
+  const github = addressStamps(steps).filter(stamp => stamp.when?.length === 1 && stamp.when[0] === 'platform_on_github_in_answers');
+  assert.equal(addressStamps(steps).length, forgejo.length + github.length, 'a stamp of the root Application is chosen by neither condition, or by both');
+  assert.deepEqual(forgejo.map(wording), [['github.com', 'forgejo_host'], ['simetrixch/hostyour-cloud', 'forgejo_platform_repository']]);
+  assert.deepEqual(github.map(wording), [['simetrixch/hostyour-cloud', 'platform_repo']]);
+  for (const stamp of addressStamps(steps)) {
+    assert.equal(stamp.on_failure, 'exit');
+    assert.equal(stamp.repository, '/srv/hostyour-cloud');
+    assert.ok(answers.some(answer => answer.name === stamp.value_answer), `${stamp.value_answer} is not declared`);
+  }
+}
+
+test('the root Application address is stamped in a Forgejo form and a GitHub form, each chosen by a condition', () => {
+  assertRootApplicationAddress(program.steps, program.answers);
+  assertStampsCommitted(program.steps);
+});
+
+test('PLANTED DEFECTS: a stamp that keeps github.com on the Forgejo answers, and the other ways the forms fall apart, are refused', () => {
+  const planted = [
+    ['the Forgejo form keeps github.com', steps => steps.splice(steps.indexOf(addressStamps(steps)[0]), 1)],
+    ['the Forgejo form stamps the GitHub repository answer', steps => { addressStamps(steps)[1].value_answer = 'platform_repo'; }],
+    ['the GitHub form is chosen by the Forgejo condition', steps => { addressStamps(steps)[2].when = ['platform_on_forgejo_in_answers']; }],
+    ['a stamp is chosen by no condition', steps => { delete addressStamps(steps)[0].when; }],
+    ['the GitHub form is missing', steps => steps.splice(steps.indexOf(addressStamps(steps)[2]), 1)],
+  ];
+  for (const [name, change] of planted) {
+    const steps = structuredClone(program.steps); change(steps);
+    assert.throws(() => assertRootApplicationAddress(steps, program.answers), undefined, name);
+  }
+  const undeclared = program.answers.filter(answer => answer.name !== 'forgejo_host');
+  assert.throws(() => assertRootApplicationAddress(program.steps, undeclared), /forgejo_host is not declared/);
+  const unused = structuredClone(program.steps);
+  addressStamps(unused)[0].tree = 'clusters';
+  assert.throws(() => assertRootApplicationAddress(unused, program.answers));
+  assertRootApplicationAddress(structuredClone(program.steps), program.answers);
+});
+
+// THE REAL CLI STAMPS THE ADDRESS. The tree carries one line with the github.com address, as the
+// product tree's root-app.yaml does, and the three rows run on a checkout standing on an installation's
+// branch: the forms are chosen by the answers, the Forgejo form rewrites both literals of the address,
+// and a second run finds nothing to do.
+const trunkLine = '    - repoURL: &repo "https://github.com/simetrixch/hostyour-cloud.git"';
+const trunkFile = ['spec:', '  sources:', trunkLine, '      targetRevision: &branch example.invalid', '    - repoURL: *repo', ''].join('\n');
+const stampedTrunk = trunkFile.replace('example.invalid', 'installation.example.org');
+
+const stampRows = program.steps.filter(step => step.step === 'stamp_placeholder_in_tracked_files');
+
+function stampedFile(answers, {runs = 1, rows = stampRows} = {}) {
+  const dir = mkdtempSync(join(tmpdir(), 'root-app-stamp-'));
+  try {
+    const git = (...args) => execFileSync('git', ['-C', dir, '-c', 'user.name=fixture', '-c', 'user.email=fixture@example.invalid', ...args], {encoding: 'utf8'});
+    git('init', '-q', '-b', 'master');
+    mkdirSync(join(dir, 'clusters/argocd'), {recursive: true});
+    writeFileSync(join(dir, rootApplication), trunkFile);
+    git('add', '-A'); git('commit', '-q', '-m', 'trunk'); git('switch', '-q', '-c', 'installation.example.org');
+    const definition = {
+      name: 'deploy-branch', roles: ['master'], defaults: program.defaults,
+      answers: program.answers.filter(answer => ['platform_repo', 'forgejo_platform_repository', 'forgejo_host', 'fqdn'].includes(answer.name)),
+      steps: rows.map(row => ({...row, repository: dir})),
+    };
+    for (let time = 0; time < runs; time += 1) {
+      const result = ansiwiseRun({definition, config: join(root, 'ansiwise.yaml'), modes: ['dry', 'run'], answers});
+      assert.equal(result.code, 0, `${result.mode}: ${result.output}`);
+    }
+    return readFileSync(join(dir, rootApplication), 'utf8');
+  } finally { rmSync(dir, {recursive: true, force: true}); }
+}
+
+const stampAnswers = {fqdn: 'installation.example.org', forgejo_host: 'forgejo.example.org', forgejo_platform_repository: 'forge-org/platform'};
+
+test('REAL CLI: the Forgejo answers point the root Application at Forgejo, today\'s answers keep github.com, and a second run changes nothing', () => {
+  const forgejo = stampedFile({...stampAnswers, platform_repo: 'forge-org/platform'}, {runs: 2});
+  assert.ok(forgejo.includes('    - repoURL: &repo "https://forgejo.example.org/forge-org/platform.git"'), forgejo);
+  assert.ok(!forgejo.includes('github.com'), 'the Forgejo form keeps github.com');
+  assert.ok(forgejo.includes('    - repoURL: *repo'), 'the alias of the address was rewritten');
+  const github = stampedFile({...stampAnswers, platform_repo: 'simetrixch/hostyour-cloud'});
+  assert.equal(github, stampedTrunk);
+  const elsewhere = stampedFile({...stampAnswers, platform_repo: 'someone/platform'});
+  assert.ok(elsewhere.includes('"https://github.com/someone/platform.git"'), elsewhere);
+});
+
+test('PLANTED DEFECT, REAL CLI: a Forgejo form without the host row keeps github.com on the Forgejo answers', () => {
+  const hostRowMissing = stampRows.filter(stamp => stamp.value_answer !== 'forgejo_host');
+  const stamped = stampedFile({...stampAnswers, platform_repo: 'forge-org/platform'}, {rows: hostRowMissing});
+  assert.throws(() => assert.ok(!stamped.includes('github.com'), 'the Forgejo form keeps github.com'), /keeps github.com/);
 });

@@ -101,3 +101,63 @@ test('REAL CLI: production input rows reject missing, empty and malformed values
     }
   }
 });
+
+// THE PLATFORM REPOSITORY'S FORGE IS CHOSEN BY CONDITIONS OVER ANSWERS, so every condition has to be
+// answerable in every program whose rows name it, and the credential pair of the install-branch
+// conditions has to name an answer the program declares.
+const installation = read('ansiwise.yaml');
+const hostProgram = read('ansiwise/programs/deploy-host.yaml');
+const platformConditions = {platform_on_forgejo_in_answers: 'answer_values_agree', platform_on_github_in_answers: 'answer_values_differ'};
+const branchConditions = ['install_branch_published', 'install_branch_unpublished'];
+const namesIn = (program, condition) => program.steps.some(step => step.when?.includes(condition));
+
+function assertConditionsAnswerable(conditions, programs) {
+  for (const [name, predicate] of Object.entries(platformConditions)) {
+    assert.deepEqual(conditions[name], {predicate, answer: 'platform_repo', other_answer: 'forgejo_platform_repository'}, name);
+    for (const program of programs.filter(candidate => namesIn(candidate, name))) {
+      for (const answer of [conditions[name].answer, conditions[name].other_answer]) {
+        assert.ok(program.answers.some(declared => declared.name === answer), `${program.name} names ${name} and does not declare ${answer}`);
+      }
+    }
+  }
+  assert.ok(programs.some(program => namesIn(program, 'platform_on_forgejo_in_answers')), 'no program names the Forgejo condition');
+}
+
+function assertCredentialPair(conditions, program) {
+  for (const name of branchConditions) {
+    const {credential_answer: answer, credential_user: user} = conditions[name];
+    assert.equal(answer === undefined, user === undefined, `${name} names one of credential_answer and credential_user and not the other`);
+    assert.equal(answer, 'platform_repo_read_pat', name);
+    assert.equal(user, 'oauth2', name);
+    assert.ok(program.answers.some(declared => declared.name === answer), `${name} reads ${answer}, and ${program.name} does not declare it`);
+  }
+}
+
+test('the platform conditions are answerable in every program that names them', () => {
+  assertConditionsAnswerable(installation.conditions, [hostProgram, branch]);
+});
+
+test('PLANTED DEFECT: a condition over an answer the program does not declare, and a pair half given, are refused', () => {
+  const undeclared = structuredClone(hostProgram);
+  undeclared.answers = undeclared.answers.filter(answer => answer.name !== 'forgejo_platform_repository');
+  assert.throws(() => assertConditionsAnswerable(installation.conditions, [undeclared, branch]), /does not declare forgejo_platform_repository/);
+  const unnamed = structuredClone(installation.conditions);
+  delete unnamed.platform_on_github_in_answers;
+  assert.throws(() => assertConditionsAnswerable(unnamed, [hostProgram, branch]));
+  const half = structuredClone(installation.conditions);
+  delete half.install_branch_published.credential_user;
+  assert.throws(() => assertCredentialPair(half, branch), /names one of credential_answer and credential_user/);
+  const unknown = structuredClone(installation.conditions);
+  unknown.install_branch_unpublished.credential_answer = 'platform_repo_pat';
+  assert.throws(() => assertCredentialPair(unknown, branch));
+  const unread = structuredClone(branch);
+  unread.answers = unread.answers.filter(answer => answer.name !== 'platform_repo_read_pat');
+  assert.throws(() => assertCredentialPair(installation.conditions, unread), /does not declare it/);
+});
+
+test('PLANTED INNOCENT: the conditions as they stand, with a reworded description, stay accepted', () => {
+  const reworded = structuredClone(hostProgram);
+  reworded.answers.find(answer => answer.name === 'forgejo_host').describes += ' Reworded.';
+  assertConditionsAnswerable(installation.conditions, [reworded, branch]);
+  assertCredentialPair(installation.conditions, branch);
+});

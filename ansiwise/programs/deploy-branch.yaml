@@ -428,7 +428,8 @@ answers:
       A GitHub fine-grained access credential with Contents: Read and Write on the repository this
       installation is generated in. This is the WRITER: the platform commits its cluster maps,
       consumer registrations and release pins with it, and this cluster's own deployment syncs with
-      it.
+      it. Where the platform repository is served from Forgejo it holds a Forgejo access token with
+      write on that repository instead.
 
   - name: platform_repo_read_pat
     kind: text
@@ -438,7 +439,9 @@ answers:
       A second GitHub credential on the same repository, with Contents: Read and no write at all.
       This is the READER, used by every part of the installation that only syncs and never commits.
       Two credentials rather than one, so a component that only reads cannot rewrite the books of
-      every cluster.
+      every cluster. Where the platform repository is served from Forgejo it holds a Forgejo access
+      token with read on that repository instead, and the first look of this program at the remote
+      is made with it.
 
   - name: github_app_id
     kind: text
@@ -466,6 +469,18 @@ answers:
       The App's private key, as ONE line with `\n` in place of each line break of the PEM
       file: the hand-filled input holds one line per value and cannot carry a line break, and
       the manager turns the two characters back before it signs.
+
+  # The account the installation belongs to, which the lifecycle reads from the installation itself
+  # (`account.login` of the App's installation) and never infers from an address. It is written to the
+  # same Vault entry as the three above, so the credential Argo CD is handed carries its own owner
+  # prefix and does not depend on which forge the platform repository is served from.
+  - name: github_app_owner
+    kind: text
+    required: true
+    describes: >-
+      The login of the account that App's installation belongs to, the owner prefix of the repositories
+      it is installed on. Not a secret. Required with the other three: an installation without the App
+      does not exist (hostyour-cloud#237).
 
   - name: cloudflare_origin_pull_ca
     kind: text
@@ -631,6 +646,25 @@ answers:
     describes: >-
       Build plane only: a GitHub credential with Contents: Read and Write on the repository this
       installation is generated in. The release bump pushes with it.
+
+  # The platform repository on the host it has always been served from, as owner/repository: the
+  # answer deploy-host declares under the same name. It is read here for the root Application's
+  # address, and the same pair of answers that chooses deploy-host's clone chooses the stamp.
+  - name: platform_repo
+    kind: text
+    required: true
+    describes: >-
+      The repository holding this platform's own tree, as owner/name on github.com. Where it names the
+      same repository as forgejo_platform_repository the tree has moved to Forgejo.
+
+  # The one Forgejo host of the installation, under the name the Manager gives it (FORGEJO_HOST).
+  - name: forgejo_host
+    kind: text
+    required: true
+    shape: hostname
+    describes: >-
+      The host this installation's Forgejo is served from, without a scheme or a path. The root
+      Application is pointed at it where the platform repository has moved there.
 
   - name: forgejo_platform_repository
     kind: text
@@ -879,6 +913,43 @@ steps:
     placeholder: example.invalid
     on_failure: exit
 
+  # THE ADDRESS THE ROOT APPLICATION SYNCS THE PLATFORM TREE FROM. clusters/argocd/root-app.yaml is the
+  # object that starts the reconciler, so no chart renders it and the branch is the only place its
+  # `repoURL` becomes this installation's own. The tree carries the github.com address, and the same
+  # pair of answers that chooses deploy-host's clone chooses what stands in its place: Forgejo's host and
+  # repository where the two name the same repository, the answered repository on github.com where
+  # they do not. A repository is two literals of that address, the host and the owner/repository, so
+  # the Forgejo form is two rows. A value that already stands is left, so a regeneration finds nothing
+  # to do, and `tree` names the one file so that no other line of the checkout is read.
+  #
+  # THE LITERALS ARE THE TRUNK'S OWN ADDRESS and not an installation's, the way example.invalid above is
+  # the trunk's own stand-in; they change when the trunk's address does, and they are written here
+  # because the step replaces a literal. scripts/deploy-branch-stamp.test.mjs holds the rows to the
+  # answers and to the commit paths.
+  - step: stamp_placeholder_in_tracked_files
+    when: [platform_on_forgejo_in_answers]
+    repository: /srv/hostyour-cloud
+    tree: clusters/argocd/root-app.yaml
+    placeholder: github.com
+    value_answer: forgejo_host
+    on_failure: exit
+
+  - step: stamp_placeholder_in_tracked_files
+    when: [platform_on_forgejo_in_answers]
+    repository: /srv/hostyour-cloud
+    tree: clusters/argocd/root-app.yaml
+    placeholder: simetrixch/hostyour-cloud
+    value_answer: forgejo_platform_repository
+    on_failure: exit
+
+  - step: stamp_placeholder_in_tracked_files
+    when: [platform_on_github_in_answers]
+    repository: /srv/hostyour-cloud
+    tree: clusters/argocd/root-app.yaml
+    placeholder: simetrixch/hostyour-cloud
+    value_answer: platform_repo
+    on_failure: exit
+
   # WHAT THIS CLUSTER IS, in the one file everything that has to tell one installation from another
   # reads. Rewritten on every run, because it states what THIS run answered: an answer that changed
   # has to reach it, and a hand edit in it is a difference to correct rather than work to keep.
@@ -1038,6 +1109,7 @@ steps:
       GITHUB_APP_ID: { answer: github_app_id }
       GITHUB_APP_INSTALLATION_ID: { answer: github_app_installation_id }
       GITHUB_APP_PRIVATE_KEY: { answer: github_app_private_key }
+      GITHUB_APP_OWNER: { answer: github_app_owner }
       CLOUDFLARE_DNS_API_TOKEN: { answer: cloudflare_dns_api_token }
       CLOUDFLARE_ORIGIN_PULL_CA: { answer: cloudflare_origin_pull_ca }
       CLOUDFLARE_R2_API_TOKEN: { answer: cloudflare_r2_api_token }

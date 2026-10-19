@@ -251,9 +251,20 @@ steps:
   # the programs that write them live in a checkout that is not there yet. The answer is where an
   # installation's own facts stand, and the program file still carries only a name.
   #
-  # AND WITH NO CREDENTIAL, because the platform repository is served to anybody. Handing one over
-  # would put it on the network for a server that never asked. A private one would need the three
-  # credential arguments, read out of files — never a word of a command.
+  # TWO ROWS AND ONE RUNS: the platform repository is cloned from where the run's two answers put it.
+  # While `platform_repo` and `forgejo_platform_repository` name different repositories the tree is
+  # still served from github.com, and the day they name the same one it has moved to this
+  # installation's Forgejo (platform_on_forgejo_in_answers and platform_on_github_in_answers in
+  # ansiwise.yaml). `require_answer_matches` could not stand in for the choice: it refuses a run and
+  # chooses nothing.
+  #
+  # THE GITHUB ROW CARRIES NO CREDENTIAL, because that repository is served to anybody; handing one
+  # over would put it on the network for a server that never asked. THE FORGEJO ROW CARRIES ONE,
+  # because the platform repository on Forgejo is private: an anonymous read of it is refused, and
+  # the row would die at its first fetch. The credential is an answer, `platform_repo_read_pat`, under
+  # the account name `oauth2` that Forgejo takes a token under — the row names the answer and never
+  # the value. The row is not elevated, as the GitHub row is not: the step refuses a credential
+  # beside `elevated`, because sudo writes an elevated command's variables into its own arguments.
   #
   # THE BRANCH IS ANSWERED for the same reason it cannot be written here. A master at its birth
   # takes `master`, because deploy-branch is what cuts its installation branch and it refuses to
@@ -263,11 +274,23 @@ steps:
   # every map of the installation stands on that one. Writing either into this file would move the
   # other one's checkout every time this program ran again.
   - step: git_clone
+    when: [platform_on_github_in_answers]
     repository: /srv/hostyour-cloud
     host: github.com
     branch_answer: platform_branch
     origin_answer: platform_repo
     owner_answer: operator_user
+    on_failure: exit
+
+  - step: git_clone
+    when: [platform_on_forgejo_in_answers]
+    repository: /srv/hostyour-cloud
+    host_answer: forgejo_host
+    branch_answer: platform_branch
+    origin_answer: forgejo_platform_repository
+    owner_answer: operator_user
+    credential_answer: platform_repo_read_pat
+    credential_user: oauth2
     on_failure: exit
 
   # THE ENGINE'S OWN STATE, AND THE LAST PLACE ROOT AND THE OPERATOR MEET. Every run this machine
@@ -322,6 +345,38 @@ answers:
       later program reads and writes — as owner/name. It is answered rather than read off this
       machine because this is the FIRST checkout: the programs that record such things live in a
       checkout that does not exist until this row has made it.
+
+  # The platform repository on this installation's Forgejo, as owner/repository: the answer
+  # deploy-branch declares under the same name, and the one a run states equal to `platform_repo` on
+  # the day the tree has moved there.
+  - name: forgejo_platform_repository
+    kind: text
+    required: true
+    describes: >-
+      The Forgejo destination of the platform repository, as owner/repository. The tree is cloned from
+      it where this answer and platform_repo name the same repository.
+
+  # The one Forgejo host of the installation, spelled as the Manager spells it (FORGEJO_HOST).
+  - name: forgejo_host
+    kind: text
+    required: true
+    shape: hostname
+    describes: >-
+      The host this installation's Forgejo is served from, without a scheme or a path. The platform
+      repository is cloned from it where it has moved there.
+
+  # NOT STATED UNDER A CONDITION, and that is on purpose. A run on github.com that is handed the
+  # reader of the repository it already reads must go on being accepted; the clone row that reads it
+  # is the one that names it, and the GitHub row names no credential.
+  - name: platform_repo_read_pat
+    kind: text
+    required: false
+    secret: true
+    describes: >-
+      The credential the platform repository is read with where it is served from Forgejo, which holds
+      it private: a Forgejo access token with read on that one repository. A run that clones from
+      Forgejo and holds none is refused by this name at the clone. Unused where the tree is still
+      served from github.com.
 
   - name: platform_branch
     kind: text
