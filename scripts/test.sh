@@ -14,16 +14,21 @@ suite_files=()
 suite_notes=()
 # suite <kind> <file> <what it holds>: `dart` is the registry binding suite, run in the ansiwise-cli tree on this tree and failed where it skips;
 # `node`, `python` and `bash` run a file of this tree; `node-cli` runs a node file that starts the shipped CLI from the ansiwise-cli tree
-# (ANSIWISE_CLI_CHECKOUT). The pool starts the suites in this order.
+# (ANSIWISE_CLI_CHECKOUT). The pool starts the suites in this order, the slowest first (by the times a run printed on 2026-10-19),
+# so the run ends when the slowest suite ends and not after the slowest has waited for a free place.
 suite() {
   suite_kinds+=("$1")
   suite_files+=("$2")
   suite_notes+=("$3")
 }
-suite dart "$SUITE" 'every program binds to the registry the shipped binary carries'
-suite node-cli scripts/onboard-manager.test.mjs 'private Manager repository access before onboarding'
-suite node-cli scripts/deploy-branch-secrets.test.mjs 'no unused Manager PAT in generated secrets'
+suite node-cli scripts/plane-sign-in.test.mjs 'Plane signs in through Forgejo with the client of its own entry'
 suite node-cli scripts/repository-credentials.test.mjs 'required installation repository credentials'
+suite node scripts/forgejo-build-credentials.test.mjs 'Forgejo credential producer and complete entry'
+suite node-cli scripts/onboard-manager.test.mjs 'private Manager repository access before onboarding'
+suite node scripts/traefik-access-log.test.mjs 'the ingress access log keeps metadata only and trusts no forwarded header'
+suite node-cli scripts/deploy-branch-secrets.test.mjs 'no unused Manager PAT in generated secrets'
+suite node scripts/forgejo-machine-user.test.mjs 'Forgejo machine users and their reach'
+suite dart "$SUITE" 'every program binds to the registry the shipped binary carries'
 suite node scripts/deploy-branch-stamp.test.mjs 'the stamp reaches only what the install branch commit carries'
 suite node scripts/no-password-persistence.test.mjs 'no elevation password persistence in the platform program'
 suite node scripts/cli-checkout.test.mjs 'the tree of ansiwise-cli the binding suite runs in'
@@ -31,7 +36,6 @@ suite node scripts/move-machine.test.mjs 'machine move launcher'
 suite node scripts/tenant-stage-policy.test.mjs 'tenant stage Vault policy contract'
 suite node scripts/host-admission-floor.test.mjs 'host admission floor'
 suite node scripts/traefik-dashboard.test.mjs 'traefik dashboard off the web'
-suite node scripts/traefik-access-log.test.mjs 'the ingress access log keeps metadata only and trusts no forwarded header'
 suite node scripts/observability-query-slot.test.mjs 'the cluster map names the query route of the observability plane'
 suite node scripts/traefik-cpu-request.test.mjs 'the ingress controller requests the CPU the build budget counts'
 suite node scripts/prune-unused-images.test.mjs 'prune unused images before the free-disk check'
@@ -47,9 +51,6 @@ suite node scripts/cloudflare-origin-pull-ca.test.mjs 'the origin pull CA reache
 suite node scripts/vault-listener-reload.test.mjs 'the secret store reloads its renewed TLS pair daily'
 suite node scripts/forgejo.test.mjs 'Forgejo gets its client secret from the one minted value and its installation values'
 suite node scripts/plane.test.mjs 'Plane gets every secret from one minted entry and its installation values'
-suite node scripts/forgejo-build-credentials.test.mjs 'Forgejo credential producer and complete entry'
-suite node scripts/forgejo-machine-user.test.mjs 'Forgejo machine users and their reach'
-suite node-cli scripts/plane-sign-in.test.mjs 'Plane signs in through Forgejo with the client of its own entry'
 suite node scripts/plane-test-account.test.mjs 'the Plane sign-in test accounts get their passwords from one minted entry the e2e runner reads alone'
 suite node scripts/owned-storage.test.mjs 'the installer downloads its tools and bootstrap charts from the owner mirror alone'
 suite node scripts/forgejo-webhook.test.mjs 'the Forgejo webhook key stands in an entry of its own'
