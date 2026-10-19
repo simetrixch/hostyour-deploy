@@ -8,15 +8,20 @@ import {join} from 'node:path';
 import {test} from 'node:test';
 import {fileURLToPath} from 'node:url';
 
-// deploy-cluster gives the ingress controller an access log that keeps metadata only, and no trust
-// of forwarded headers. The declaration is read from the program and run on the Traefik binary the
+// deploy-cluster gives the ingress controller an access log that keeps what the site statistics count
+// and nothing else, and no trust of forwarded headers. The declaration is read from the program and run on the Traefik binary the
 // MicroK8s ingress addon ships (docker.io/traefik:v3.6.2 on every cluster), because what the field
 // modes drop is decided by that binary and not by its documentation.
 const SHIPPED_VERSION = '3.6.2';
 const STANDING = '--providers.kubernetescrd.allowCrossNamespace=true';
-const KEPT = ['ClientAddr', 'RouterName', 'ServiceName', 'DownstreamStatus', 'Duration', 'DownstreamContentSize'];
+const KEPT = ['ClientAddr', 'RouterName', 'ServiceName', 'DownstreamStatus', 'Duration', 'DownstreamContentSize', 'RequestHost', 'RequestPath'];
+// A header is a field of the line only where the request carries it, as `request_<Name>` with the
+// name in Go's canonical form: CF-IPCountry is written `request_Cf-Ipcountry`, and a reader that
+// looks for the spelling of the flag finds no country.
+const KEPT_HEADERS = ['Referer', 'User-Agent', 'Accept-Language', 'CF-IPCountry'];
+const fieldOf = name => `request_${name.split('-').map(part => part[0].toUpperCase() + part.slice(1).toLowerCase()).join('-')}`;
 // What logrus writes into every JSON line on its own.
-const ALLOWED = new Set([...KEPT, 'level', 'msg', 'time']);
+const ALLOWED = new Set([...KEPT, ...KEPT_HEADERS.map(fieldOf), 'level', 'msg', 'time']);
 
 const program = fileURLToPath(new URL('../ansiwise/programs/deploy-cluster.yaml', import.meta.url));
 const steps = JSON.parse(execFileSync('yq', ['-o=json', '.', program], {encoding: 'utf8'})).steps;
@@ -26,9 +31,13 @@ const accessArguments = declared.filter(argument => argument.startsWith('--acces
 // Each request carries a marker in one place a caller controls. The forged addresses come from the
 // documentation ranges, so a match can only be the forgery.
 const MARKER = 'zq7marker';
+// What the statistics read, so it is meant to stand in the line: Traefik keeps the query inside
+// RequestPath, and the host as the caller wrote it.
+const KEPT_MARKER = 'zq7kept';
+const SENT_HEADERS = {'Referer': `http://referrer.test/${KEPT_MARKER}`, 'User-Agent': `${KEPT_MARKER}agent`, 'Accept-Language': 'de-CH', 'CF-IPCountry': 'CH'};
 const FORGED = ['203.0.113.77', '198.51.100.88', '192.0.2.99'];
 const REQUESTS = [
-  `GET /${MARKER}path?token=${MARKER}query HTTP/1.1\r\nHost: fixture.test\r\n`,
+  `GET /${KEPT_MARKER}path?token=${KEPT_MARKER}query HTTP/1.1\r\nHost: fixture.test\r\n${Object.entries(SENT_HEADERS).map(([name, value]) => `${name}: ${value}\r\n`).join('')}`,
   `GET / HTTP/1.1\r\nHost: fixture.test\r\nCookie: session=${MARKER}cookie\r\n`,
   `GET / HTTP/1.1\r\nHost: fixture.test\r\nAuthorization: Bearer ${MARKER}authorization\r\n`,
   `GET http://${MARKER}user:${MARKER}password@fixture.test/ HTTP/1.1\r\nHost: fixture.test\r\n`,
@@ -36,7 +45,7 @@ const REQUESTS = [
   `GET / HTTP/1.1\r\nHost: fixture.test\r\nX-Forwarded-For: ${FORGED[0]}\r\nX-Real-Ip: ${FORGED[1]}\r\n`,
   `GET / HTTP/1.1\r\nHost: fixture.test\r\nCF-Connecting-IP: ${FORGED[2]}\r\n`,
   `${MARKER.toUpperCase()}METHOD / HTTP/1.1\r\nHost: fixture.test\r\n`,
-  `GET / HTTP/1.1\r\nHost: ${MARKER}host.test\r\n`,
+  `GET / HTTP/1.1\r\nHost: ${KEPT_MARKER}host.test\r\n`,
 ].map(head => `${head}Connection: close\r\n\r\n`);
 
 const freePort = () => new Promise((resolve, reject) => {
@@ -112,6 +121,13 @@ function findings({access, own, received}) {
     if (extra.length > 0) found.push(`a line keeps ${extra.join(', ')}`);
     const missing = KEPT.filter(field => !(field in entry));
     if (missing.length > 0) found.push(`a line lacks ${missing.join(', ')}`);
+    // Traefik writes a request header into its field only for a request that carries it.
+    if (entry.RequestPath === `/${KEPT_MARKER}path?token=${KEPT_MARKER}query`) {
+      for (const [name, value] of Object.entries(SENT_HEADERS)) {
+        if (entry[fieldOf(name)] !== value) found.push(`the line of a request with ${name} lacks ${fieldOf(name)}`);
+      }
+    }
+    if (entry.RequestPath?.includes('@')) found.push('a URL with credentials reached RequestPath');
     if ('ClientAddr' in entry && !String(entry.ClientAddr).startsWith('127.0.0.1:')) found.push(`ClientAddr ${entry.ClientAddr} is not the socket peer`);
   }
   const logs = (access + own).toLowerCase();
@@ -144,7 +160,13 @@ test('PLANTED DEFECT: each way to log too much or too little, or to trust a forg
   const planted = {
     'the drop policy is gone': without('--accesslog.fields.defaultmode=drop'),
     'the raw forwarded address is kept': [...accessArguments, '--accesslog.fields.names.ClientHost=keep'],
-    'the path with its query is kept': [...accessArguments, '--accesslog.fields.names.RequestPath=keep'],
+    'the request method is kept': [...accessArguments, '--accesslog.fields.names.RequestMethod=keep'],
+    'the Authorization header is kept': [...accessArguments, '--accesslog.fields.headers.names.Authorization=keep'],
+    'the Cookie header is kept': [...accessArguments, '--accesslog.fields.headers.names.Cookie=keep'],
+    'the host is no longer kept': without('--accesslog.fields.names.RequestHost=keep'),
+    'the path is no longer kept': without('--accesslog.fields.names.RequestPath=keep'),
+    'the referrer is no longer kept': without('--accesslog.fields.headers.names.Referer=keep'),
+    'the country header is no longer kept': without('--accesslog.fields.headers.names.CF-IPCountry=keep'),
     'the request headers are kept': [...without('--accesslog.fields.headers.defaultmode=drop'), '--accesslog.fields.headers.defaultmode=keep'],
     'the logger is off': [],
     'every peer is trusted with forwarded headers': [...accessArguments, '--entryPoints.web.forwardedHeaders.insecure=true'],

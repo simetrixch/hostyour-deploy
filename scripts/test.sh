@@ -49,6 +49,7 @@ node --test "$ROOT/scripts/tenant-stage-policy.test.mjs" || fail 'tenant stage V
 node --test "$ROOT/scripts/host-admission-floor.test.mjs" || fail 'host admission floor'
 node --test "$ROOT/scripts/traefik-dashboard.test.mjs" || fail 'traefik dashboard off the web'
 node --test "$ROOT/scripts/traefik-access-log.test.mjs" || fail 'the ingress access log keeps metadata only and trusts no forwarded header'
+node --test "$ROOT/scripts/observability-query-slot.test.mjs" || fail 'the cluster map names the query route of the observability plane'
 node --test "$ROOT/scripts/traefik-cpu-request.test.mjs" || fail 'the ingress controller requests the CPU the build budget counts'
 node --test "$ROOT/scripts/prune-unused-images.test.mjs" || fail 'prune unused images before the free-disk check'
 node --test "$ROOT/scripts/manager-tenant-key-grants.test.mjs" || fail 'manager grants every tenant app key kind'
