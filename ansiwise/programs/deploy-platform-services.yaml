@@ -1673,6 +1673,20 @@ steps:
     when: [secret_store_enabled, books_here_in_answers]
     on_failure: exit
 
+  # The Manager's second Cloudflare token, Zone Settings Edit, read there by ExternalSecret
+  # manager-cloudflare-zone-settings (hostyour-cloud) through <cluster>-eso. Alone on its entry, so a read
+  # that fails here fails no other secret, and optional, so a run before the owner's entry still passes:
+  # the Manager names the missing variable on the first proxied write.
+  - step: vault_kv_entry
+    rests_on_an_earlier_step: true
+    repository: /srv/hostyour-cloud
+    mount: secret
+    path: <stage>/app/cloudflare-zone-settings
+    fields: ['api-token=CLOUDFLARE_ZONE_SETTINGS_API_TOKEN']
+    optional_fields: [api-token]
+    when: [secret_store_enabled, books_here_in_answers]
+    on_failure: exit
+
   # The CA the ingress of every cluster verifies Cloudflare's origin pull client certificate
   # against, out of the credentials file, read there by ExternalSecret cloudflare-origin-pull-ca
   # (hostyour-cloud) through <cluster>-eso. Public, so alone on its entry; optional, so an

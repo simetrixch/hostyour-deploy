@@ -48,6 +48,7 @@ suite node scripts/kubelet-image-gc.test.mjs 'kubelet collects unused images and
 suite node scripts/publish-mail-dkim.test.mjs 'publish-mail-dkim writes only the DKIM record'
 suite node scripts/cert-manager-installs.test.mjs 'cert-manager installed only where none stands, never the addon'
 suite node scripts/cloudflare-origin-pull-ca.test.mjs 'the origin pull CA reaches the Vault entry every cluster reads, optional, without the client half'
+suite node scripts/cloudflare-zone-settings-token.test.mjs 'the Manager settings token reaches the Vault entry of its own, optional, and no other program'
 suite node scripts/vault-listener-reload.test.mjs 'the secret store reloads its renewed TLS pair daily'
 suite node scripts/forgejo.test.mjs 'Forgejo gets its client secret from the one minted value and its installation values'
 suite node scripts/plane.test.mjs 'Plane gets every secret from one minted entry and its installation values'
