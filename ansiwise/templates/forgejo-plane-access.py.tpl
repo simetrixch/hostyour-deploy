@@ -279,15 +279,19 @@ def inspect_token(user, name, scopes, token, writable):
 
 
 def grant(auth, repo, user, permission):
-    """Makes `user` a collaborator of `repo` with exactly `permission`, as the administrator `auth`."""
+    """Makes `user` a collaborator of `repo` with exactly `permission`, as the administrator `auth`, once
+    the account is an active restricted non-admin user."""
+    # The account is read from its own route. The user block of a collaborator's permission shows the
+    # account as the repository's OWNER sees it, not the administrator, so for an owner who is neither
+    # an administrator nor the user, is_admin and active read false whatever the account is.
+    _, raw = api('GET', '/users/' + user, auth, (200,))
+    person = object_json(raw, 'Forgejo user')
+    if person.get('login') != user or person.get('is_admin') is not False or person.get('restricted') is not True or person.get('active') is not True:
+        refuse(user + ' is not an active restricted non-admin user')
     path = '/repos/' + repo + '/collaborators/' + user
     status, raw = api('GET', path + '/permission', auth, (200, 404))
     if status == 404 or object_json(raw, 'Forgejo collaborator').get('permission') != permission:
         api('PUT', path, auth, (204,), {'permission': permission})
-    _, raw = api('GET', path + '/permission', auth, (200,))
-    person = object_json(raw, 'Forgejo collaborator').get('user', {})
-    if person.get('login') != user or person.get('is_admin') is not False or person.get('restricted') is not True or person.get('active') is not True:
-        refuse(user + ' is not an active restricted non-admin user')
 
 
 def plane(snippet, arguments, stdin=''):
