@@ -981,6 +981,7 @@ steps:
       path "secret/data/build-platform/deploy/repo-pat" { capabilities = ["read"] }
       path "secret/data/build-platform/deploy/forgejo-repo-pat" { capabilities = ["read"] }
       path "secret/data/<stage>/app/registry" { capabilities = ["read"] }
+      path "secret/data/<stage>/app/forgejo-host-key" { capabilities = ["read"] }
     when: [secret_store_enabled, build_plane_here_in_answers, books_here_in_answers]
     on_failure: exit
 
@@ -1700,10 +1701,12 @@ steps:
     when: [secret_store_enabled, books_here_in_answers]
     on_failure: exit
 
-  # The platform's GitHub App, three fields and one entry like the object storage: an App id
+  # The platform's GitHub App, four fields and one entry like the object storage: an App id
   # without its installation id signs a token for no owner, and a key without either signs
-  # nothing. All three required (hostyour-cloud#237): the App is the identity the deploy repository
-  # is read and written with everywhere, so an installation without it does not exist.
+  # nothing. The fourth, the owner, is the account prefix of the repositories the credential Argo CD is
+  # handed reaches, so that credential does not depend on where the platform repository is served from.
+  # All four are required: the App is the identity the deploy repository is read and written with
+  # everywhere, so an installation without it does not exist.
   - step: vault_kv_entry
     rests_on_an_earlier_step: true
     repository: /srv/hostyour-cloud
@@ -1713,6 +1716,7 @@ steps:
       - 'app-id=GITHUB_APP_ID'
       - 'installation-id=GITHUB_APP_INSTALLATION_ID'
       - 'private-key=GITHUB_APP_PRIVATE_KEY'
+      - 'owner=GITHUB_APP_OWNER'
     when: [secret_store_enabled, books_here_in_answers]
     on_failure: exit
 
@@ -2952,6 +2956,36 @@ steps:
     path: build-platform/deploy/forgejo-repo-pat
     producer: /run/forgejo-machine-user-deploy-bump.sh
     fields: [pat]
+    when: [secret_store_enabled, books_here_in_answers, build_plane_here_in_answers, plane_runs_here]
+    on_failure: exit
+
+  # THE KNOWN HOST OF THE RELEASE BUMP'S SSH PUSH, read from Forgejo itself and stored in an entry of its own,
+  # host-key, which the build plane's secret reader renders as the known_hosts file of the push. The producer
+  # execs into the Forgejo pod, as the machine users above do, and prints the public half of the host key the
+  # pod's SSH server serves; no network is scanned, so nothing but Forgejo can be the source. The entry is
+  # measured and replaced on every run, so a rotated host key reaches the bump with the next run of this
+  # program. The producer refuses when the file is not exactly one RSA key line, which is the only type
+  # Forgejo serves; a refusal ends the run, and the bump then has no known host and pushes nowhere.
+  - step: write_file_from_template
+    template: ansiwise/templates/forgejo-ssh-host-key.sh.tpl
+    path: /run/forgejo-ssh-host-key.sh
+    file_mode: 448
+    elevated: true
+    values:
+      forgejo-namespace: forgejo
+      forgejo-pod-selector: app.kubernetes.io/name=forgejo
+      forgejo-container: forgejo
+      forgejo-plane-access-module: /run/forgejo-plane-access.py
+    when: [secret_store_enabled, books_here_in_answers, build_plane_here_in_answers, plane_runs_here]
+    on_failure: exit
+
+  - step: vault_kv_entry_from_command
+    rests_on_an_earlier_step: true
+    repository: /srv/hostyour-cloud
+    mount: secret
+    path: <stage>/app/forgejo-host-key
+    producer: /run/forgejo-ssh-host-key.sh
+    fields: [host-key]
     when: [secret_store_enabled, books_here_in_answers, build_plane_here_in_answers, plane_runs_here]
     on_failure: exit
 

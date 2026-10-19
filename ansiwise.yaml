@@ -271,6 +271,26 @@ conditions:
     answer: books_fqdn
     other_answer: fqdn
 
+  # WHICH FORGE THE PLATFORM REPOSITORY IS CLONED FROM, read off the two answers that already name
+  # it. `platform_repo` names the repository on the host the programs have always used, and
+  # `forgejo_platform_repository` names it on the installation's own Forgejo. While the two differ
+  # the platform tree is still served from where it was; the day the operator states the same
+  # owner/repository under both, the tree has moved, and the next run clones it from Forgejo. No third
+  # key is written down for the switch, because a key carrying the choice could disagree with the two
+  # answers it is a choice between.
+  #
+  # TWO NAMES OVER ONE READING, like the pairs below: `require_answer_matches` refuses a run and
+  # chooses nothing, and a `not:` behind `when:` would be an operator.
+  platform_on_forgejo_in_answers:
+    predicate: answer_values_agree
+    answer: platform_repo
+    other_answer: forgejo_platform_repository
+
+  platform_on_github_in_answers:
+    predicate: answer_values_differ
+    answer: platform_repo
+    other_answer: forgejo_platform_repository
+
   # Whether the machine being installed is also the one that builds. NOBODY WRITES THIS DOWN, and
   # nobody should: it follows from whether the address of the builder and the address of this
   # machine are the same address, and both of those are written down. A key carrying the answer as
@@ -301,11 +321,15 @@ conditions:
   # somewhere else — so "does this machine hold the branch" and "does the branch exist" are two
   # different questions, and only the second decides which spine is right.
   #
-  # IT IS ASKED ANONYMOUSLY THE FIRST TIME, and that is the same read deploy-host's own git_clone row
-  # already needs: the platform repository is served to anybody. From the second run of the program
-  # onward the checkout carries the credential helper an earlier run wrote into its own git
-  # directory, so the read carries a credential without anything new being arranged. A remote that
-  # could not be ASKED refuses the run rather than answering "it does not publish it".
+  # THE READ PRESENTS WHAT THE CHECKOUT CARRIES AND NOTHING ELSE. Where the platform repository is on
+  # Forgejo, which holds it private, deploy-host's clone is followed by a row that writes the read
+  # credential into the checkout's own git directory and points the checkout's helper at it (and
+  # deploy-branch writes the write credential there at a birth). A checkout that carries no helper
+  # asks the way a repository served to anybody is asked, which is how a platform repository on
+  # github.com is read. No credential is named here, because every condition of a program is measured
+  # before its first step: one that named a credential would put it on the network for a server that
+  # never asked. A remote that could not be ASKED refuses the run rather than answering "it does not
+  # publish it".
   #
   # TWO NAMES OVER ONE READING, the shape certificates_enabled and certificates_withheld already
   # have: a `not:` behind `when:` would be an operator, and an operator is where a program file

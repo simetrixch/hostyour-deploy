@@ -48,11 +48,11 @@ test('the installation file carries only configured destinations and the Forgejo
   assert.equal(row.when, undefined);
   assert.equal(row.file_mode, 420);
   assert.deepEqual(row.values, {
-    fqdn: {answer: 'fqdn'}, 'forgejo-platform-repository': {answer: names[0]},
+    'forgejo-host': {answer: 'forgejo_host'}, 'forgejo-platform-repository': {answer: names[0]},
     'forgejo-deploy-repository': {answer: names[1]}, 'forgejo-organisations': {answer: names[2]},
   });
   const template = readFileSync(join(root, row.template), 'utf8');
-  const rendered = template.replace(/<([a-z][a-z0-9-]*)>/g, (_, key) => ({'fqdn': 'master.example.invalid', ...Object.fromEntries(Object.entries(row.values).filter(([key]) => key !== 'fqdn').map(([key, value]) => [key, valid[value.answer]]))})[key]);
+  const rendered = template.replace(/<([a-z][a-z0-9-]*)>/g, (_, key) => ({'forgejo-host': 'forgejo.master.example.invalid', ...Object.fromEntries(Object.entries(row.values).filter(([key]) => key !== 'forgejo-host').map(([key, value]) => [key, valid[value.answer]]))})[key]);
   const dir = mkdtempSync(join(tmpdir(), 'repository-credentials-'));
   try {
     const path = join(dir, 'values.yaml'); writeFileSync(path, rendered);
@@ -100,4 +100,100 @@ test('REAL CLI: production input rows reject missing, empty and malformed values
       }
     }
   }
+});
+
+// THE PLATFORM REPOSITORY'S FORGE IS CHOSEN BY CONDITIONS OVER ANSWERS, so every condition has to be
+// answerable in every program whose rows name it, and the read credential has to reach a remote on Forgejo only.
+const installation = read('ansiwise.yaml');
+const hostProgram = read('ansiwise/programs/deploy-host.yaml');
+const platformConditions = {platform_on_forgejo_in_answers: 'answer_values_agree', platform_on_github_in_answers: 'answer_values_differ'};
+const branchConditions = ['install_branch_published', 'install_branch_unpublished'];
+const namesIn = (program, condition) => program.steps.some(step => step.when?.includes(condition));
+
+function assertConditionsAnswerable(conditions, programs) {
+  for (const [name, predicate] of Object.entries(platformConditions)) {
+    assert.deepEqual(conditions[name], {predicate, answer: 'platform_repo', other_answer: 'forgejo_platform_repository'}, name);
+    for (const program of programs.filter(candidate => namesIn(candidate, name))) {
+      for (const answer of [conditions[name].answer, conditions[name].other_answer]) {
+        assert.ok(program.answers.some(declared => declared.name === answer), `${program.name} names ${name} and does not declare ${answer}`);
+      }
+    }
+  }
+  assert.ok(programs.some(program => namesIn(program, 'platform_on_forgejo_in_answers')), 'no program names the Forgejo condition');
+}
+
+// WHERE THE READ CREDENTIAL IS PRESENTED. Every condition of a program is measured before its first step, so
+// a condition that names a credential presents it on github.com as well. The two install-branch conditions
+// therefore name none, and the one row that puts the read credential in the checkout is deploy-host's,
+// selected on Forgejo alone.
+const READ = 'platform_repo_read_pat';
+const hasCredential = row => row.credential_answer !== undefined || row.credential_user !== undefined;
+const selectedFor = (program, held) => program.steps.filter(step => (step.when ?? []).every(name => held.includes(name)));
+
+function assertCredentialOnForgejoOnly(conditions, host) {
+  for (const name of branchConditions) {
+    assert.equal(hasCredential(conditions[name]), false, `${name} presents a credential to every remote it asks, github.com among them`);
+  }
+  const forgejoClone = host.steps.findIndex(step => step.step === 'git_clone' && step.when?.includes('platform_on_forgejo_in_answers'));
+  assert.ok(forgejoClone >= 0, 'deploy-host has no Forgejo clone row');
+  const helpers = host.steps.filter(step => step.step === 'git_push_credential');
+  assert.equal(helpers.length, 1, 'deploy-host writes the read credential with exactly one row');
+  const [helper] = helpers;
+  assert.deepEqual(helper.when, ['platform_on_forgejo_in_answers']);
+  assert.deepEqual([helper.credential_answer, helper.credential_user, helper.repository, helper.remote, helper.on_failure], [READ, 'oauth2', '/srv/hostyour-cloud', 'origin', 'exit']);
+  assert.ok(host.steps.indexOf(helper) > forgejoClone, 'the helper row stands before the clone that makes the checkout');
+  assert.ok(host.answers.some(declared => declared.name === READ), `deploy-host does not declare ${READ}`);
+  const github = host.steps.find(step => step.step === 'git_clone' && step.when?.includes('platform_on_github_in_answers'));
+  assert.equal(hasCredential(github), false, 'the github.com clone row names a credential');
+  assert.equal(host.steps.filter(step => step.credential_answer === READ && !step.when?.includes('platform_on_forgejo_in_answers')).length, 0, 'a row presents the read credential outside Forgejo');
+}
+
+test('the platform conditions are answerable in every program that names them', () => {
+  assertConditionsAnswerable(installation.conditions, [hostProgram, branch]);
+});
+
+test('PLANTED DEFECT: a condition over an answer the program does not declare is refused', () => {
+  const undeclared = structuredClone(hostProgram);
+  undeclared.answers = undeclared.answers.filter(answer => answer.name !== 'forgejo_platform_repository');
+  assert.throws(() => assertConditionsAnswerable(installation.conditions, [undeclared, branch]), /does not declare forgejo_platform_repository/);
+  const unnamed = structuredClone(installation.conditions);
+  delete unnamed.platform_on_github_in_answers;
+  assert.throws(() => assertConditionsAnswerable(unnamed, [hostProgram, branch]));
+});
+
+test('the read credential is presented on Forgejo and never on github.com', () => {
+  assertCredentialOnForgejoOnly(installation.conditions, hostProgram);
+  // WHAT A RUN SELECTS. A github.com run is the one whose two platform answers name different repositories.
+  const github = selectedFor(hostProgram, ['platform_on_github_in_answers']);
+  assert.deepEqual(github.filter(hasCredential), [], 'a github.com run selects a row that presents a credential');
+  assert.deepEqual(github.filter(step => step.step === 'git_push_credential'), [], 'a github.com run writes a credential helper');
+  const forgejo = selectedFor(hostProgram, ['platform_on_forgejo_in_answers']);
+  assert.deepEqual(forgejo.filter(hasCredential).map(step => step.step), ['git_clone', 'git_push_credential']);
+});
+
+test('PLANTED DEFECT: a credential on a condition, a helper row off Forgejo, and a credentialed github.com clone are each refused', () => {
+  const onCondition = structuredClone(installation.conditions);
+  onCondition.install_branch_published.credential_answer = READ;
+  onCondition.install_branch_published.credential_user = 'oauth2';
+  assert.throws(() => assertCredentialOnForgejoOnly(onCondition, hostProgram), /presents a credential to every remote/);
+  const everywhere = structuredClone(hostProgram);
+  delete everywhere.steps.find(step => step.step === 'git_push_credential').when;
+  assert.throws(() => assertCredentialOnForgejoOnly(installation.conditions, everywhere), /deepEqual|Expected values/i);
+  const onGithub = structuredClone(hostProgram);
+  onGithub.steps.find(step => step.step === 'git_push_credential').when = ['platform_on_github_in_answers'];
+  assert.throws(() => assertCredentialOnForgejoOnly(installation.conditions, onGithub));
+  assert.notDeepEqual(selectedFor(onGithub, ['platform_on_github_in_answers']).filter(hasCredential), [], 'the planted host does not select the helper on github.com, so the case cannot go red');
+  const credentialed = structuredClone(hostProgram);
+  Object.assign(credentialed.steps.find(step => step.step === 'git_clone' && step.when?.includes('platform_on_github_in_answers')), {credential_answer: READ, credential_user: 'oauth2'});
+  assert.throws(() => assertCredentialOnForgejoOnly(installation.conditions, credentialed), /github.com clone row names a credential/);
+  const unread = structuredClone(hostProgram);
+  unread.answers = unread.answers.filter(answer => answer.name !== READ);
+  assert.throws(() => assertCredentialOnForgejoOnly(installation.conditions, unread), /does not declare/);
+});
+
+test('PLANTED INNOCENT: the conditions as they stand, with a reworded description, stay accepted', () => {
+  const reworded = structuredClone(hostProgram);
+  reworded.answers.find(answer => answer.name === 'forgejo_host').describes += ' Reworded.';
+  assertConditionsAnswerable(installation.conditions, [reworded, branch]);
+  assertCredentialOnForgejoOnly(installation.conditions, hostProgram);
 });
