@@ -65,6 +65,7 @@ node --test "$ROOT/scripts/forgejo.test.mjs" || fail 'Forgejo gets its client se
 node --test "$ROOT/scripts/plane.test.mjs" || fail 'Plane gets every secret from one minted entry and its installation values'
 node --test "$ROOT/scripts/forgejo-build-credentials.test.mjs" || fail 'Forgejo credential producer and complete entry'
 node --test "$ROOT/scripts/forgejo-machine-user.test.mjs" || fail 'Forgejo machine users and their reach'
+node --test "$ROOT/scripts/forgejo-ssh-host-key.test.mjs" || fail 'the Forgejo SSH host key is one RSA key line, stored for the build reader alone'
 ANSIWISE_CLI_CHECKOUT="$cli" node --test "$ROOT/scripts/plane-sign-in.test.mjs" || fail 'Plane signs in through Forgejo with the client of its own entry'
 node --test "$ROOT/scripts/plane-test-account.test.mjs" || fail 'the Plane sign-in test accounts get their passwords from one minted entry the e2e runner reads alone'
 node --test "$ROOT/scripts/owned-storage.test.mjs" || fail 'the installer downloads its tools and bootstrap charts from the owner mirror alone'

@@ -15,7 +15,7 @@
 master:
   # The account the Manager reaches this machine as, over SSH to its own host. Setting it is what
   # turns on the self-registration that seeds the one role=master row and this control host's own
-  # cluster row, and it is also what renders GITHUB_REPO and GITHUB_WRITE_PAT — the platform
+  # cluster row, and it is also what renders PLATFORM_REPO_URL and GITHUB_WRITE_PAT — the platform
   # repository half of the onboarding gate.
   sshUser: <operator-user>
   # The address this machine answers on inside the cluster network. The Manager keeps it on the

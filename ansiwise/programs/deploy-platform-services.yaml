@@ -981,6 +981,7 @@ steps:
       path "secret/data/build-platform/deploy/repo-pat" { capabilities = ["read"] }
       path "secret/data/build-platform/deploy/forgejo-repo-pat" { capabilities = ["read"] }
       path "secret/data/<stage>/app/registry" { capabilities = ["read"] }
+      path "secret/data/<stage>/app/forgejo-host-key" { capabilities = ["read"] }
     when: [secret_store_enabled, build_plane_here_in_answers, books_here_in_answers]
     on_failure: exit
 
@@ -2944,6 +2945,34 @@ steps:
     when: [secret_store_enabled, books_here_in_answers, build_plane_here_in_answers, plane_runs_here]
     on_failure: exit
 
+  # THE KNOWN HOST OF THE RELEASE BUMP'S SSH PUSH, scanned from Forgejo's SSH port and stored in an entry of
+  # its own, host-key, which the build plane's secret reader renders as the known_hosts file of the push.
+  # TRUST ON FIRST USE: the trust root is what the scan sees here and now, and the entry is measured and
+  # replaced on every run, so a rotated host key reaches the bump with the next run of this program. The
+  # producer refuses when the scan answers nothing, two lines, a line that is no key or any type but RSA,
+  # which is the only type Forgejo serves; a refusal ends the run, and the bump then has no known host and
+  # pushes nowhere.
+  - step: write_file_from_template
+    template: ansiwise/templates/forgejo-ssh-host-key.sh.tpl
+    path: /run/forgejo-ssh-host-key.sh
+    file_mode: 448
+    elevated: true
+    values:
+      forgejo-ssh-port: { answer: forgejo_ssh_port }
+      fqdn: { answer: fqdn }
+    when: [secret_store_enabled, books_here_in_answers, build_plane_here_in_answers, plane_runs_here]
+    on_failure: exit
+
+  - step: vault_kv_entry_from_command
+    rests_on_an_earlier_step: true
+    repository: /srv/hostyour-cloud
+    mount: secret
+    path: <stage>/app/forgejo-host-key
+    producer: /run/forgejo-ssh-host-key.sh
+    fields: [host-key]
+    when: [secret_store_enabled, books_here_in_answers, build_plane_here_in_answers, plane_runs_here]
+    on_failure: exit
+
   # Until the account is registered, no certificate on this cluster can be issued. Recorded rather
   # than fatal, and only where this installation asks the public authority at all.
   #
@@ -3095,6 +3124,17 @@ answers:
     describes: >-
       The organisations whose repositories Argo CD reads, comma-separated, covering both destination
       owners. The machine user argocd joins a read-only team of each, covering future repositories.
+
+  # THE PORT THE HOST KEY IS SCANNED ON. The port Forgejo announces in its clone address is the one the
+  # router forwards to the master's 2222, which is where Forgejo itself listens. The lifecycle names the
+  # announced port in its configuration, and a run that names none scans the listener.
+  - name: forgejo_ssh_port
+    kind: text
+    required: true
+    default: "2222"
+    describes: >-
+      The port the SSH host key of Forgejo is scanned on, at forgejo.<fqdn>. The master listens on 2222;
+      name the port the router forwards to it to scan through that forward.
 
   - name: plane_further_people
     kind: text_list
