@@ -1691,8 +1691,8 @@ steps:
   # without its installation id signs a token for no owner, and a key without either signs
   # nothing. The fourth, the owner, is the account prefix of the repositories the credential Argo CD is
   # handed reaches, so that credential does not depend on where the platform repository is served from.
-  # All four required (hostyour-cloud#237): the App is the identity the deploy repository
-  # is read and written with everywhere, so an installation without it does not exist.
+  # All four are required: the App is the identity the deploy repository is read and written with
+  # everywhere, so an installation without it does not exist.
   - step: vault_kv_entry
     rests_on_an_earlier_step: true
     repository: /srv/hostyour-cloud
