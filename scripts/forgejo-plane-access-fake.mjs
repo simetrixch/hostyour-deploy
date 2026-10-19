@@ -28,15 +28,16 @@ export function rendered(text, values = {}) {
 }
 
 /** Writes the module and the producer of `template` into `directory`, rendered with the row's values,
- * the module path pointing at the copy there and the lock beside it. */
+ * the module path pointing at the copy there and, where the template has the slot, the lock beside it. */
 export async function writeProducer(directory, template, values, {mutate = t => t, mutateModule = t => t, port} = {}) {
   const module = join(directory, 'forgejo-plane-access.py');
   const accessText = rendered(mutateModule(await readFile(new URL(MODULE, root), 'utf8')))
     .replace('PORT = 3000', 'PORT = ' + port).replace('POD_WAIT_SECONDS = 30', 'POD_WAIT_SECONDS = 0.1');
   await writeFile(module, accessText, {mode: 0o600});
   const producer = join(directory, 'producer.sh');
-  const script = rendered(mutate(await readFile(new URL(template, root), 'utf8')),
-    {...values, 'forgejo-plane-access-module': module, 'forgejo-credential-lock': join(directory, 'credentials.lock')});
+  const text = mutate(await readFile(new URL(template, root), 'utf8'));
+  const locked = text.includes('<forgejo-credential-lock>') ? {'forgejo-credential-lock': join(directory, 'credentials.lock')} : {};
+  const script = rendered(text, {...values, 'forgejo-plane-access-module': module, ...locked});
   await writeFile(producer, script);
   const kubectl = join(directory, 'kubectl');
   await writeFile(kubectl, `#!/usr/bin/env node

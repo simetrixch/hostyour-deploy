@@ -58,8 +58,9 @@ def cancelled(signum, frame):
     refuse(NAME + ' was cancelled')
 
 
-def start(name, namespace, selector, container, bootstrap):
-    """Reads the engine's invocation and names the Forgejo pod; answers whether this run applies."""
+def start(name, namespace, selector, container, bootstrap=None):
+    """Reads the engine's invocation and names the Forgejo pod; answers whether this run applies. A
+    producer that creates no temporary administrator names no bootstrap user."""
     global NAME, APPLY, KUBE, NAMESPACE, SELECTOR, CONTAINER, BOOTSTRAP
     NAME, NAMESPACE, SELECTOR, CONTAINER, BOOTSTRAP = name, namespace, selector, container, bootstrap
     signal.signal(signal.SIGINT, cancelled)
@@ -71,11 +72,12 @@ def start(name, namespace, selector, container, bootstrap):
     return APPLY
 
 
-def finish(exchange, lock_path):
-    """Runs the exchange, under the lock where it applies, and prints its one JSON object."""
+def finish(exchange, lock_path=None):
+    """Runs the exchange, under the lock where it applies, and prints its one JSON object. A producer
+    that changes nothing in Forgejo names no lock."""
     lock = None
     try:
-        if APPLY:
+        if APPLY and lock_path is not None:
             lock = os.open(lock_path, os.O_CREAT | os.O_WRONLY | os.O_NOFOLLOW, 0o600)
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         print(json.dumps(exchange()))
