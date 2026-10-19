@@ -42,6 +42,13 @@ function assertAnyMachineNameAdmitted(value) {
 
 const bypasses = /StrictHostKeyChecking|UserKnownHostsFile|ssh-keyscan/;
 
+// The one file that scans: the producer of Forgejo's SSH host key reads the key off the Forgejo port at deploy
+// time and stores it in Vault as the trust root of the release bump's push. It writes no known hosts file of any
+// machine and turns no check off, so it is held to those two and not to the scan itself; any other file that scans
+// is still found.
+const scanners = new Set(['ansiwise/templates/forgejo-ssh-host-key.sh.tpl']);
+const blindWrites = /StrictHostKeyChecking|UserKnownHostsFile|known_hosts/;
+
 function filesUnder(directory) {
   return readdirSync(root + directory, {withFileTypes: true, recursive: true})
     .filter(entry => entry.isFile())
@@ -50,7 +57,7 @@ function filesUnder(directory) {
 
 function assertNoBypass(texts) {
   for (const [name, text] of Object.entries(texts)) {
-    assert.equal(bypasses.test(text), false, `${name} turns host key checking off or fills known hosts blind`);
+    assert.equal((scanners.has(name) ? blindWrites : bypasses).test(text), false, `${name} turns host key checking off or fills known hosts blind`);
   }
 }
 
@@ -150,6 +157,20 @@ test('PLANTED DEFECT: each way of turning the check off is found', () => {
   for (const line of ['ssh -o StrictHostKeyChecking=no master@apps2', 'ssh -o UserKnownHostsFile=/dev/null master@apps2', 'ssh-keyscan apps2 >> ~/.ssh/known_hosts']) {
     assert.throws(() => assertNoBypass({'a program': `- step: run_command\n  command: ${line}\n`}), /turns host key checking off/);
   }
+});
+
+test('PLANTED DEFECT: the file that scans is still found when it fills known hosts or turns the check off, and no other file may scan', () => {
+  const [scanner] = scanners;
+  const text = readFileSync(root + scanner, 'utf8');
+  for (const line of ['ssh-keyscan apps2 >> ~/.ssh/known_hosts', 'ssh -o StrictHostKeyChecking=no master@apps2', 'ssh -o UserKnownHostsFile=/dev/null master@apps2']) {
+    assert.throws(() => assertNoBypass({[scanner]: `${text}\n${line}\n`}), /turns host key checking off/);
+  }
+  assert.throws(() => assertNoBypass({'ansiwise/templates/other.sh.tpl': text}), /turns host key checking off/);
+});
+
+test('PLANTED INNOCENT: the file that scans, as it stands, writes no known hosts file', () => {
+  const [scanner] = scanners;
+  assertNoBypass({[scanner]: readFileSync(root + scanner, 'utf8')});
 });
 
 test('PLANTED INNOCENT: a program that names known hosts and ssh in prose is not a bypass', () => {
