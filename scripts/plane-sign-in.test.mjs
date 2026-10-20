@@ -769,9 +769,10 @@ test('the real engine records the pending administrator as declared and exits ze
   const directory = await mkdtemp(join(tmpdir(), 'plane-administrator-engine-'));
   let records;
   try {
-    const cli = process.env.ANSIWISE_CLI_CHECKOUT ?? execFileSync('bash', [new URL('scripts/cli-checkout.sh', root).pathname, 'test/checks/config_validity_test.dart'], {encoding: 'utf8'}).trim();
+    const cli = process.env.ANSIWISE_CLI_CHECKOUT;
+    assert.ok(cli, 'set ANSIWISE_CLI_CHECKOUT; scripts/test.sh sets it to the pinned ansiwise-cli tree');
     const packages = join(cli, '.dart_tool/package_config.json');
-    assert.ok(existsSync(packages), 'the CLI binding suite needs its resolved Dart packages; scripts/test.sh resolves them on CI');
+    assert.ok(existsSync(packages), 'the CLI binding suite needs its resolved Dart packages; scripts/test.sh resolves them');
     records = JSON.parse(execFileSync('dart', ['--packages=' + packages, new URL('scripts/plane-administrator-record.dart', root).pathname], {
       cwd: directory, encoding: 'utf8', input: JSON.stringify({command: 'bash ' + row.command_arguments.join(' '), reports}), timeout: 60_000,
     }));

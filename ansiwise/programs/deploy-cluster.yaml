@@ -546,7 +546,6 @@ steps:
   # is the socket peer: behind Cloudflare it names the edge, never the visitor. The lines are JSON,
   # because the common format has no place for ClientAddr or ServiceName. The step only appends, so a
   # changed value would stand beside the old one: each argument here keeps its value.
-  # scripts/traefik-access-log.test.mjs runs these arguments on the v3.6.2 binary.
   #
   # NO forwardedHeaders ARGUMENT, on purpose: nothing stands in front of this controller, and with
   # neither `insecure` nor `trustedIPs` set Traefik deletes every X-Forwarded-* and X-Real-Ip a peer

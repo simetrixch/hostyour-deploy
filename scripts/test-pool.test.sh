@@ -17,8 +17,9 @@ repo="$work/repo"
 cli="$work/cli"
 mkdir -p "$repo/scripts" "$repo/bin" "$repo/suites" "$cli"
 
-# A stand-in for scripts/cli-checkout.sh, which names the CLI tree, and for dart, which answers what DART_OUTPUT holds.
-printf '#!/usr/bin/env bash\necho "%s"\n' "$cli" >"$repo/scripts/cli-checkout.sh"
+# A stand-in for scripts/cli-checkout.sh, which makes the CLI tree that scripts/test.sh removes at its end and names it,
+# and for dart, which answers what DART_OUTPUT holds.
+printf '#!/usr/bin/env bash\nmkdir -p "%s"\necho "%s"\n' "$cli" "$cli" >"$repo/scripts/cli-checkout.sh"
 cat >"$repo/bin/dart" <<'SH'
 #!/usr/bin/env bash
 printf '%s\n' "${DART_OUTPUT:-}"
