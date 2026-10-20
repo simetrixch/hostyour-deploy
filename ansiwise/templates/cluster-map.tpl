@@ -80,17 +80,17 @@ global:
   # of the whole application stops where an enabled route resolves to neither. Written the same
   # way, one plain mailbox per entry; the shape of the answer holds each entry to a mailbox.
   alertRecipients: [<alert-recipients>]
-  # The repository holding this installation's tenant charts, as the URL a build clones. Written
-  # from the answer that names it as owner/name — the pipeline that releases a unit reads it to find
-  # the charts a release is rendered against, and refuses to render at all without it.
-  deployUrl: https://github.com/<deploy-repo>.git
-  # THE SAME REPOSITORY AS owner/name, WHICH IS A DIFFERENT THING TO READ. Every argocd file of
-  # this platform writes the marker inside a URL of its own — `https://github.com/__DEPLOY_REPO__.git`
-  # — so what replaces the marker is the bare owner/name and never a URL. A cluster cutting a
-  # SLAVE's branch has no answer to read it from (the manager tells that program only fqdn, stage,
-  # role and operator_user), so it reads this map instead, and deployUrl above is the wrong shape
-  # for it: stamped in, it would compose https://github.com/https://github.com/... .
-  deployRepo: <deploy-repo>
+  # THE TWO REPOSITORIES ARGO CD SYNCS FROM, as the URLs it clones: this platform's own tree and
+  # this installation's tenant charts. Every argocd file of the platform and the pipeline that
+  # releases a unit read them as they stand, so what is written here is the one place a repository
+  # moves from one forge to another. They are written by the pair of rows of deploy-branch that
+  # follow `platform_on_forgejo_in_answers` and `platform_on_github_in_answers`: Forgejo's host and
+  # repositories where the platform tree has moved there, github.com and the answered repositories
+  # where it has not. One host stands in both lines, because the forge that serves the platform
+  # tree serves the tenant charts. A cluster cutting a SLAVE's branch has no answer to read them
+  # from, so it reads this map.
+  platformUrl: https://<platform-host>/<platform-repository>.git
+  deployUrl: https://<platform-host>/<deploy-repository>.git
   # The Vault auth mount of THIS cluster. One Vault serves several clusters, so the mount is what
   # tells two of them apart, and every policy templated on a login is written against it.
   vaultKubernetesAuthPath: kubernetes-<cluster-name>
