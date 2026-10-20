@@ -34,7 +34,7 @@ suite node scripts/cli-checkout.test.mjs 'the tree of ansiwise-cli the binding s
 suite node scripts/move-machine.test.mjs 'machine move launcher'
 suite node scripts/tenant-stage-policy.test.mjs 'tenant stage Vault policy contract'
 suite node-cli scripts/host-admission-floor.test.mjs 'host admission floor'
-suite node scripts/traefik-dashboard.test.mjs 'traefik dashboard off the web'
+suite node scripts/traefik-dashboard.test.mjs 'traefik dashboard off the web, and the controller trusts no forwarded header'
 suite node scripts/observability-query-slot.test.mjs 'the cluster map names the query route of the observability plane'
 suite node scripts/traefik-cpu-request.test.mjs 'the ingress controller requests the CPU the build budget counts'
 suite node scripts/prune-unused-images.test.mjs 'prune unused images before the free-disk check'

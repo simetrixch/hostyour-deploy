@@ -43,8 +43,11 @@ done
 git -C "$checkout" cat-file -e "$pin^{commit}" 2>/dev/null \
   || fail "$checkout lacks ansiwise-cli at $pin, the commit ci-sources.json pins; fetch it there: git -C $checkout fetch origin"
 cli="$(mktemp -d)" || fail 'no temporary directory could be made'
+# The caller removes the tree once it is named; until then a failure here removes it.
+trap 'rm -rf "$cli"' EXIT
 git -C "$checkout" archive "$pin" | tar -x -C "$cli" \
   || fail "ansiwise-cli at $pin could not be read from $checkout"
 [ -f "$cli/$SUITE" ] \
   || fail "$cli/$SUITE is missing, so these programs cannot be bound to a registry"
+trap - EXIT
 printf '%s\n' "$cli"

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import {execFileSync, spawnSync} from 'node:child_process';
-import {copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync} from 'node:fs';
+import {copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {test} from 'node:test';
@@ -36,7 +36,7 @@ function machine({withSuite = true} = {}) {
   pin({git: {'ansiwise-cli': pinned}});
   return {root, cli, main, pinned, pin};
 }
-const run = (tree) => spawnSync('bash', [join(tree, 'scripts/cli-checkout.sh'), SUITE], {encoding: 'utf8', env: {PATH: process.env.PATH, HOME: process.env.HOME}});
+const run = (tree, env = {}) => spawnSync('bash', [join(tree, 'scripts/cli-checkout.sh'), SUITE], {encoding: 'utf8', env: {PATH: process.env.PATH, HOME: process.env.HOME, ...env}});
 
 test('the suite runs in the pinned commit of the ansiwise-cli checkout beside the main one, whatever that checkout stands on', () => {
   const {cli, main} = machine();
@@ -86,7 +86,10 @@ test('a pin that is no full commit, a missing pin, a commit the checkout lacks, 
   assert.notEqual(missing.status, 0, 'PLANTED DEFECT: no checkout beside it is refused');
   assert.match(missing.stderr, /no ansiwise-cli checkout beside/);
   const without = machine({withSuite: false});
-  const noSuite = run(without.main);
+  const scratch = join(without.root, 'tmp');
+  mkdirSync(scratch);
+  const noSuite = run(without.main, {TMPDIR: scratch});
   assert.notEqual(noSuite.status, 0, 'PLANTED DEFECT: a pinned tree without the binding suite is refused');
   assert.match(noSuite.stderr, new RegExp(SUITE));
+  assert.deepEqual(readdirSync(scratch), [], 'and the refused tree is not left in the temporary directory');
 });

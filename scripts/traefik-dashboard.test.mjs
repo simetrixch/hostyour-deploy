@@ -59,3 +59,15 @@ test('PLANTED DEFECT: each way to leave the dashboard on the web is found, and t
   assert.notDeepEqual(findings(steps, {...route, metadata: {...route.metadata, name: 'planted'}}), [], 'another route named');
   assert.deepEqual(findings(structuredClone(steps), route), [], 'the planted innocent: the program as it is');
 });
+
+// deploy-cluster appends the access log to the controller beside the one standing argument, and no forwardedHeaders
+// argument: with neither `insecure` nor `trustedIPs` set, Traefik replaces every X-Forwarded-* and X-Real-Ip a peer sends.
+const STANDING = '--providers.kubernetescrd.allowCrossNamespace=true';
+const controller = steps.find(row => row.step === 'patch_container_arguments_and_ports' && row.namespace === 'ingress' && row.name === 'traefik').arguments;
+const stray = arguments_ => arguments_.filter(argument => argument !== STANDING && !argument.startsWith('--accesslog'));
+
+test('deploy-cluster declares the access log beside the standing argument, and no forwarded-header trust', () => {
+  assert.ok(controller.includes(STANDING));
+  assert.deepEqual(stray(controller), []);
+  assert.notDeepEqual(stray([...controller, '--entryPoints.websecure.forwardedHeaders.insecure=true']), [], 'PLANTED DEFECT: forwarded headers trusted');
+});
