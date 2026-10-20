@@ -26,7 +26,9 @@ metadata:
 spec:
   description: Slave <slave-cluster-name> — its namespaced reconciler instance and its materialized credentials, in its own namespace on the master.
   sourceRepos:
-    - https://github.com/simetrixch/hostyour-cloud.git
+    # THE PLATFORM TREE, from the address the Manager is configured with, so the project admits the forge
+    # the installation's tree stands on and no other: Forgejo where it has moved there, github.com where it has not.
+    - <platform-url>
     # AND THE CHART REPOSITORY THE RECONCILER ITSELF COMES FROM. clusters/slaves/slave pulls the
     # `argo-cd` chart from here as a dependency, and every project of this platform names the remote
     # chart repositories its applications pull from — core names external-secrets' OCI registry,

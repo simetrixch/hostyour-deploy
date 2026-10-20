@@ -56,6 +56,7 @@ suite node scripts/owned-storage.test.mjs 'the installer downloads its tools and
 suite node scripts/forgejo-webhook.test.mjs 'the Forgejo webhook key stands in an entry of its own'
 suite node scripts/forgejo-ssh-host-key.test.mjs 'the Forgejo SSH host key is one RSA key line, stored for the build reader alone'
 suite node scripts/register-slave-known-host.test.mjs 'register-slave puts the slave host key into the master known hosts and nothing turns host key checking off'
+suite node scripts/platform-tree-url.test.mjs 'the cluster map and the slave project name the platform tree on the forge it stands on'
 suite node scripts/postfix-values.test.mjs 'the relay allowlist of postfix-values.tpl names the platform domain and the unit apex the branch row binds'
 suite python scripts/tenant-stage-proof.test.py 'tenant stage permission proof'
 suite bash scripts/test-pool.test.sh 'the pool of this script runs suites at once, hands the CLI tree to the suites that start the CLI, and ends red for a failed suite, a skipped Dart suite and one that left no status'

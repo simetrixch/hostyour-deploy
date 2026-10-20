@@ -52,6 +52,15 @@ steps:
     commands: [microk8s]
     on_failure: exit
 
+  # THE PROJECT MANIFEST THIS REMOVAL RENDERS NAMES THE PLATFORM TREE, as the register run's does, and a
+  # value that is no repository address is refused before anything is removed: the run that takes a slave
+  # away must not be one a wrong answer can half finish.
+  - step: require_answer_matches
+    answer: platform_url
+    pattern: '^https://[A-Za-z0-9][A-Za-z0-9.-]*(:[0-9]+)?/[A-Za-z0-9][A-Za-z0-9_.-]*/[A-Za-z0-9][A-Za-z0-9_.-]*\.git(?![\s\S])'
+    refusal: Supply the platform repository as the https address a clone uses, ending in .git.
+    on_failure: exit
+
   # The slave's membership at the coordinator: its registered nodes, then its user — which carries
   # its pre-auth keys away with it. A coordinator that cannot be asked BLOCKS with nothing yet
   # destroyed; running the removal again once it answers is the whole repair.
@@ -143,6 +152,7 @@ steps:
     file_mode: 420
     values:
       slave-cluster-name: { answer: slave_cluster_name }
+      platform-url: { answer: platform_url }
     on_failure: exit
 
   - step: remove_kubernetes_object
@@ -186,3 +196,11 @@ answers:
     describes: >-
       The slave's name on this master — global.clusterName of its cluster map, the name every
       resource of its management plane carries.
+
+  - name: platform_url
+    kind: text
+    required: true
+    describes: >-
+      The address this installation's platform tree is cloned from, as the Manager is configured with it
+      (PLATFORM_REPO_URL) and as the register run listed it in the slave's project. The project manifest
+      is rendered from it to name the project that is deleted; nothing is deleted by it.

@@ -1004,6 +1004,7 @@ steps:
     on_failure: exit
 
   - step: write_file_from_template
+    when: [platform_on_forgejo_in_answers]
     template: ansiwise/templates/cluster-map.tpl
     path: /srv/hostyour-cloud/clusters/active/<fqdn>.yaml
     run_answer: fqdn
@@ -1032,7 +1033,12 @@ steps:
       alert-recipients: { answer: alert_recipients, join: ", " }
       # Several sources on one line, separated the same way and for the same reason.
       time-sources: { answer: time_sources, join: ", " }
-      deploy-repo: { answer: deploy_repo }
+      # WHERE THE PLATFORM TREE AND THE TENANT CHARTS ARE CLONED FROM: Forgejo's host and the two Forgejo
+      # destinations. The row for github.com below binds the same three slots to the answers of the
+      # repositories there, and only these three differ between the two rows.
+      platform-host: { answer: forgejo_host }
+      platform-repository: { answer: forgejo_platform_repository }
+      deploy-repository: { answer: forgejo_deploy_repository }
       mail-host: { answer: mail_host }
       # The account and the jurisdiction the tenant charts compose their storage endpoint from. Both
       # bindings stand on ONE line of the template, so an installation that answered neither writes
@@ -1047,6 +1053,45 @@ steps:
       registry-pull-user: { answer: registry_pull_user }
       registry-push-user: { answer: registry_push_user }
       # Read off the machine by the row above, never answered.
+      node-cidrs: { measured: host_addresses }
+      holds-build-plane: { answer: holds_build_plane }
+      holds-books: { answer: holds_books }
+    on_failure: exit
+
+  # THE SAME MAP, WRITTEN ONCE PER FORGE. The platform tree has either moved to Forgejo or it has not,
+  # and the two conditions of ansiwise.yaml are the only ones that choose, so exactly one of the two rows
+  # runs. This row stands for github.com and binds every slot as the row above does, except the three
+  # that name the repositories; scripts/platform-tree-url.test.mjs holds the two rows to each other.
+  - step: write_file_from_template
+    when: [platform_on_github_in_answers]
+    template: ansiwise/templates/cluster-map.tpl
+    path: /srv/hostyour-cloud/clusters/active/<fqdn>.yaml
+    run_answer: fqdn
+    file_mode: 420
+    values:
+      fqdn: { answer: fqdn }
+      stage: { answer: stage }
+      role: { answer: role }
+      release: { answer: platform_ref }
+      books-cluster: { answer: books_fqdn }
+      build-plane: { answer: build_plane_fqdn }
+      unit-apex: { answer: unit_apex }
+      platform-domain: { answer: platform_domain }
+      cluster-issuer: { answer: cluster_issuer }
+      letsencrypt-email: { answer: letsencrypt_email }
+      letsencrypt-server: { answer: letsencrypt_server }
+      acme-eab-key-id: { answer: acme_eab_key_id }
+      alert-recipients: { answer: alert_recipients, join: ", " }
+      time-sources: { answer: time_sources, join: ", " }
+      platform-host: github.com
+      platform-repository: { answer: platform_repo }
+      deploy-repository: { answer: deploy_repo }
+      mail-host: { answer: mail_host }
+      object-storage-account-id: { answer: cloudflare_r2_account_id }
+      object-storage-jurisdiction: { answer: cloudflare_r2_jurisdiction }
+      cluster-name: { answer: cluster_name }
+      registry-pull-user: { answer: registry_pull_user }
+      registry-push-user: { answer: registry_push_user }
       node-cidrs: { measured: host_addresses }
       holds-build-plane: { answer: holds_build_plane }
       holds-books: { answer: holds_books }
@@ -1085,7 +1130,7 @@ steps:
       BUILD_PLANE_FQDN: { answer: build_plane_fqdn }
       # THE PROGRAMS' OWN REPOSITORY, which the row of deploy-platform-services that clones the
       # programs reads out of this file by name. It is not the same repository as the map's
-      # `deployRepo`: one names the platform's programs and is public, the other names an
+      # `deployUrl`: one names the platform's programs and is public, the other names an
       # installation's charts and is private, and one key for both would clone one where the other
       # is meant.
       PROGRAMS_REPO: { answer: programs_repo }

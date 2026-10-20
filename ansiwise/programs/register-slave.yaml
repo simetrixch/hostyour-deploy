@@ -56,6 +56,16 @@ steps:
     commands: [microk8s]
     on_failure: exit
 
+  # THE PLATFORM TREE'S ADDRESS STANDS IN THE SLAVE'S PROJECT ON THE MASTER, and a project admits every
+  # repository it lists as a source. The Manager hands it over as the address a clone uses, so what is
+  # not an https address of one owner and one repository ending in .git is refused before anything is
+  # changed: an empty value or a wildcard would otherwise open every repository to the slave's reconciler.
+  - step: require_answer_matches
+    answer: platform_url
+    pattern: '^https://[A-Za-z0-9][A-Za-z0-9.-]*(:[0-9]+)?/[A-Za-z0-9][A-Za-z0-9_.-]*/[A-Za-z0-9][A-Za-z0-9_.-]*\.git(?![\s\S])'
+    refusal: Supply the platform repository as the https address a clone uses, ending in .git.
+    on_failure: exit
+
   # --- the mount the slave's workloads log in through -------------------------------------------
   #
   # The remote token review: the master's Vault validates tokens minted ON THE SLAVE by calling the
@@ -333,6 +343,7 @@ steps:
     file_mode: 420
     values:
       slave-cluster-name: { answer: slave_cluster_name }
+      platform-url: { answer: platform_url }
     on_failure: exit
 
   - step: kubernetes_object_reversible
@@ -399,6 +410,15 @@ answers:
     describes: >-
       The slave's name on this master — global.clusterName of its cluster map, fixed at its
       adoption, the name the platform files the slave's cluster under everywhere else.
+
+  - name: platform_url
+    kind: text
+    required: true
+    describes: >-
+      The address this installation's platform tree is cloned from, as the Manager is configured with it
+      (PLATFORM_REPO_URL): the https address of one repository, ending in .git. It is the one source
+      the slave's project on the master lists for the tree, so it is the repository the slave's
+      reconciler may read, and it is never worked out here.
 
   - name: api_server_url
     kind: text
