@@ -42,24 +42,13 @@ naming what it could not read, rather than failing on it.
 
 ## Checks
 
-`bash scripts/check.sh` parses the program YAML locally.
-It names the registry binding suite as not run locally.
+`bash scripts/check.sh` parses the program YAML, checks the syntax of the files that are no suite, and runs
+`bash scripts/test.sh` last. The push gate runs `scripts/check.sh`, so every push runs every suite on the machine.
 
-The master's ci is the Tekton pipeline `hostyour-deploy-ci`, defined in hostyour-cloud
-(`clusters/inventories/consumer-build/templates/pipeline-ci.yaml`). It runs those checks and
-`bash scripts/test.sh` on every push of the default branch and of a branch whose name starts with `ci/`
-(the Trigger `github-ci-push`, `clusters/inventories/image-builder/templates/triggers/github-ci-push.yaml`),
-with the Dart and the Traefik that `ci-tools.json` names. Read its runs on the master as the PipelineRuns
-`hostyour-deploy-ci-*` in the namespace `hostyour-deploy-build`, or as the commit status `tekton/ci`. A branch
-that does not start with `ci/` is judged by the push gate on the machine only.
-
-The test entry point runs its suites `TEST_JOBS` at a time (4 unless set) and prints a failed suite in full.
-
-`scripts/traefik-access-log.test.mjs` runs the ingress controller's declared access-log arguments on that
-Traefik, the version the MicroK8s ingress addon ships. The test entry point runs
-`dart test test/checks/config_validity_test.dart` in the `ansiwise-cli` tree that `scripts/cli-checkout.sh` names, with `ANSIWISE_INSTALLATION` set to this tree: the commit
-`ci-sources.json` pins in the ci, the checkout beside the main one on a machine. A skipped suite fails. Run tests only
-on a remote runner.
+The test entry point runs its suites `TEST_JOBS` at a time (4 unless set) and prints a failed suite in full. It runs
+`dart test test/checks/config_validity_test.dart` in the `ansiwise-cli` tree that `scripts/cli-checkout.sh` names, with
+`ANSIWISE_INSTALLATION` set to this tree: the commit `ci-sources.json` pins, archived out of the `ansiwise-cli` checkout
+beside the main one. A skipped suite fails.
 
 ## Machine-move preparation
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Bind this tree to the shipped CLI registry in the ci of the master.
+# Bind this tree to the shipped CLI registry. scripts/check.sh runs it as its last section, so every push runs it.
 #
 # The suites share nothing but the ansiwise-cli tree, which they only read, so TEST_JOBS of them run at once (4 unless set). The output of a suite is kept
 # in a log of its own and printed in the order of the list below once all have ended: a passed suite as one line with its time, a failed one in full,
@@ -25,7 +25,6 @@ suite node-cli scripts/plane-sign-in.test.mjs 'Plane signs in through Forgejo wi
 suite node-cli scripts/repository-credentials.test.mjs 'required installation repository credentials'
 suite node scripts/forgejo-build-credentials.test.mjs 'Forgejo credential producer and complete entry'
 suite node-cli scripts/onboard-manager.test.mjs 'private Manager repository access before onboarding'
-suite node scripts/traefik-access-log.test.mjs 'the ingress access log keeps metadata only and trusts no forwarded header'
 suite node-cli scripts/deploy-branch-secrets.test.mjs 'no unused Manager PAT in generated secrets'
 suite node scripts/forgejo-machine-user.test.mjs 'Forgejo machine users and their reach'
 suite dart "$SUITE" 'every program binds to the registry the shipped binary carries'
@@ -35,7 +34,7 @@ suite node scripts/cli-checkout.test.mjs 'the tree of ansiwise-cli the binding s
 suite node scripts/move-machine.test.mjs 'machine move launcher'
 suite node scripts/tenant-stage-policy.test.mjs 'tenant stage Vault policy contract'
 suite node-cli scripts/host-admission-floor.test.mjs 'host admission floor'
-suite node scripts/traefik-dashboard.test.mjs 'traefik dashboard off the web'
+suite node scripts/traefik-dashboard.test.mjs 'traefik dashboard off the web, and the controller trusts no forwarded header'
 suite node scripts/observability-query-slot.test.mjs 'the cluster map names the query route of the observability plane'
 suite node scripts/traefik-cpu-request.test.mjs 'the ingress controller requests the CPU the build budget counts'
 suite node scripts/prune-unused-images.test.mjs 'prune unused images before the free-disk check'
@@ -94,20 +93,16 @@ if [ "${1:-}" = --suite ]; then
   exit 0
 fi
 
-# THE CLI TREE IS NAMED BY scripts/cli-checkout.sh: the commit ci-sources.json pins, on the ci of the master, and the
-# checkout beside the main one on a machine. What it prints is the root of that tree.
+# THE CLI TREE IS NAMED BY scripts/cli-checkout.sh: the commit ci-sources.json pins, archived out of the checkout
+# beside the main one. What it prints is the root of that tree.
 TEST_CLI="$(bash "$ROOT/scripts/cli-checkout.sh" "$SUITE")" || exit 1
-export ROOT TEST_CLI
+TEST_LOGS="$(mktemp -d)"
+export ROOT TEST_CLI TEST_LOGS
+trap 'rm -rf "$TEST_LOGS" "$TEST_CLI"' EXIT
 command -v dart >/dev/null 2>&1 \
   || fail 'dart is not on PATH, and the suite that binds these programs to the shipped registry is a Dart test'
-# THE PINNED TREE IS AN ARCHIVE, and nobody has resolved its packages: a checkout beside the main one was.
-if [ -n "${CI_SOURCES_DIR:-}" ]; then
-  (cd "$TEST_CLI" && dart pub get) || fail "dart pub get in the pinned ansiwise-cli tree $TEST_CLI"
-fi
-
-TEST_LOGS="$(mktemp -d)"
-export TEST_LOGS
-trap 'rm -rf "$TEST_LOGS"' EXIT
+# THE PINNED TREE IS AN ARCHIVE, and nobody has resolved its packages.
+(cd "$TEST_CLI" && dart pub get) || fail "dart pub get in the pinned ansiwise-cli tree $TEST_CLI"
 # xargs ends with 125 and starts no further suite when one of them was killed; the suites without a status are named below.
 seq 0 $((${#suite_files[@]} - 1)) | xargs -n1 -P "${TEST_JOBS:-4}" bash "$ROOT/scripts/test.sh" --suite || echo "test: the pool of suites ended with status $?, so a suite was killed"
 
