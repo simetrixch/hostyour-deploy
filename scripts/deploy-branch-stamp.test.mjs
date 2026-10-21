@@ -173,3 +173,44 @@ test('PLANTED DEFECT, REAL CLI: a Forgejo form without the host row keeps github
   const stamped = stampedFile({...stampAnswers, platform_repo: 'forge-org/platform'}, {rows: hostRowMissing});
   assert.throws(() => assert.ok(!stamped.includes('github.com'), 'the Forgejo form keeps github.com'), /keeps github.com/);
 });
+
+// THE MANAGER IS TOLD THE MAILBOX THE INSTALLATION WAS SET UP WITH. The generated manager.yaml carries the
+// committer_email answer as `installationCommitterEmail`, the key the Manager reads as
+// INSTALLATION_COMMITTER_EMAIL; a row that binds another answer, or a template that drops the key, leaves the
+// Manager without the mailbox a placement commits under.
+const managerValuesRow = steps => steps.find(step => step.path === '/srv/hostyour-cloud/installation/values/manager.yaml');
+
+function renderedManagerValues(steps, values = {'operator-user': 'operator', 'lan-host': '10.0.0.5', 'programs-repo': 'org/programs', 'committer-email': 'installation@example.invalid'}) {
+  const row = managerValuesRow(steps);
+  assert.ok(row, 'manager.yaml is not written');
+  const template = readFileSync(join(root, row.template), 'utf8');
+  const bound = Object.fromEntries(Object.entries(row.values).map(([key, binding]) => [key, values[binding.answer === 'committer_email' ? 'committer-email' : key]]));
+  const dir = mkdtempSync(join(tmpdir(), 'manager-values-'));
+  try {
+    const path = join(dir, 'manager.yaml');
+    writeFileSync(path, template.replace(/<([a-z][a-z0-9-]*)>/g, (_, key) => bound[key] ?? `<${key}>`));
+    return JSON.parse(execFileSync('yq', ['-o=json', '.', path], {encoding: 'utf8'}));
+  } finally { rmSync(dir, {recursive: true, force: true}); }
+}
+
+function assertMailboxCarried(steps) {
+  const bound = managerValuesRow(steps).values['committer-email']?.answer;
+  assert.equal(bound, 'committer_email', 'the manager values bind another answer than committer_email');
+  assert.equal(renderedManagerValues(steps).installationCommitterEmail, 'installation@example.invalid', 'the manager values do not carry the mailbox');
+}
+
+test('the generated manager values carry the committer_email answer as installationCommitterEmail', () => {
+  assertMailboxCarried(program.steps);
+  assert.equal(renderedManagerValues(program.steps).master.sshUser, 'operator');
+  assert.equal(renderedManagerValues(program.steps).github.programsRepo, 'org/programs');
+});
+
+test('PLANTED DEFECTS: another answer bound to the mailbox, and a mailbox left unbound, are refused', () => {
+  const rebound = structuredClone(program.steps);
+  managerValuesRow(rebound).values['committer-email'] = {answer: 'operator_user'};
+  assert.throws(() => assertMailboxCarried(rebound), /bind another answer/);
+  const unbound = structuredClone(program.steps);
+  delete managerValuesRow(unbound).values['committer-email'];
+  assert.throws(() => assertMailboxCarried(unbound), /bind another answer/);
+  assertMailboxCarried(structuredClone(program.steps));
+});

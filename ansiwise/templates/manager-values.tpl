@@ -28,6 +28,12 @@ github:
   # so an installation running a fork of the programs is served from that fork.
   programsRepo: <programs-repo>
 
+# The mailbox this installation's commits carry, as this installation was told it in its
+# committer_email answer. The Manager reads it as INSTALLATION_COMMITTER_EMAIL and hands it back to
+# this program's committer_email answer when it places a platform release, so the commits of a
+# release carry the mailbox of the installation that was set up and not one the Manager invented.
+installationCommitterEmail: <committer-email>
+
 onboarding:
   # The Manager's OWN address as it listens on this machine: its pod runs on the node's own
   # network and serves 8484 there, which is the same fact the onboard-manager program states from
