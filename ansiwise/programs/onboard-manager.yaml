@@ -287,7 +287,7 @@ answers:
     allowed: [dev, test, prod]
     describes: >-
       Which of the product's three stages this installation runs. It is what makes the request the
-      build-only form: exactly one of a cluster and a stage may be given, and a build-only unit is
+      Images form: exactly one of a cluster and a stage may be given, and an Images unit is
       the one that names the stage — where the release this onboarding triggers puts what it builds.
 
   - name: channel

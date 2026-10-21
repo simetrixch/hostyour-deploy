@@ -2022,8 +2022,8 @@ steps:
   # after, and nothing can read it earlier: the entry is read by the ExternalSecrets the build fan-out
   # renders from registrations/<unit>/build.yaml, and the Manager commits that registration one step
   # before it writes the entry. The Manager's own image is built the same way, through
-  # ansiwise/programs/onboard-manager.yaml. A platform repository onboarded as a unit — hostyour-cloud
-  # as a CI-only unit — therefore owns build/hostyour-cloud/repo-pat whole, with every property its
+  # ansiwise/programs/onboard-manager.yaml. A platform repository onboarded as a unit — hostyour-cloud,
+  # the platform tree, as an Images unit with no image build — therefore owns build/hostyour-cloud/repo-pat whole, with every property its
   # build namespace reads, beside the bump credential below. The two leaves
   # under build-platform/ are what every unit's bump pushes the platform repositories with — the two
   # literal leaves of <cluster>-build-read above.
