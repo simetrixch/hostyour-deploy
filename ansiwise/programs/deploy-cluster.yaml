@@ -582,7 +582,7 @@ steps:
   # heavy build saturates the node the controller gets the minimum CPU share and every service behind
   # it answers slowly, with nothing reporting it. 400m is the controller's p95 over seven days on the
   # master (two pods at 0.403 and 0.401 cores); hostyour-cloud counts the same figure in
-  # ciCapacity.standingCpuRequests, so a change here changes the budget there. The step replaces the
+  # releaseCapacity.standingCpuRequests, so a change here changes the budget there. The step replaces the
   # running pods too, which interrupts the ingress once. scripts/traefik-cpu-request.test.mjs holds
   # the figure.
   - step: patch_container_resources
