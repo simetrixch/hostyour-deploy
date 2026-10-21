@@ -53,6 +53,7 @@ bash -n "$ROOT/scripts/tenant-stage-proof.sh" || fail 'tenant stage proof Bash s
 bash -n "$ROOT/ansiwise/templates/forgejo-build-credentials.sh.tpl" || fail 'Forgejo credential producer Bash syntax'
 bash -n "$ROOT/ansiwise/templates/forgejo-machine-user.sh.tpl" || fail 'Forgejo machine user producer Bash syntax'
 bash -n "$ROOT/ansiwise/templates/forgejo-ssh-host-key.sh.tpl" || fail 'Forgejo SSH host key producer Bash syntax'
+bash -n "$ROOT/ansiwise/templates/github-app.sh.tpl" || fail 'GitHub App credential producer Bash syntax'
 python3 -I -c 'import ast, pathlib, sys; ast.parse(pathlib.Path(sys.argv[1]).read_text())' "$ROOT/ansiwise/templates/forgejo-plane-access.py.tpl" || fail 'Forgejo and Plane access module Python syntax'
 node --check "$ROOT/scripts/forgejo-plane-access-fake.mjs" || fail 'Forgejo and Plane fake cluster syntax'
 bash -n "$ROOT/ansiwise/templates/plane-sign-in.sh.tpl" || fail 'Plane sign-in producer Bash syntax'

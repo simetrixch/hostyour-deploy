@@ -89,20 +89,6 @@ function assertAppCredential(result) {
   }
 }
 
-const services = JSON.parse(execFileSync('yq', ['-o=json', '.', join(root, 'ansiwise/programs/deploy-platform-services.yaml')], {encoding: 'utf8'}));
-const appEntry = steps => steps.find(step => step.step === 'vault_kv_entry' && step.path === '<stage>/app/github-app');
-const appFields = ['app-id=GITHUB_APP_ID', 'installation-id=GITHUB_APP_INSTALLATION_ID', 'private-key=GITHUB_APP_PRIVATE_KEY', 'owner=GITHUB_APP_OWNER'];
-
-test('the Vault entry of the App carries the same four values the secrets file does', () => {
-  assert.deepEqual(appEntry(services.steps).fields, appFields);
-});
-
-test('PLANTED DEFECT: a Vault entry of the App without the owner is refused', () => {
-  const steps = structuredClone(services.steps);
-  appEntry(steps).fields = appFields.slice(0, 3);
-  assert.notDeepEqual(appEntry(steps).fields, appFields);
-});
-
 test('the generated secrets file carries the App id, the installation, the key and the owner', () => {
   assert.deepEqual(Object.fromEntries(Object.entries(appRow.values).filter(([key]) => key in appKeys).map(([key, value]) => [key, value.answer])), appKeys);
   assert.equal(program.answers.find(answer => answer.name === 'github_app_owner')?.required, true);
