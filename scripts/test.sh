@@ -50,6 +50,7 @@ suite node scripts/cert-manager-installs.test.mjs 'cert-manager installed only w
 suite node scripts/cloudflare-origin-pull-ca.test.mjs 'the origin pull CA reaches the Vault entry every cluster reads, optional, without the client half'
 suite node scripts/cloudflare-zone-settings-token.test.mjs 'the Manager settings token reaches the Vault entry of its own, optional, and no other program'
 suite node scripts/vault-listener-reload.test.mjs 'the secret store reloads its renewed TLS pair daily'
+suite node scripts/kernel-reading.test.mjs 'the machine writes the kernel it runs as a metric, and a reading that is wrong never stands'
 suite node scripts/forgejo.test.mjs 'Forgejo gets its client secret from the one minted value and its installation values'
 suite node scripts/plane.test.mjs 'Plane gets every secret from one minted entry and its installation values'
 suite node scripts/plane-test-account.test.mjs 'the Plane sign-in test accounts get their passwords from one minted entry the e2e runner reads alone'
