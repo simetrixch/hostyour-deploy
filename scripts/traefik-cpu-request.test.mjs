@@ -5,7 +5,7 @@ import {fileURLToPath} from 'node:url';
 
 // The MicroK8s ingress addon declares its Traefik DaemonSet with `resources: {}`, so a heavy build
 // on the master gives the controller the minimum CPU share and every service behind it slows down.
-// deploy-cluster sets the request. hostyour-cloud counts the same 400m in ciCapacity.standingCpuRequests
+// deploy-cluster sets the request. hostyour-cloud counts the same 400m in releaseCapacity.standingCpuRequests
 // (scripts/build-contract.test.mjs TRAEFIK_CPU), and nothing reads across the two repositories.
 const CPU_REQUEST = '400m';
 const file = path => fileURLToPath(new URL(`../${path}`, import.meta.url));
