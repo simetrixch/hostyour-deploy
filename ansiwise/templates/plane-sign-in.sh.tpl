@@ -194,11 +194,11 @@ def confidential(client_id, secret, redirect):
             return True
         if second == first:
             return False
-        refuse('Forgejo answered the client probe with ' + second[0] + '; Plane sign-in was not changed')
+        refuse('Forgejo answered the second client probe unexpectedly; Plane sign-in was not changed')
     if first in (('unauthorized_client', 'invalid client secret'), ('unauthorized_client', 'unexpected redirect URI')) or \
             (first[0] == 'invalid_client' and first[1].startswith('cannot load client with client id')):
         return False
-    refuse('Forgejo answered the client probe with ' + first[0] + '; Plane sign-in was not changed')
+    refuse('Forgejo answered the client probe unexpectedly; Plane sign-in was not changed')
 
 
 def holds(stored, wanted, secret):
@@ -220,7 +220,7 @@ def application(auth, redirect, held):
             confidential(held['client-id'], held['client-secret'], redirect):
         return held['client-id'], held['client-secret'], False
     else:
-        if not isinstance(listed[0].get('id'), int):
+        if not access.is_identifier(listed[0].get('id')):
             refuse('Forgejo listed the OAuth2 application plane without its id')
         _, raw = access.api('PATCH', '/user/applications/oauth2/' + str(listed[0]['id']), auth, (200,), body, sudo=USER)
     made = access.object_json(raw, 'Forgejo OAuth2 application')

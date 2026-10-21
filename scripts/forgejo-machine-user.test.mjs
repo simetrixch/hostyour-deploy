@@ -6,7 +6,7 @@ import {mkdtemp, rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {test} from 'node:test';
-import {forgejoCommand, installation, program, rendered, root, writeProducer} from './forgejo-plane-access-fake.mjs';
+import {CANARY, assertRefused, forgejoCommand, installation, privateOutcome, program, rendered, root, unreadableInputs, writeProducer} from './forgejo-plane-access-fake.mjs';
 
 const TEMPLATE = 'ansiwise/templates/forgejo-machine-user.sh.tpl';
 const BOOTSTRAP = 'forgejo-build-provisioner', PASSWORD = "fixture-bootstrap-password'$with-quotes";
@@ -171,7 +171,7 @@ async function fixture(user, options = {}) {
         teams.set(teams.size + 1, {org, id: teams.size + 1, name: made.name, permission: 'read', includes_all_repositories: options.team?.includes_all_repositories ?? true, can_create_org_repo: false, members: new Set()});
         return send(201, '{}');
       }
-      return send(200, [...teams.values()].filter(t => t.org === org).map(({members, ...team}) => team));
+      return send(200, [...teams.values()].filter(t => t.org === org).map(({members, ...team}) => 'teamListedId' in options ? {...team, id: options.teamListedId} : team));
     }
     const member = path.match(/^\/api\/v1\/teams\/(\d+)\/members\/([^/]+)$/);
     if (member && basic && req.method === 'PUT') { teams.get(Number(member[1])).members.add(member[2]); return send(204); }
@@ -184,11 +184,12 @@ async function fixture(user, options = {}) {
   const clean = async () => { server.closeAllConnections(); await new Promise(resolve => server.close(resolve)); await rm(directory, {recursive: true, force: true}); };
   let producer, kubectl;
   try { ({producer, kubectl} = await writeProducer(directory, TEMPLATE, {...filled(render.values), ...options.values}, {mutate: options.mutate, mutateModule: options.mutateModule, port})); } catch (error) { await clean(); throw error; }
-  const run = (entry, mode = '--apply') => new Promise((resolve, reject) => {
+  const run = (entry, mode = '--apply', raw = undefined) => new Promise((resolve, reject) => {
     const child = spawn('bash', [producer, mode, '--', kubectl], {cwd: directory});
     let stdout = '', stderr = ''; child.stdout.on('data', d => stdout += d); child.stderr.on('data', d => stderr += d);
-    child.on('error', reject); child.on('close', (code) => resolve({code, stdout, stderr}));
-    child.stdin.end(JSON.stringify({entry, inputs: {}}));
+    child.on('error', reject);
+    child.on('close', code => { try { resolve(privateOutcome({code, stdout, stderr}, [TOKEN, PASSWORD, ...tokens.keys()])); } catch (error) { reject(error); } });
+    child.stdin.end(raw ?? JSON.stringify({entry, inputs: {}}));
   });
   const write = (repo, token) => fetch(`http://127.0.0.1:${port}/api/v1/repos/${repo}/statuses/${SHA}`, {method: 'POST', headers: {authorization: 'token ' + token}, body: '{}'}).then(r => r.status);
   return {run, clean, users, tokens, teams, repos, requests, TOKEN, writer, get generation() { return generation; }, right, write};
@@ -233,7 +234,7 @@ test('a bump user is granted on a repository an organisation owns, where Forgejo
     // PLANTED: the account read from the owner's view of the grant (red).
     const owners = await fixture(user, {mutateModule: READS_THE_OWNERS_VIEW});
     try {
-      const r = await owners.run(null); assert.notEqual(r.code, 0); assert.match(r.stderr, new RegExp(user + ' is not an active restricted non-admin user'));
+      const r = await owners.run(null); assertRefused(r, new RegExp(user + ' is not an active restricted non-admin user'));
     } finally { await owners.clean(); }
     // INNOCENT: an administrator owns the repository, so the owner's view is the full account.
     const administered = await fixture(user, {ownerIsAdmin: true, mutateModule: READS_THE_OWNERS_VIEW});
@@ -249,7 +250,7 @@ test('an existing bump user that is not restricted is refused before any grant',
     // PLANTED: an unrestricted account of the user's name (red).
     const f = await fixture(user, {exists: true, restricted: false});
     try {
-      const r = await f.run(null); assert.notEqual(r.code, 0); assert.match(r.stderr, new RegExp(user + ' is not an active restricted non-admin user'));
+      const r = await f.run(null); assertRefused(r, new RegExp(user + ' is not an active restricted non-admin user'));
       assert.deepEqual(f.requests.filter(q => q.method !== 'GET'), [], 'nothing was granted');
       assert.equal(f.generation, 0);
     } finally { await f.clean(); }
@@ -261,13 +262,13 @@ test('a bump user with write on a second repository, or with administration righ
     // PLANTED: write on a second repository (red).
     const wide = await fixture(user, {exists: true, granted: {[OTHER]: [[user, 'write']]}});
     try {
-      const r = await wide.run(null); assert.notEqual(r.code, 0); assert.match(r.stderr, /unrelated repository/);
+      const r = await wide.run(null); assertRefused(r, /unrelated repository/);
       assert.equal(r.stdout, '');
     } finally { await wide.clean(); }
     // PLANTED: a user with administration rights (red, refused by name).
     const admin = await fixture(user, {exists: true, admin: true});
     try {
-      const r = await admin.run(null); assert.notEqual(r.code, 0); assert.match(r.stderr, new RegExp(user + ' must be an active non-admin user'));
+      const r = await admin.run(null); assertRefused(r, new RegExp(user + ' must be an active non-admin user'));
       assert.equal(admin.generation, 0);
     } finally { await admin.clean(); }
   }
@@ -288,12 +289,12 @@ test('argocd joins a read-only team of every organisation and reads, and a user 
   // PLANTED: argocd with write on a repository (red).
   const writer = await fixture('argocd', {exists: true, granted: {[PLATFORM]: [['argocd', 'write']]}});
   try {
-    const r = await writer.run(null); assert.notEqual(r.code, 0); assert.match(r.stderr, /unrelated repository/);
+    const r = await writer.run(null); assertRefused(r, /unrelated repository/);
   } finally { await writer.clean(); }
   // PLANTED: a team that is not over all repositories is refused rather than trusted.
   const narrow = await fixture('argocd', {team: {includes_all_repositories: false}});
   try {
-    const r = await narrow.run(null); assert.notEqual(r.code, 0); assert.match(r.stderr, /not a read-only team over all repositories/);
+    const r = await narrow.run(null); assertRefused(r, /not a read-only team over all repositories/);
   } finally { await narrow.clean(); }
 });
 
@@ -323,7 +324,7 @@ test('argocd refuses organisations that omit a repository owner before it change
       const f = await fixture('argocd', {values: {'forgejo-organisations': organisations}});
       try {
         const r = await f.run(null, mode); assert.notEqual(r.code, 0, organisations + ' ' + mode);
-        assert.match(r.stderr, /organisations of argocd must include the owner of every repository it reads/);
+        assertRefused(r, /organisations of argocd must include the owner of every repository it reads/);
         assert.equal(r.stdout, '');
         assert.deepEqual(f.requests.filter(q => q.method !== 'GET'), [], 'nothing was changed in Forgejo');
         assert.equal(f.teams.size, 0); assert.equal(f.users.has('argocd'), false); assert.equal(f.generation, 0);
@@ -343,12 +344,48 @@ test('argocd refuses organisations that omit a repository owner before it change
 test('a row with an empty answer, or the wrong kind of reach, refuses by what it needs', async () => {
   const unproven = await fixture('argocd', {values: {'forgejo-deploy-repository': ''}});
   try {
-    const r = await unproven.run(null); assert.notEqual(r.code, 0); assert.match(r.stderr, /argocd needs .*to read/);
+    const r = await unproven.run(null); assertRefused(r, /argocd needs .*to read/);
     assert.equal(unproven.users.has('argocd'), false);
   } finally { await unproven.clean(); }
   const empty = await fixture('deploy-bump', {values: {'forgejo-repository': ''}});
   try {
-    const r = await empty.run(null); assert.notEqual(r.code, 0); assert.match(r.stderr, /deploy-bump needs one owner\/repository to write/);
+    const r = await empty.run(null); assertRefused(r, /deploy-bump needs one owner\/repository to write/);
     assert.equal(empty.users.has('deploy-bump'), false);
   } finally { await empty.clean(); }
+});
+
+test('a producer handed input it cannot read refuses by name and repeats none of it', async () => {
+  const f = await fixture('deploy-bump');
+  try {
+    for (const [reason, raw] of unreadableInputs(CANARY)) assertRefused(await f.run(null, '--apply', raw), reason, [CANARY]);
+  } finally { await f.clean(); }
+});
+
+test('a team of an id that is no Forgejo id is refused before its path is built, and the id is never echoed', async () => {
+  // PLANTED DEFECTS: a string, an object, a boolean, zero, a negative, a number beyond 64 bits, a missing id.
+  for (const id of [CANARY, {id: CANARY}, true, 0, -1, 2 ** 70, null, undefined]) {
+    const f = await fixture('argocd', {teamListedId: id});
+    try {
+      const r = await f.run(null);
+      assertRefused(r, /^the team machine-readers of \S+ has no readable id$/, [CANARY]);
+      assert.ok(![...f.teams.values()].some(t => t.members.size), 'no member was added');
+      assert.ok(!f.requests.some(q => q.method === 'PUT' && q.path.startsWith('/api/v1/teams/')), 'no team path was built: ' + JSON.stringify(id));
+    } finally { await f.clean(); }
+  }
+  // PLANTED INNOCENT: a team of its own id gets the member.
+  const f = await fixture('argocd');
+  try {
+    const r = await f.run(null); assert.equal(r.code, 0, r.stderr);
+    assert.ok([...f.teams.values()].some(t => t.members.has('argocd')));
+  } finally { await f.clean(); }
+});
+
+test('a Forgejo user name that is none is refused where the list is read, and no part of it is echoed', async () => {
+  for (const name of ['bad$' + CANARY, '-' + CANARY, CANARY + '/x', 'x%20' + CANARY]) {
+    const f = await fixture('deploy-bump');
+    try {
+      f.users.set(name, {email: 'x@hostyour.invalid', admin: false, restricted: true, active: true});
+      assertRefused(await f.run(null), 'the Forgejo user list could not be read', [CANARY]);
+    } finally { await f.clean(); }
+  }
 });

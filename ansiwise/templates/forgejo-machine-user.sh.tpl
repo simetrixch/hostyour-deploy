@@ -83,6 +83,8 @@ def grant_reading(auth, organisation):
     if team is None or team.get('permission') != 'read' or team.get('includes_all_repositories') is not True or \
             team.get('can_create_org_repo') is not False:
         refuse('the team ' + TEAM + ' of ' + organisation + ' is not a read-only team over all repositories')
+    if not access.is_identifier(team.get('id')):
+        refuse('the team ' + TEAM + ' of ' + organisation + ' has no readable id')
     access.api('PUT', '/teams/' + str(team['id']) + '/members/' + USER, auth, (204,))
 
 

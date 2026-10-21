@@ -8,7 +8,7 @@ import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {test} from 'node:test';
-import {MODULE, forgejoCommand, planeExec, planeOutput, program, rendered, root, writeProducer} from './forgejo-plane-access-fake.mjs';
+import {CANARY, MODULE, assertRefused, forgejoCommand, planeExec, planeOutput, privateOutcome, program, rendered, root, unreadableInputs, writeProducer} from './forgejo-plane-access-fake.mjs';
 
 const TEMPLATE = 'ansiwise/templates/plane-sign-in.sh.tpl';
 const PEOPLE = 'ansiwise/templates/plane-further-people.tpl';
@@ -188,7 +188,7 @@ async function fixture(options = {}) {
     for (const [key, value] of Object.entries(wanted)) if (settings.get(key) !== value) { settings.set(key, value); changes++; }
     return stored();
   };
-  const listed = a => ({id: a.id, name: a.name, client_id: a.client_id, client_secret: '', confidential_client: a.confidential, redirect_uris: a.redirect_uris, created: '2026-10-17T00:00:00Z'});
+  const listed = a => ({id: 'listedId' in options ? options.listedId : a.id, name: a.name, client_id: a.client_id, client_secret: '', confidential_client: a.confidential, redirect_uris: a.redirect_uris, created: '2026-10-17T00:00:00Z'});
   const server = createServer(async (req, res) => {
     let text = ''; for await (const chunk of req) text += chunk;
     const url = new URL(req.url, 'http://fixture.invalid'), path = url.pathname;
@@ -229,6 +229,7 @@ async function fixture(options = {}) {
       assert.deepEqual([form.get('grant_type'), form.get('redirect_uri')], ['authorization_code', REDIRECT]);
       const app = apps.find(a => a.client_id === form.get('client_id'));
       const refused = (error, description) => send(400, {error, error_description: description});
+      if (options.probe) return send(400, options.probe(form, apps.find(a => a.client_id === form.get('client_id'))));
       if (!app) return refused('invalid_client', `cannot load client with client id: '${form.get('client_id')}'`);
       if (app.confidential && form.get('client_secret') !== app.secret) return refused('unauthorized_client', 'invalid client secret');
       if (!app.redirect_uris.includes(form.get('redirect_uri'))) return refused('unauthorized_client', 'unexpected redirect URI');
@@ -292,14 +293,21 @@ async function fixture(options = {}) {
     await writeFile(producer, text.replace(address, `'http://127.0.0.1:${options.authentikUnreachable ? 1 : port}'`));
   } catch (error) {await clean(); throw error;}
   const stderrs = [];
+  const secrets = () => [SECRET, PASSWORD, AUTHENTIK_TOKEN, ...apps.map(a => a.secret)];
   const spawned = (args, stdin) => new Promise((resolve, reject) => {
     const child = spawn('bash', [producer, ...args], {cwd: directory});
     let stdout = '', stderr = ''; child.stdout.on('data', d => stdout += d); child.stderr.on('data', d => stderr += d);
     child.on('error', reject);
-    child.on('close', code => { stderrs.push(stderr); resolve({code, stdout, stderr, entry: code === 0 && args[0] !== '--administrator' ? JSON.parse(stdout) : null}); });
+    child.on('close', code => {
+      stderrs.push(stderr);
+      try {
+        const result = {code, stdout, stderr, entry: code === 0 && args[0] !== '--administrator' ? JSON.parse(stdout) : null};
+        resolve(args[0] === '--administrator' ? result : privateOutcome(result, secrets()));
+      } catch (error) {reject(error);}
+    });
     child.stdin.end(stdin);
   });
-  const run = (entry, mode = '--apply') => spawned([mode, '--', kubectl], JSON.stringify({entry, inputs: {}}));
+  const run = (entry, mode = '--apply', raw = undefined) => spawned([mode, '--', kubectl], raw ?? JSON.stringify({entry, inputs: {}}));
   // What the row after the producer runs: bash the producer --administrator, which reads only.
   const report = () => spawned(['--administrator'], '');
   // Forgejo accepts this client id and secret: a confidential application of user plane with our redirect URI.
@@ -308,20 +316,19 @@ async function fixture(options = {}) {
   // A client secret stands only in the stdin of the write snippet and in the producer's stdout: in no
   // file, no argument (the snippet's arguments decoded included), no other stdin and no stderr.
   const privateSecrets = async () => {
-    const secrets = [SECRET, PASSWORD, AUTHENTIK_TOKEN, ...apps.map(a => a.secret)];
     for (const file of await readdir(directory)) {
       if (join(directory, file) === tokenFile) continue;
       const text = await readFile(join(directory, file), 'utf8');
-      for (const secret of secrets) assert.ok(!text.includes(secret), file + ' holds a secret');
+      for (const secret of secrets()) assert.ok(!text.includes(secret), file + ' holds a secret');
     }
     for (const [i, argv] of commands.entries()) {
       const carried = argv.join(' ') + JSON.stringify(planeExec(argv)?.args ?? null);
-      for (const secret of secrets) {
+      for (const secret of secrets()) {
         assert.ok(!carried.includes(secret), 'an argument carries a secret');
         if (planeExec(argv)?.name !== WRITE) assert.ok(!inputs[i].includes(secret), 'a stdin other than the write snippet\'s carries a secret');
       }
     }
-    for (const stderr of stderrs) for (const secret of secrets) assert.ok(!stderr.includes(secret), 'stderr carries a secret');
+    for (const stderr of stderrs) for (const secret of secrets()) assert.ok(!stderr.includes(secret), 'stderr carries a secret');
   };
   return {run, report, setAuthentik, clean, accepts, privateSecrets, directory, users, apps, settings, limits, admission, commands, inputs, requests, authentikRequests, snippets,
     get changes() {return changes;}};
@@ -488,7 +495,7 @@ test('apply refuses a plane user with administration rights or of another kind, 
     try {
       const before = state(f);
       const r = await f.run(held);
-      assert.equal(r.code, 1, JSON.stringify(options)); assert.equal(r.stdout, ''); assert.match(r.stderr, refusal);
+      assert.equal(r.code, 1, JSON.stringify(options)); assertRefused(r, refusal);
       assert.equal(state(f), before, 'nothing changed');
       assert.ok(!f.users.has(BOOTSTRAP));
     } finally {await f.clean();}
@@ -587,7 +594,7 @@ test('apply invites the test account to the workspace as a Member and not the un
   // PLANTED DEFECT: an invitation that is not accepted turns into no membership; the write's own answer says so.
   const unaccepted = await outcome(swap("accepted=True,\n                                                     role=person['role']", "accepted=False,\n                                                     role=person['role']"));
   assert.equal(unaccepted.first.code, 1);
-  assert.match(unaccepted.first.stderr, /Plane did not keep the invitation of the test account or of a person of the installation/);
+  assertRefused(unaccepted.first, /Plane did not keep the invitation of the test account or of a person of the installation/);
   // PLANTED INNOCENT: the same addresses are members already (they signed in, which deleted the invitations): nothing is written.
   const member = await outcome(undefined, {plane: {workspaces: [{id: 1, slug: WORKSPACE}], users: [{id: 1, email: 'owner@example.invalid'}, {id: 2, email: INVITED}, {id: 3, email: ADMINISTRATOR}],
     members: [{workspace_id: 1, member_id: 1, role: 20, is_active: true}, {workspace_id: 1, member_id: 2, role: MEMBER, is_active: true}, {workspace_id: 1, member_id: 3, role: ADMIN, is_active: true}], invites: []}});
@@ -614,7 +621,7 @@ test('an invitation that is not accepted or not a Member is corrected in place, 
     assert.deepEqual((await f.run(held, '--check')).entry, {satisfied: false});
     const r = await f.run(held);
     assert.equal(r.code, 1);
-    assert.match(r.stderr, /Plane has no workspace simplidigita; create it in Plane, then redeploy/);
+    assertRefused(r, /Plane has no workspace simplidigita; create it in Plane, then redeploy/);
   } finally {await f.clean();}
 });
 
@@ -672,7 +679,7 @@ test('a Forgejo account of a test address is limited to no repositories and no o
   for (const run of [refused.check, refused.r]) {
     assert.equal(run.code, 1);
     assert.equal(run.stdout, '');
-    assert.match(run.stderr, /a Forgejo account of a Plane test address is a site administrator; Plane sign-in was not changed/);
+    assertRefused(run, /a Forgejo account of a Plane test address is a site administrator; Plane sign-in was not changed/);
   }
   assert.deepEqual([refused.limits, refused.changed], [{}, false]);
   // PLANTED DEFECT: a producer that lets an administrator stand as the test account.
@@ -737,7 +744,7 @@ test('the administrator of Plane is the address Authentik holds for akadmin, inv
   for (const email of [INVITED, UNINVITED]) {
     const clash = await outcome(undefined, {authentik: {email}});
     assert.deepEqual([clash.first.code, clash.first.stdout, clash.roles], [1, '', {}]);
-    assert.match(clash.first.stderr, /^the administrator of the identity provider has the address of a Plane test account; Plane sign-in was not changed$/m);
+    assertRefused(clash.first, 'the administrator of the identity provider has the address of a Plane test account; Plane sign-in was not changed');
     assert.ok(!clash.first.stderr.includes('@'), 'a refusal names no address');
   }
   const admin = await outcome(swap('        if administrator in [address.lower() for address in TEST_EMAILS]:', '        if False:'), {authentik: {email: INVITED}});
@@ -875,8 +882,7 @@ test('a further person is data: an entry that closes a string and adds a stateme
   const refused = (result, entries, early = true) => {
     for (const run of [result.check, result.first]) {
       assert.equal(run.code, 1, JSON.stringify(entries));
-      assert.equal(run.stdout, '');
-      assert.match(run.stderr, refusal);
+      assertRefused(run, refusal);
       assert.ok(!run.stderr.includes('@'), 'a refusal names no address');
     }
     assert.deepEqual([result.changed, early ? result.contacted : 0, result.injected], [false, 0, false], JSON.stringify(entries));
@@ -926,4 +932,40 @@ test('the rows hand the producer its people as a file written from one optional 
     ['a text answer', changed(keep, answer => { answer.kind = 'text'; })],
     ['a literal address', changed(row => { row.values['plane-further-people'] = 'person@installation.example.test admin'; }, keep)],
   ]) assert.notDeepEqual(problems, [], name);
+});
+
+test('a producer handed input it cannot read refuses by name and repeats none of it', async () => {
+  const f = await fixture();
+  try {
+    for (const [reason, raw] of unreadableInputs(CANARY)) assertRefused(await f.run(null, '--apply', raw), reason, [CANARY]);
+  } finally {await f.clean();}
+});
+
+test('an answer of the client probe that is not the one expected is refused with fixed text, and its error is never echoed', async () => {
+  // PLANTED DEFECTS: the first probe answers an error nobody knows; the second probe, after the first said "not authorized", does.
+  const unknown = {error: 'unexpected_' + CANARY, error_description: CANARY};
+  const probes = [
+    [() => unknown, /^Forgejo answered the client probe unexpectedly; Plane sign-in was not changed$/],
+    [(form, app) => form.get('client_secret') === SECRET ? {error: 'unauthorized_client', error_description: 'client is not authorized'} : unknown,
+      /^Forgejo answered the second client probe unexpectedly; Plane sign-in was not changed$/],
+  ];
+  for (const [probe, refusal] of probes) for (const mode of ['--check', '--apply']) {
+    const f = await fixture({probe});
+    try {
+      assertRefused(await f.run(held, mode), refusal, [CANARY]);
+    } finally {await f.clean();}
+  }
+  // PLANTED INNOCENT: a status that is not 400 is named as the integer it is.
+  const f = await fixture({probe: () => unknown});
+  try { assert.equal((await f.run(held)).code, 1); } finally {await f.clean();}
+});
+
+test('an OAuth application listed under an id that is no Forgejo id is refused before its path is built', async () => {
+  for (const id of [CANARY, {id: CANARY}, true, 0, -1, 2 ** 70, null]) {
+    const f = await fixture({listedId: id});
+    try {
+      assertRefused(await f.run(null), 'Forgejo listed the OAuth2 application plane without its id', [CANARY]);
+      assert.ok(!f.requests.some(q => q.method === 'PATCH'), 'no application path was built: ' + JSON.stringify(id));
+    } finally {await f.clean();}
+  }
 });

@@ -1,7 +1,7 @@
 # The access both credential producers load by path: one deadline, the cluster commands, the Forgejo
 # pod with its API and its temporary administrator, the shell exec in Plane's API pod and the Plane
 # targets the deployed release Pipeline names. A producer's stdout is the engine's one JSON object,
-# so nothing here prints but the producer's answer.
+# so nothing here prints but the producer's answer, and its stderr carries one public refusal reason.
 import base64
 import contextlib
 import fcntl
@@ -46,12 +46,25 @@ POD = None
 ORIGIN = None
 
 
+# The engine shows a failed producer's stderr line only when it starts with this marker. A reason is
+# one plain line of printable ASCII, so no line break, control or separator character can stand in it.
+REFUSED = 'refused: '
+PLAIN_LINE = re.compile(r'[ -~]+')
+
+
 class Refused(Exception):
     pass
 
 
 def refuse(message):
+    """The message reaches the run log: it holds literal text, names of the row, validated identifiers
+    and integer statuses, and never a credential, a response body or a command's output."""
     raise Refused(message)
+
+
+def is_identifier(value):
+    """Whether `value` is the integer id Forgejo gives an object; a boolean or a string is none."""
+    return type(value) is int and 0 < value < 2 ** 63
 
 
 def cancelled(signum, frame):
@@ -74,7 +87,7 @@ def start(name, namespace, selector, container, bootstrap=None):
 
 def finish(exchange, lock_path=None):
     """Runs the exchange, under the lock where it applies, and prints its one JSON object. A producer
-    that changes nothing in Forgejo names no lock."""
+    that changes nothing in Forgejo names no lock. A refusal is the one failure whose reason leaves."""
     lock = None
     try:
         if APPLY and lock_path is not None:
@@ -82,7 +95,11 @@ def finish(exchange, lock_path=None):
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         print(json.dumps(exchange()))
     except Refused as error:
-        sys.exit(str(error))
+        reason = str(error)
+        if PLAIN_LINE.fullmatch(reason) is None or not reason.strip():
+            sys.exit(NAME + ' refused for a reason that is not one plain line; reason withheld')
+        sys.stderr.write(REFUSED + reason + '\n')
+        sys.exit(1)
     except Exception:
         sys.exit(NAME + ' could not complete; exception details withheld')
     finally:
@@ -143,6 +160,10 @@ def ready_pod():
         time.sleep(min(1, POD_WAIT_SECONDS))
 
 
+# What Forgejo lets a user name be: it ends up in an API path and in a refusal.
+USER_NAME = re.compile(r'[A-Za-z0-9][A-Za-z0-9._-]*')
+
+
 def users(cleanup=False):
     result = {}
     lines = cli(['list'], cleanup).splitlines()
@@ -152,7 +173,8 @@ def users(cleanup=False):
         if not line.strip():
             continue
         cells = line.split()
-        if len(cells) != 6 or not cells[0].isdigit() or cells[3] not in ('true', 'false') or cells[4] not in ('true', 'false'):
+        if len(cells) != 6 or not cells[0].isdigit() or USER_NAME.fullmatch(cells[1]) is None or \
+                cells[3] not in ('true', 'false') or cells[4] not in ('true', 'false'):
             refuse('the Forgejo user list could not be read')
         result[cells[1]] = {'id': int(cells[0]), 'email': cells[2], 'active': cells[3] == 'true', 'admin': cells[4] == 'true'}
     return result

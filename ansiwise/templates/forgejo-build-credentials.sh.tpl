@@ -192,7 +192,8 @@ def plane_key(arguments, seen):
     """The key the write exec issued or kept, which Plane's API accepted for every target project."""
     answer = access.plane(PLANE_WRITE, dict(arguments, issue=seen['user'] is None or seen['user']['labeled'] == 0))
     statuses = answer.get('statuses')
-    if not isinstance(statuses, dict) or sorted(statuses) != sorted(arguments['projects']):
+    if not isinstance(statuses, dict) or sorted(statuses) != sorted(arguments['projects']) or \
+            not all(status is None or (type(status) is int and 100 <= status <= 599) for status in statuses.values()):
         refuse('the Plane pod answer could not be read; output withheld')
     for project in arguments['projects']:
         if statuses[project] != 200:

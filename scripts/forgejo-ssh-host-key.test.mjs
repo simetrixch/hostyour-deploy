@@ -5,7 +5,7 @@ import {createServer} from 'node:http';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {test} from 'node:test';
-import {program, root, writeProducer} from './forgejo-plane-access-fake.mjs';
+import {CANARY, assertRefused, privateOutcome, program, root, unreadableInputs, writeProducer} from './forgejo-plane-access-fake.mjs';
 
 const TEMPLATE = 'ansiwise/templates/forgejo-ssh-host-key.sh.tpl';
 const ENTRY = '<stage>/app/forgejo-host-key';
@@ -52,11 +52,12 @@ async function fixture({files = {[KEY_FILE]: `ssh-rsa ${RSA}\n`}, pods = [POD], 
     const {producer, kubectl} = await writeProducer(directory, TEMPLATE, rowOf(program.steps).values, {mutate, port: server.address().port});
     await writeFile(join(directory, 'ssh-keyscan'), `#!/usr/bin/env bash\ntouch "${directory}/scanned"\ncat <<'EOF'\n${scanned}EOF\n`);
     await chmod(join(directory, 'ssh-keyscan'), 0o755);
-    const run = (entry, mode = '--apply') => new Promise((resolve, reject) => {
+    const run = (entry, mode = '--apply', raw = undefined) => new Promise((resolve, reject) => {
       const child = spawn('bash', [producer, mode, '--', kubectl], {cwd: directory, env: {...process.env, PATH: `${directory}:${process.env.PATH}`}});
       let stdout = '', stderr = ''; child.stdout.on('data', d => stdout += d); child.stderr.on('data', d => stderr += d);
-      child.on('error', reject); child.on('close', code => resolve({code, stdout, stderr}));
-      child.stdin.end(JSON.stringify({entry, inputs: {}}));
+      child.on('error', reject);
+      child.on('close', code => { try { resolve(privateOutcome({code, stdout, stderr}, [PRIVATE_MARKER, PRIVATE_KEY])); } catch (error) { reject(error); } });
+      child.stdin.end(raw ?? JSON.stringify({entry, inputs: {}}));
     });
     const scannedTheNetwork = () => readFile(join(directory, 'scanned')).then(() => true, () => false);
     return {run, clean, calls, scannedTheNetwork};
@@ -248,4 +249,10 @@ test('the host key is produced beside the machine users, in their pod, and read 
     const changed = structuredClone(program.steps); defect(changed);
     assert.notDeepEqual(wiring(changed), [], String(defect));
   }
+});
+
+test('a producer handed input it cannot read refuses by name and repeats none of it', async () => {
+  await using({}, async f => {
+    for (const [reason, raw] of unreadableInputs(CANARY)) assertRefused(await f.run(null, '--apply', raw), reason, [CANARY]);
+  });
 });
