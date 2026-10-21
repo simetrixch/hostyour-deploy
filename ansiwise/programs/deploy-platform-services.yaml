@@ -45,7 +45,7 @@
 # by the run.
 name: deploy-platform-services
 # BOTH PARTS, because a cluster that keeps no books runs this too — and the file already knew. Of the
-# rows below, 105 are gated on `books_here_in_answers` and 82 on `secret_store_enabled`: gates that
+# rows below, many are gated on `books_here_in_answers` or on `secret_store_enabled`: gates that
 # would be pointless if only the books cluster ever reached them. What a slave gets is what is left
 # when they skip. The line said `master` alone from the time before there were slaves, and no slave
 # ever tripped over it because every slave reached this program claiming to be a master — the
@@ -1707,16 +1707,38 @@ steps:
   # handed reaches, so that credential does not depend on where the platform repository is served from.
   # All four are required: the App is the identity the deploy repository is read and written with
   # everywhere, so an installation without it does not exist.
-  - step: vault_kv_entry
+  #
+  # THE OWNER IS CHECKED AGAINST THE ACCOUNT THE INSTALLATION BELONGS TO, because the credential Argo CD is
+  # handed reaches only the repositories under that prefix. The producer reads the four values from the
+  # secrets file, signs the App's token with the key, asks GitHub for the installation and refuses, naming
+  # both accounts and the file, when they differ without regard to case. It asks before every verdict, so
+  # an entry that already holds the wrong owner is refused as well, and it refuses a GitHub it cannot
+  # reach, because a skipped check is not a passed one. The first row demands openssl and python3, which
+  # only the clusters that keep the books and have a secret store need, because only they run the producer.
+  - step: require_commands
+    commands: [openssl, python3]
+    when: [secret_store_enabled, books_here_in_answers]
+    on_failure: exit
+
+  - step: write_file_from_template
+    template: ansiwise/templates/github-app.sh.tpl
+    path: /run/github-app.sh
+    file_mode: 448
+    elevated: true
+    values:
+      secrets-directory: /srv/hostyour-cloud/secrets
+      stage: { answer: stage }
+      github-api: https://api.github.com
+    when: [secret_store_enabled, books_here_in_answers]
+    on_failure: exit
+
+  - step: vault_kv_entry_from_command
     rests_on_an_earlier_step: true
     repository: /srv/hostyour-cloud
     mount: secret
     path: <stage>/app/github-app
-    fields:
-      - 'app-id=GITHUB_APP_ID'
-      - 'installation-id=GITHUB_APP_INSTALLATION_ID'
-      - 'private-key=GITHUB_APP_PRIVATE_KEY'
-      - 'owner=GITHUB_APP_OWNER'
+    producer: /run/github-app.sh
+    fields: [app-id, installation-id, private-key, owner]
     when: [secret_store_enabled, books_here_in_answers]
     on_failure: exit
 

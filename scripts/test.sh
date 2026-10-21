@@ -28,6 +28,7 @@ suite node scripts/forgejo-build-credentials.test.mjs 'Forgejo credential produc
 suite node-cli scripts/onboard-manager.test.mjs 'private Manager repository access before onboarding'
 suite node-cli scripts/deploy-branch-secrets.test.mjs 'no unused Manager PAT in generated secrets'
 suite node scripts/forgejo-machine-user.test.mjs 'Forgejo machine users and their reach'
+suite node scripts/github-app.test.mjs 'the App owner is checked against its installation before the Vault entry is written'
 suite dart "$SUITE" 'every program binds to the registry the shipped binary carries'
 suite node-cli scripts/deploy-branch-stamp.test.mjs 'the stamp reaches only what the install branch commit carries'
 suite node scripts/no-password-persistence.test.mjs 'no elevation password persistence in the platform program'
