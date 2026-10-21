@@ -1515,6 +1515,9 @@ steps:
       # the proof reads them from <stage>/app/plane-test-account, written from these two values below.
       - 'plane-test-account-password=IDP_PLANE_TEST_ACCOUNT_PASSWORD'
       - 'plane-test-uninvited-password=IDP_PLANE_TEST_UNINVITED_PASSWORD'
+      # The password of the one account the blueprint 21-platform-test-accounts.yaml declares for the proof
+      # that Argo CD and Headlamp sign a person in; the proof reads it from <stage>/app/platform-test-account.
+      - 'platform-test-account-password=IDP_PLATFORM_TEST_ACCOUNT_PASSWORD'
     mint:
       - argocd-client-secret
       - manager-client-secret
@@ -1526,6 +1529,7 @@ steps:
       - platform-api-token
       - plane-test-account-password
       - plane-test-uninvited-password
+      - platform-test-account-password
     when: [secret_store_enabled, books_here_in_answers]
     on_failure: exit
 
@@ -1970,6 +1974,20 @@ steps:
     when: [secret_store_enabled, idp_enabled, books_here_in_answers]
     on_failure: exit
 
+  # THE PASSWORD OF THE TEST ACCOUNT of the proof that Argo CD and Headlamp sign a person in, for the e2e
+  # runner alone, written FROM the minted value of <stage>/idp/bootstrap as the row above does for Plane.
+  - step: vault_kv_entry
+    rests_on_an_earlier_step: true
+    repository: /srv/hostyour-cloud
+    mount: secret
+    path: <stage>/app/platform-test-account
+    fields:
+      - 'password=PLATFORM_TEST_ACCOUNT_PASSWORD'
+    copy_from:
+      - 'password=<stage>/idp/bootstrap:platform-test-account-password'
+    when: [secret_store_enabled, idp_enabled, books_here_in_answers]
+    on_failure: exit
+
   # PLANE'S ENTRY: its two signing keys and the passwords of the PostgreSQL, RabbitMQ and MinIO that
   # run beside it, all minted, because nobody types them and nothing outside Plane's namespace reads
   # them. One row for all six: this step rewrites the whole entry and keeps only the minted fields of
@@ -2161,6 +2179,7 @@ steps:
       - 'PLATFORM_API_TOKEN=platform-api-token'
       - 'IDP_PLANE_TEST_ACCOUNT_PASSWORD=plane-test-account-password'
       - 'IDP_PLANE_TEST_UNINVITED_PASSWORD=plane-test-uninvited-password'
+      - 'IDP_PLATFORM_TEST_ACCOUNT_PASSWORD=platform-test-account-password'
     staging: /run/ansiwise
     # /run belongs to root, so making the directory under it and writing the manifest into it
     # both need elevation. The manifest holds a credential on its way to the cluster and is
@@ -2302,6 +2321,14 @@ steps:
     name: oidc-platform-admins
     group: admins
     cluster_role: cluster-admin
+    when: [idp_enabled, books_here_in_answers]
+    on_failure: continue
+
+  - step: oidc_admins_binding
+    rests_on_an_earlier_step: true
+    name: oidc-platform-readers
+    group: platform-readers
+    cluster_role: view
     when: [idp_enabled, books_here_in_answers]
     on_failure: continue
 

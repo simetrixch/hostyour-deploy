@@ -55,6 +55,7 @@ suite node scripts/kernel-reading.test.mjs 'the machine writes the kernel it run
 suite node scripts/forgejo.test.mjs 'Forgejo gets its client secret from the one minted value and its installation values'
 suite node scripts/plane.test.mjs 'Plane gets every secret from one minted entry and its installation values'
 suite node scripts/plane-test-account.test.mjs 'the Plane sign-in test accounts get their passwords from one minted entry the e2e runner reads alone'
+suite node scripts/platform-test-account.test.mjs 'the Argo CD and Headlamp sign-in test account gets its password from one minted entry the e2e runner reads alone, and its group is bound to view'
 suite node scripts/owned-storage.test.mjs 'the installer downloads its tools and bootstrap charts from the owner mirror alone'
 suite node scripts/forgejo-webhook.test.mjs 'the Forgejo webhook key stands in an entry of its own'
 suite node scripts/forgejo-ssh-host-key.test.mjs 'the Forgejo SSH host key is one RSA key line, stored for the build reader alone'
