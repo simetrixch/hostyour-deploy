@@ -1374,6 +1374,7 @@ steps:
       operator-user: { answer: operator_user }
       lan-host: { answer: lan_host }
       programs-repo: { answer: programs_repo }
+      committer-email: { answer: committer_email }
     on_failure: exit
 
   # WHERE THIS INSTALLATION'S ALERT MAIL SENDS THE READER, in the same file class and for a reason
