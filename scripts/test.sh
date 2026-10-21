@@ -21,6 +21,7 @@ suite() {
   suite_files+=("$2")
   suite_notes+=("$3")
 }
+suite node-cli scripts/forgejo-plane-access.test.mjs 'a credential producer refuses in one marked plain line, the real CLI records that reason and nothing else, and the census holds every refuse() to a fixture'
 suite node-cli scripts/plane-sign-in.test.mjs 'Plane signs in through Forgejo with the client of its own entry'
 suite node-cli scripts/repository-credentials.test.mjs 'required installation repository credentials'
 suite node scripts/forgejo-build-credentials.test.mjs 'Forgejo credential producer and complete entry'
