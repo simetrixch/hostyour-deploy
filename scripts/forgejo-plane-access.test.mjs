@@ -184,7 +184,7 @@ const GAPS = [
   [MODULE, [1, 2, 4, 5, 8, 10, 12, 13, 14, 15, 16, 19, 23, 24, 25, 28]],
   ['ansiwise/templates/forgejo-build-credentials.sh.tpl', [6, 9, 10, 11, 15]],
   ['ansiwise/templates/forgejo-machine-user.sh.tpl', [4, 5]],
-  ['ansiwise/templates/plane-sign-in.sh.tpl', [1, 6, 18, 19, 20]],
+  ['ansiwise/templates/plane-sign-in.sh.tpl', [6, 18, 19, 20]],
 ].flatMap(([template, numbers]) => numbers.map(number => `${template}#${number}`));
 
 // The four producer suites under the recorder: each shipped producer and module appends the refuse() it runs.

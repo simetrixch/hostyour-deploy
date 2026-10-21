@@ -6,7 +6,7 @@ import {mkdtemp, rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {test} from 'node:test';
-import {CANARY, assertRefused, forgejoCommand, installation, privateOutcome, program, rendered, root, unreadableInputs, writeProducer} from './forgejo-plane-access-fake.mjs';
+import {BEYOND_IDENTIFIERS, CANARY, assertRefused, forgejoCommand, installation, privateOutcome, program, rendered, root, unreadableInputs, writeProducer} from './forgejo-plane-access-fake.mjs';
 
 const TEMPLATE = 'ansiwise/templates/forgejo-machine-user.sh.tpl';
 const BOOTSTRAP = 'forgejo-build-provisioner', PASSWORD = "fixture-bootstrap-password'$with-quotes";
@@ -362,8 +362,8 @@ test('a producer handed input it cannot read refuses by name and repeats none of
 });
 
 test('a team of an id that is no Forgejo id is refused before its path is built, and the id is never echoed', async () => {
-  // PLANTED DEFECTS: a string, an object, a boolean, zero, a negative, a number beyond 64 bits, a missing id.
-  for (const id of [CANARY, {id: CANARY}, true, 0, -1, 2 ** 70, null, undefined]) {
+  // PLANTED DEFECTS: a string, an object, a boolean, zero, a negative, a float beyond 64 bits, the integers at and above 2 ** 63, a missing id.
+  for (const id of [CANARY, {id: CANARY}, true, 0, -1, 2 ** 70, ...BEYOND_IDENTIFIERS, null, undefined]) {
     const f = await fixture('argocd', {teamListedId: id});
     try {
       const r = await f.run(null);

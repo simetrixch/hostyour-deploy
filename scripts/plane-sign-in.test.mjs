@@ -8,7 +8,7 @@ import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {test} from 'node:test';
-import {CANARY, MODULE, assertRefused, forgejoCommand, planeExec, planeOutput, privateOutcome, program, rendered, root, unreadableInputs, writeProducer} from './forgejo-plane-access-fake.mjs';
+import {BEYOND_IDENTIFIERS, CANARY, MODULE, assertRefused, forgejoCommand, planeExec, planeOutput, privateOutcome, program, rendered, root, unreadableInputs, writeProducer} from './forgejo-plane-access-fake.mjs';
 
 const TEMPLATE = 'ansiwise/templates/plane-sign-in.sh.tpl';
 const PEOPLE = 'ansiwise/templates/plane-further-people.tpl';
@@ -229,7 +229,7 @@ async function fixture(options = {}) {
       assert.deepEqual([form.get('grant_type'), form.get('redirect_uri')], ['authorization_code', REDIRECT]);
       const app = apps.find(a => a.client_id === form.get('client_id'));
       const refused = (error, description) => send(400, {error, error_description: description});
-      if (options.probe) return send(400, options.probe(form, apps.find(a => a.client_id === form.get('client_id'))));
+      if (options.probe) return send(options.probeStatus ?? 400, options.probe(form, apps.find(a => a.client_id === form.get('client_id'))));
       if (!app) return refused('invalid_client', `cannot load client with client id: '${form.get('client_id')}'`);
       if (app.confidential && form.get('client_secret') !== app.secret) return refused('unauthorized_client', 'invalid client secret');
       if (!app.redirect_uris.includes(form.get('redirect_uri'))) return refused('unauthorized_client', 'unexpected redirect URI');
@@ -955,13 +955,17 @@ test('an answer of the client probe that is not the one expected is refused with
       assertRefused(await f.run(held, mode), refusal, [CANARY]);
     } finally {await f.clean();}
   }
-  // PLANTED INNOCENT: a status that is not 400 is named as the integer it is.
-  const f = await fixture({probe: () => unknown});
-  try { assert.equal((await f.run(held)).code, 1); } finally {await f.clean();}
+  // PLANTED INNOCENT: an answer that is no error of Forgejo's, by its status or by its body, is named by its status as the integer it is.
+  for (const [status, probe] of [[503, () => unknown], [400, () => ({})]]) for (const mode of ['--check', '--apply']) {
+    const f = await fixture({probe, probeStatus: status});
+    try {
+      assertRefused(await f.run(held, mode), `Forgejo answered the client probe with HTTP ${status}; body withheld`, [CANARY]);
+    } finally {await f.clean();}
+  }
 });
 
 test('an OAuth application listed under an id that is no Forgejo id is refused before its path is built', async () => {
-  for (const id of [CANARY, {id: CANARY}, true, 0, -1, 2 ** 70, null]) {
+  for (const id of [CANARY, {id: CANARY}, true, 0, -1, 2 ** 70, ...BEYOND_IDENTIFIERS, null]) {
     const f = await fixture({listedId: id});
     try {
       assertRefused(await f.run(null), 'Forgejo listed the OAuth2 application plane without its id', [CANARY]);

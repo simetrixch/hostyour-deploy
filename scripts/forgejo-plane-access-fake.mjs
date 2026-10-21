@@ -168,7 +168,7 @@ export function forgejoCommand(argv, users, password, {unreadable = false, absen
 
 /** What a failed producer left on its streams: nothing on stdout, no secret anywhere, and at most one marked
  * line, which is then the whole of stderr and one plain line of printable ASCII. Returns that reason, or null. */
-export function failureReason({code, stdout, stderr}, secrets = []) {
+function failureReason({code, stdout, stderr}, secrets = []) {
   assert.notEqual(code, 0, 'the producer did not fail');
   assert.equal(stdout, '', 'a failed producer printed on stdout');
   for (const secret of secrets) assert.ok(!stderr.includes(secret), 'a failed producer disclosed a credential on stderr');
@@ -200,3 +200,5 @@ export const unreadableInputs = canary => [
   [/entry is unreadable/, JSON.stringify({entry: canary, inputs: {}})],
 ];
 export const CANARY = 'CANARY-not-a-registered-secret-7f3a';
+/** The integers at and just above 2 ** 63, the bound of is_identifier, as exact JSON literals: a JS number rounds them or writes a float. */
+export const BEYOND_IDENTIFIERS = ['9223372036854775808', '9223372036854775809'].map(literal => JSON.rawJSON(literal));
