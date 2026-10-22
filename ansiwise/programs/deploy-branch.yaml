@@ -410,11 +410,11 @@ answers:
   # None of these can be generated or derived. Each is obtained once, from GitHub, from Cloudflare
   # or from Hetzner, and this run is the only way it reaches the machine.
   #
-  # ALL SEVEN ARE OPTIONAL, AND THAT IS ABOUT THE SECOND RUN AND NOT THE FIRST. The rows that write
-  # them fill only a key that is still empty, so on an installation that already stands the file on
-  # the machine holds what it holds — filled at birth or rotated by hand since — and an answer given
-  # here would be the operator typing a credential the machine already has. Give one only to fill a
-  # key that is still empty.
+  # ALL SEVEN ARE OPTIONAL, AND THAT IS ABOUT THE SECOND RUN AND NOT THE FIRST. A run that is given
+  # no answer for one leaves its key as the file holds it, so on an installation that already stands
+  # the file on the machine keeps what it holds — filled at birth or rotated by hand since. An answer
+  # given here replaces the value under its key wherever the two differ: give one to fill an empty
+  # key, or to rotate that credential.
   #
   # WHAT THAT COSTS AT A BIRTH: a first installation that omits
   # one is not refused when its answers are read. platform_repo_write_pat is still refused
@@ -1102,8 +1102,9 @@ steps:
   # the last thing this program does to it.
   # What the rest of this installation reads about itself. The template stands on the product branch
   # with every value empty and each key under the paragraph explaining it; this fills the keys it is
-  # given and copies every other byte through. A key already carrying a value is never rewritten, so
-  # an edit made by hand survives every later run.
+  # given and copies every other byte through. A key an answer names is written from that answer
+  # whenever the two differ, and every other key keeps what the file holds, so an edit made by hand
+  # under a key no answer names survives every later run.
   - step: fill_key_value_file
     template_path: /srv/hostyour-cloud/configs/config.example
     path: /srv/hostyour-cloud/configs/config.<stage>
@@ -1141,14 +1142,15 @@ steps:
   # host, from a DNS provider and from a storage vendor, and these rows are how an answer this run
   # was given reaches that file.
   #
-  # A KEY THAT ALREADY CARRIES A VALUE IS LEFT AS IT STANDS, which is the property this step has and
-  # a plain write does not. The file is hand-filled input: an operator opens it and types into it,
-  # each key under the paragraph of the template that says what to obtain and where. Writing every
-  # key from this run's answers would put back a credential somebody rotated by hand.
+  # A KEY AN ANSWER NAMES IS WRITTEN FROM THAT ANSWER WHENEVER THE TWO DIFFER, and a key no answer
+  # names is never touched. The file is hand-filled input: an operator opens it and types into it,
+  # each key under the paragraph of the template that says what to obtain and where. A run that is
+  # given no answer for a key leaves what stands under it, so a credential somebody rotated by hand
+  # survives every run that is not told one.
   #
-  # WHAT THAT COSTS: an answer given to a LATER run does not
-  # reach a key that already holds something. Changing a credential of a running installation is an
-  # edit to this file, not a different answer to a re-run.
+  # WHAT THAT COSTS: a key an answer names cannot be edited in this file, because the next run is
+  # told the answer and not the file. Changing a credential of a running installation is a
+  # different answer to a re-run.
   #
   # WHAT THIS FILE DOES NOT HOLD. The secret store's own root token and unseal keys are written by
   # the step that initializes it, into the credential file that step is given — they exist nowhere
